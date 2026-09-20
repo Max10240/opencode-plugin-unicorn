@@ -1,0 +1,18 @@
+export interface UnicornOptions {
+  readonly globalConfig?: boolean
+  readonly features?: {
+    readonly globalConfig?: boolean
+  }
+}
+
+export function globalConfigFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  if (options.globalConfig === false) return false
+  if (options.globalConfig === true) return true
+
+  const features = options.features
+  return !isRecord(features) || features.globalConfig !== false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
