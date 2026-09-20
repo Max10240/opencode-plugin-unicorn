@@ -1,37 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "@max10240/opencode-plugin-unicorn",
+  "name": "@max10240/opencode-plugin-unicorn-workspace",
   "version": "0.0.1",
-  "description": "Personal OpenCode plugin features",
+  "private": true,
+  "description": "Monorepo for personal OpenCode plugins",
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "test": "bun test",
-    "typecheck": "tsc --noEmit"
-  },
-  "files": [
-    "index.ts",
-    "src",
-    "README.md"
-  ],
-  "keywords": [
-    "opencode",
-    "opencode-plugin"
-  ],
-  "author": "",
-  "license": "ISC",
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
-  },
-  "dependencies": {
-    "@opencode/plugin": "^2.0.9",
-    "jsonc-parser": "^3.3.1"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.0",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.8.2"
+    "test": "bun run --cwd packages/opencode-plugin-unicorn test",
+    "typecheck": "bun run --cwd packages/opencode-plugin-unicorn typecheck",
+    "check": "bun run typecheck && bun run test"
   }
 }
