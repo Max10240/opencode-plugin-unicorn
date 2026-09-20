@@ -10,8 +10,8 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun run --cwd packages/opencode-plugin-unicorn test",
-    "typecheck": "bun run --cwd packages/opencode-plugin-unicorn typecheck",
+    "test": "bun run --workspaces --if-present test",
+    "typecheck": "bun run --workspaces --if-present typecheck",
     "check": "bun run typecheck && bun run test"
   }
 }

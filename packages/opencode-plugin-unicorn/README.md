@@ -31,6 +31,23 @@
 `globalConfig: true` 作为 `features.globalConfig` 的兼容写法也支持。所有功能默认开启；要关闭本功能可设置
 `"globalConfig": false` 或 `"features": { "globalConfig": false }`。
 
+同时，Unicorn 集成了 `send-message-across-sessions` 功能。可单独关闭：
+
+```jsonc
+{
+  "plugins": [
+    {
+      "package": "@max10240/opencode-plugin-unicorn",
+      "options": {
+        "features": {
+          "sendMessageAcrossSessions": false,
+        },
+      },
+    },
+  ],
+}
+```
+
 ## 测试
 
 `bun test` 使用已安装的 `opencode` 启动真实服务，并通过临时 `OPENCODE_CONFIG_DIR` 和本地 OpenAI-compatible

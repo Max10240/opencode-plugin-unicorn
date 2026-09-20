@@ -5,6 +5,7 @@
 ## Packages
 
 - [`@max10240/opencode-plugin-unicorn`](./packages/opencode-plugin-unicorn)：个人 OpenCode 插件，发布包名保持不变。
+- [`@max10240/opencode-plugin-send-message-across-sessions`](./packages/opencode-plugin-send-message-across-sessions)：跨 cwd 的 session 消息插件。
 
 ## 开发
 
