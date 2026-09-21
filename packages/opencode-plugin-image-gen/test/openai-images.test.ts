@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test"
-import { generateOpenAIImage } from "../src/openai-images.js"
+import { generateImage } from "../src/openai-images.js"
 
 const originalFetch = globalThis.fetch
 
@@ -47,7 +47,7 @@ test("uses the standard generations and edits endpoints", async () => {
     })
   }) as unknown as typeof fetch
 
-  const generated = await generateOpenAIImage({
+  const generated = await generateImage({
     baseURL: "https://api.example.test/v1",
     token: "token",
     model: "gpt-image-1",
@@ -60,7 +60,7 @@ test("uses the standard generations and edits endpoints", async () => {
 
   mode = "edit"
 
-  const edited = await generateOpenAIImage({
+  const edited = await generateImage({
     baseURL: "https://api.example.test/v1",
     token: "token",
     model: "gpt-image-1",
@@ -70,7 +70,7 @@ test("uses the standard generations and edits endpoints", async () => {
   expect(new TextDecoder().decode(edited.data)).toBe("EDIT")
 
   mode = "error"
-  expect(generateOpenAIImage({ token: "token", model: "gpt-image-1", prompt: "a cat" })).rejects.toThrow(
+  expect(generateImage({ token: "token", model: "gpt-image-1", prompt: "a cat" })).rejects.toThrow(
     "Missing scopes: api.model.images.request",
   )
 })

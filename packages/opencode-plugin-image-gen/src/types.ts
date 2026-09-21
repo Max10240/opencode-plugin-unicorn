@@ -27,13 +27,18 @@ export type ResolvedImageModel = ModelReference & {
   readonly integrationID: string
   readonly directory: string
   readonly baseURL?: string
+  readonly modelID: string
+  readonly packageName?: string
+  readonly settings: Readonly<Record<string, unknown>>
   readonly headers: Readonly<Record<string, string>>
+  readonly body: Readonly<Record<string, unknown>>
 }
 
 export type ResolvedCredential = {
   readonly value: string
   readonly source: "oauth" | "key" | "environment"
   readonly metadata?: Readonly<Record<string, unknown>>
+  readonly configuration?: Readonly<Record<string, string | number | boolean | readonly string[]>>
 }
 
 export type ImageFile = {
