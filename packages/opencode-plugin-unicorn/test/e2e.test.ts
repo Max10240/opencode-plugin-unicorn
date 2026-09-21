@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { access } from "node:fs/promises"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "./e2e-utils.js"
 
 test("updates the real global config and avoids compaction with the larger Luna context", async () => {
@@ -47,5 +48,30 @@ test("preserves an existing share policy while applying the global model configu
     expect(e2e.proxy.requests.map((request) => request.kind)).toEqual(["primary"])
   } finally {
     await e2e.close()
+  }
+})
+
+test("integrates image generation as an independently switchable Unicorn feature", async () => {
+  const enabled = await createOpenCodeE2E({ imageGenEnabled: true })
+  try {
+    await enabled.waitForModelContext(1_000_000)
+    const result = await enabled.runImagePrompt()
+    expect(result.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_GEN")).toBe(true)
+    expect(enabled.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(true)
+    expect(enabled.proxy.imageRequests).toBe(1)
+    await access(`${enabled.workspace}/e2e-image.png`)
+  } finally {
+    await enabled.close()
+  }
+
+  const disabled = await createOpenCodeE2E({ imageGenEnabled: false })
+  try {
+    await disabled.waitForModelContext(1_000_000)
+    await disabled.runImagePrompt()
+    expect(disabled.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(false)
+    expect(disabled.proxy.imageRequests).toBe(0)
+    await expect(access(`${disabled.workspace}/e2e-image.png`)).rejects.toThrow()
+  } finally {
+    await disabled.close()
   }
 })

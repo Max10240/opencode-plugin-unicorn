@@ -48,6 +48,25 @@
 }
 ```
 
+Unicorn 也集成了 `opencode-plugin-image-gen`，默认开启；关闭方式：
+
+```jsonc
+{
+  "plugins": [
+    {
+      "package": "@max10240/opencode-plugin-unicorn",
+      "options": {
+        "features": {
+          "imageGen": false,
+        },
+      },
+    },
+  ],
+}
+```
+
+图片工具仍使用原 image-gen 插件的 `image_gen` tool 和 provider/model 配置。
+
 ## 测试
 
 `bun test` 使用已安装的 `opencode` 启动真实服务，并通过临时 `OPENCODE_CONFIG_DIR` 和本地 OpenAI-compatible

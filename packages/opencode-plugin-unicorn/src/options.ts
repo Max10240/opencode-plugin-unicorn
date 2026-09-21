@@ -3,6 +3,7 @@ export interface UnicornOptions {
   readonly features?: {
     readonly globalConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
+    readonly imageGen?: boolean
   }
 }
 
@@ -17,6 +18,11 @@ export function globalConfigFeatureEnabled(options: Readonly<Record<string, unkn
 export function sendMessageAcrossSessionsFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.sendMessageAcrossSessions !== false
+}
+
+export function imageGenFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.imageGen !== false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

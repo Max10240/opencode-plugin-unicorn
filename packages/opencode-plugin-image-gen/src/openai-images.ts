@@ -108,10 +108,13 @@ async function loadProviderFactory(
   // Custom native provider packages can expose the same configure().image()
   // surface as @opencode/ai. If they do not, fall back to the standard
   // OpenAI Images wire format, which is what openai-compatible providers use.
-  if (packageName && !packageName.startsWith("@ai-sdk/")) {
+  if (packageName && !packageName.startsWith("@ai-sdk/") && !packageName.startsWith("@opencode/ai/providers/openai-compatible")) {
     try {
       const module = (await import(packageName)) as Partial<ProviderFactory>
-      if (typeof module.configure === "function") return module as ProviderFactory
+      if (typeof module.configure === "function") {
+        const configured = module.configure({ baseURL })
+        if (typeof configured?.image === "function") return module as ProviderFactory
+      }
     } catch {
       // OpenCode may have installed a custom package in its own package cache;
       // the generic OpenAI Images adapter remains usable from the configured URL.

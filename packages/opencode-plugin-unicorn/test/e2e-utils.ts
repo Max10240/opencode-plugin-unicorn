@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -15,11 +15,13 @@ export type ProxyRequest = {
   readonly model: string | undefined
   readonly promptTokens: number
   readonly messages: readonly unknown[]
+  readonly tools: readonly string[]
 }
 
 export type MockProvider = {
   readonly baseURL: string
   readonly requests: ProxyRequest[]
+  readonly imageRequests: number
   readonly close: () => void
 }
 
@@ -34,6 +36,10 @@ export type OpenCodeE2E = {
   readonly model: () => Promise<Record<string, any>>
   readonly waitForModelContext: (context: number) => Promise<Record<string, any>>
   readonly runLargePrompt: () => Promise<{
+    readonly sessionID: string
+    readonly messages: readonly Record<string, any>[]
+  }>
+  readonly runImagePrompt: () => Promise<{
     readonly sessionID: string
     readonly messages: readonly Record<string, any>[]
   }>
@@ -68,7 +74,9 @@ const COMPACTION_RESPONSE = `## Objective
 ## Important Context
 - Deterministic E2E test.`
 
-export async function createOpenCodeE2E(options: { readonly featureEnabled?: boolean; readonly share?: string } = {}) {
+export async function createOpenCodeE2E(
+  options: { readonly featureEnabled?: boolean; readonly imageGenEnabled?: boolean; readonly share?: string } = {},
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-plugin-unicorn-e2e-"))
   const configDirectory = path.join(root, "config")
   const workspace = path.join(root, "workspace")
@@ -77,12 +85,16 @@ export async function createOpenCodeE2E(options: { readonly featureEnabled?: boo
   await mkdir(workspace, { recursive: true })
 
   const proxy = await startMockProvider()
+  const features = {
+    ...(options.featureEnabled === undefined ? {} : { globalConfig: options.featureEnabled }),
+    ...(options.imageGenEnabled === undefined ? {} : { imageGen: options.imageGenEnabled }),
+  }
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugins: [
       {
         package: path.resolve(import.meta.dir, ".."),
-        ...(options.featureEnabled === undefined ? {} : { options: { features: { globalConfig: options.featureEnabled } } }),
+        ...(Object.keys(features).length === 0 ? {} : { options: { features } }),
       },
     ],
     ...(options.share === undefined ? {} : { share: options.share }),
@@ -110,7 +122,7 @@ export async function createOpenCodeE2E(options: { readonly featureEnabled?: boo
       "compaction-e2e": {
         model: "openai/gpt-5.6-luna",
         mode: "primary",
-        steps: 1,
+        steps: 3,
       },
     },
   }
@@ -124,6 +136,7 @@ export async function createOpenCodeE2E(options: { readonly featureEnabled?: boo
     OPENCODE_CONFIG_PROJECT_DISABLE: "1",
     OPENCODE_DB: path.join(root, "opencode.db"),
     OPENCODE_DISABLE_MODELS_FETCH: "1",
+    OPENAI_API_KEY: "e2e-image-key",
     OPENCODE_PASSWORD: password,
     OPENCODE_TEST_HOME: root,
     HOME: root,
@@ -218,6 +231,28 @@ export async function createOpenCodeE2E(options: { readonly featureEnabled?: boo
     return { sessionID, messages: exported.data.messages }
   }
 
+  const runImagePrompt = async () => {
+    const created = await api<{ data: { id: string } }>("/api/session", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "OpenCode plugin image E2E",
+        agent: "compaction-e2e",
+        model: { providerID: "openai", id: "gpt-5.6-luna" },
+        location: { directory: workspace },
+      }),
+    })
+    const sessionID = created.data.id
+    await api(`/api/session/${sessionID}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ text: "E2E_IMAGE_GEN", delivery: "queue" }),
+    })
+    await api(`/api/experimental/session/${sessionID}/wait`, { method: "POST" })
+    const exported = await api<{ data: { messages: Record<string, any>[] } }>(
+      `/api/experimental/session/${sessionID}/export`,
+    )
+    return { sessionID, messages: exported.data.messages }
+  }
+
   return {
     root,
     configDirectory,
@@ -229,29 +264,61 @@ export async function createOpenCodeE2E(options: { readonly featureEnabled?: boo
     model,
     waitForModelContext,
     runLargePrompt,
+    runImagePrompt,
     config: configFile,
   } satisfies OpenCodeE2E
 }
 
 async function startMockProvider(): Promise<MockProvider> {
   const requests: ProxyRequest[] = []
+  let imageRequests = 0
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
-      if (request.method !== "POST" || !new URL(request.url).pathname.endsWith("/chat/completions"))
+      const pathname = new URL(request.url).pathname
+      if (request.method === "POST" && pathname.endsWith("/images/generations")) {
+        imageRequests += 1
+        await request.json()
+        return Response.json({
+          created: Math.floor(Date.now() / 1000),
+          data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" }],
+        })
+      }
+      if (request.method !== "POST" || !pathname.endsWith("/chat/completions"))
         return new Response("not found", { status: 404 })
 
-      const body = (await request.json()) as { model?: string; messages?: unknown[]; stream?: boolean }
+      const body = (await request.json()) as {
+        model?: string
+        messages?: unknown[]
+        stream?: boolean
+        tools?: Array<{ function?: { name?: string }; name?: string }>
+      }
       const messages = body.messages ?? []
       const serialized = JSON.stringify(messages)
       const isCompaction = serialized.includes(SUMMARY_MARKER)
+      const userText = messages
+        .filter((item: any) => item.role === "user")
+        .map((item: any) => (typeof item.content === "string" ? item.content : JSON.stringify(item.content)))
+        .at(-1) ?? ""
+      const hasToolResult = messages.some((item: any) => item.role === "tool")
+      const hasImageTool = (body.tools ?? []).some((tool) => (tool.function?.name ?? tool.name) === "image_gen")
+      const imageToolCall = userText.includes("E2E_IMAGE_GEN") && hasImageTool && !hasToolResult
       requests.push({
         kind: isCompaction ? "compaction" : "primary",
         model: body.model,
         promptTokens: Math.round(serialized.length / 4),
         messages,
+        tools: (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name).filter((name): name is string => !!name),
       })
+
+      const toolCall = imageToolCall
+        ? {
+            id: `call-${crypto.randomUUID()}`,
+            type: "function" as const,
+            function: { name: "image_gen", arguments: JSON.stringify({ prompt: "E2E image", out: "e2e-image.png" }) },
+          }
+        : undefined
 
       if (body.stream === false) {
         return Response.json({
@@ -259,28 +326,39 @@ async function startMockProvider(): Promise<MockProvider> {
           object: "chat.completion",
           created: Math.floor(Date.now() / 1000),
           model: body.model ?? "gpt-5.6-luna",
-          choices: [{ index: 0, message: { role: "assistant", content: isCompaction ? COMPACTION_RESPONSE : PRIMARY_RESPONSE }, finish_reason: "stop" }],
+          choices: [{
+            index: 0,
+            message: {
+              role: "assistant",
+              content: toolCall ? null : isCompaction ? COMPACTION_RESPONSE : userText.includes("E2E_IMAGE_GEN") ? "E2E_IMAGE_OK" : PRIMARY_RESPONSE,
+              ...(toolCall ? { tool_calls: [toolCall] } : {}),
+            },
+            finish_reason: toolCall ? "tool_calls" : "stop",
+          }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         })
       }
 
       const id = `chatcmpl-${crypto.randomUUID()}`
       const created = Math.floor(Date.now() / 1000)
-      const text = isCompaction ? COMPACTION_RESPONSE : PRIMARY_RESPONSE
+      const text = isCompaction ? COMPACTION_RESPONSE : userText.includes("E2E_IMAGE_GEN") ? "E2E_IMAGE_OK" : PRIMARY_RESPONSE
+      const firstDelta = toolCall
+        ? { role: "assistant", tool_calls: [{ index: 0, ...toolCall }] }
+        : { role: "assistant", content: text }
       const chunks = [
         {
           id,
           object: "chat.completion.chunk",
           created,
           model: body.model ?? "gpt-5.6-luna",
-          choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }],
+          choices: [{ index: 0, delta: firstDelta, finish_reason: null }],
         },
         {
           id,
           object: "chat.completion.chunk",
           created,
           model: body.model ?? "gpt-5.6-luna",
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          choices: [{ index: 0, delta: {}, finish_reason: toolCall ? "tool_calls" : "stop" }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         },
       ]
@@ -294,6 +372,9 @@ async function startMockProvider(): Promise<MockProvider> {
   return {
     baseURL: `${server.url}v1`,
     requests,
+    get imageRequests() {
+      return imageRequests
+    },
     close: () => server.stop(true),
   }
 }
