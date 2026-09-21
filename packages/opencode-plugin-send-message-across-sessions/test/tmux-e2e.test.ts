@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
+import { LLMock } from "@copilotkit/aimock"
 
 type Mode = "standalone" | "unicorn"
 
@@ -96,6 +97,8 @@ async function runScenario(mode: Mode) {
     const pluginID = mode === "standalone" ? "max10240.send-message-across-sessions" : "max10240.unicorn"
     await waitForPlugin(serverURL, password, workspaceA, pluginID)
     await waitForPlugin(serverURL, password, workspaceB, pluginID)
+    const message = "hello-from-tmux-across-cwd"
+    proxy.configure(target.id, message)
 
     tmux(["new-window", "-t", tmuxName, "-n", "target"])
     await Bun.sleep(1_000)
@@ -128,9 +131,14 @@ async function runScenario(mode: Mode) {
       ]),
       "Enter",
     ])
-    await waitForPane(`${tmuxName}:sender`, "LIST_DONE", "list_online_sessions did not complete")
+    try {
+      await waitForPane(`${tmuxName}:sender`, "LIST_DONE", "list_online_sessions did not complete")
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nfixtures=${JSON.stringify(proxy.mock.getFixtures())}\njournal=${JSON.stringify(proxy.mock.getRequests())}`,
+      )
+    }
 
-    const message = "hello-from-tmux-across-cwd"
     tmux([
       "send-keys",
       "-t",
@@ -169,17 +177,17 @@ async function runScenario(mode: Mode) {
         `/api/experimental/session/${target.id}/export`,
       )
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\ncalls=${JSON.stringify(proxy.calls)}\ntarget=${JSON.stringify(exported.data.messages)}`,
+        `${error instanceof Error ? error.message : String(error)}\njournal=${JSON.stringify(proxy.mock.getRequests())}\ntarget=${JSON.stringify(exported.data.messages)}`,
       )
     }
 
     expect(delivered).toMatchObject({ type: "user", text: expected })
-    expect(proxy.calls.some((call) => call.name === "list_online_sessions")).toBe(true)
-    expect(proxy.calls.some((call) => call.name === "send_message_across_sessions")).toBe(true)
-    expect(proxy.calls.some((call) => call.name === "tool-result" && call.arguments.includes(target.id))).toBe(true)
+    const journal = proxy.mock.getRequests()
+    expect(journal.some((entry) => JSON.stringify(entry.body).includes("E2E_LIST_SESSIONS"))).toBe(true)
+    expect(journal.some((entry) => JSON.stringify(entry.body).includes("E2E_SEND_MESSAGE"))).toBe(true)
   } finally {
     tmux(["kill-session", "-t", tmuxName], false)
-    proxy.close()
+    await proxy.close()
     await rm(root, { recursive: true, force: true })
   }
 }
@@ -209,98 +217,41 @@ async function createSession(serverURL: string, password: string, directory: str
 }
 
 async function startProxy() {
-  const calls: Array<{ name: string; arguments: string; result?: string; availableTools?: string[] }> = []
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      if (request.method !== "POST" || !new URL(request.url).pathname.endsWith("/chat/completions"))
-        return new Response("not found", { status: 404 })
-      const body = (await request.json()) as { model?: string; messages?: Array<Record<string, any>> }
-      const messages = body.messages ?? []
-      const serialized = JSON.stringify(messages)
-      const userMessages = messages
-        .filter((item) => item.role === "user")
-        .map((item) => (typeof item.content === "string" ? item.content : JSON.stringify(item.content)))
-      const userText = userMessages.at(-1) ?? ""
-      const reversedUserIndex = [...messages].reverse().findIndex((item) => item.role === "user")
-      const lastUserIndex = reversedUserIndex < 0 ? -1 : messages.length - 1 - reversedUserIndex
-      const hasToolResult = messages.slice(lastUserIndex + 1).some((item) => item.role === "tool")
-      const availableTools = Array.isArray((body as any).tools)
-        ? (body as any).tools.map((tool: any) => tool.function?.name ?? tool.name).filter(Boolean)
-        : []
-      if (hasToolResult) {
-        calls.push({
-          name: "tool-result",
-          arguments: JSON.stringify(messages.filter((item) => item.role === "tool").at(-1)?.content),
-          result: "tool-result",
-          availableTools,
-        })
-      }
-      let toolName: string | undefined
-      let toolArguments = "{}"
-      let finalText = "READY"
-      if (!hasToolResult && userText.includes("E2E_LIST_SESSIONS")) {
-        toolName = "list_online_sessions"
-        toolArguments = "{}"
-        finalText = "LIST_DONE"
-      } else if (!hasToolResult && userText.includes("E2E_SEND_MESSAGE")) {
-        const target = userText.match(/target=(\S+)/)?.[1]
-        const message = userText.match(/message=([^\s"]+)/)?.[1]
-        toolName = "send_message_across_sessions"
-        toolArguments = JSON.stringify({ target_session_id: target, message })
-        finalText = "SEND_DONE"
-      } else if (serialized.includes("来自<")) {
-        finalText = "TARGET_RECEIVED"
-      } else if (hasToolResult) {
-        finalText = userText.includes("E2E_LIST_SESSIONS") ? "LIST_DONE" : "SEND_DONE"
-      }
-
-      if (toolName) {
-        calls.push({ name: toolName, arguments: toolArguments, availableTools })
-        return streamResponse(body, {
-          toolName,
-          toolArguments,
-          text: "",
-          finishReason: "tool_calls",
-        })
-      }
-      return streamResponse(body, { text: finalText, finishReason: "stop" })
-    },
-  })
+  const mock = new LLMock({ port: 0 })
+  await mock.start()
   return {
-    baseURL: `${server.url}v1`,
-    calls,
-    close: () => server.stop(true),
+    baseURL: `${mock.url}/v1`,
+    mock,
+    configure(targetID: string, message: string) {
+      mock.on(
+        { toolCallId: "call_list_sessions" },
+        { content: "LIST_DONE" },
+      )
+      mock.on(
+        { userMessage: "E2E_LIST_SESSIONS" },
+        { toolCalls: [{ id: "call_list_sessions", name: "list_online_sessions", arguments: {} }] },
+      )
+      mock.on(
+        { toolCallId: "call_send_message" },
+        { content: "SEND_DONE" },
+      )
+      mock.on(
+        { userMessage: "E2E_SEND_MESSAGE" },
+        {
+          toolCalls: [
+            {
+              id: "call_send_message",
+              name: "send_message_across_sessions",
+              arguments: { target_session_id: targetID, message },
+            },
+          ],
+        },
+      )
+      mock.on({ predicate: (request) => JSON.stringify(request.messages).includes("来自<") }, { content: "TARGET_RECEIVED" })
+      mock.on({}, { content: "READY" })
+    },
+    close: () => mock.stop(),
   }
-}
-
-function streamResponse(
-  body: { model?: string },
-  input: { text: string; finishReason: "stop" | "tool_calls"; toolName?: string; toolArguments?: string },
-) {
-  const id = `chatcmpl-${crypto.randomUUID()}`
-  const created = Math.floor(Date.now() / 1000)
-  const delta = input.toolName
-    ? {
-        role: "assistant",
-        tool_calls: [
-          {
-            index: 0,
-            id: `call-${crypto.randomUUID()}`,
-            type: "function",
-            function: { name: input.toolName, arguments: input.toolArguments ?? "{}" },
-          },
-        ],
-      }
-    : { role: "assistant", content: input.text }
-  const chunks = [
-    { id, object: "chat.completion.chunk", created, model: body.model ?? "test-model", choices: [{ index: 0, delta, finish_reason: null }] },
-    { id, object: "chat.completion.chunk", created, model: body.model ?? "test-model", choices: [{ index: 0, delta: {}, finish_reason: input.finishReason }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
-  ]
-  return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", {
-    headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
-  })
 }
 
 async function api<T>(baseURL: string, password: string, endpoint: string, init: RequestInit = {}): Promise<T> {

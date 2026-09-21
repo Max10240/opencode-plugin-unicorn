@@ -31,7 +31,8 @@ test("without the feature, the same real OpenCode session compacts at the low li
     const compactions = result.messages.filter((message) => message.type === "compaction")
     expect(compactions).toHaveLength(1)
     expect(compactions[0]).toMatchObject({ status: "completed", reason: "auto" })
-    expect(e2e.proxy.requests.map((request) => request.kind)).toEqual(["compaction", "primary"])
+    const requestKinds = e2e.proxy.requests.map((request) => request.kind)
+    expect(requestKinds).toEqual(["compaction", "primary"])
   } finally {
     await e2e.close()
   }

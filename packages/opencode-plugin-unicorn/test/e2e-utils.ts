@@ -2,6 +2,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
+import { LLMock } from "@copilotkit/aimock"
 import { parse } from "jsonc-parser"
 
 export const DEFAULT_LOW_LIMIT = {
@@ -20,9 +21,10 @@ export type ProxyRequest = {
 
 export type MockProvider = {
   readonly baseURL: string
+  readonly mock: LLMock
   readonly requests: ProxyRequest[]
   readonly imageRequests: number
-  readonly close: () => void
+  readonly close: () => Promise<void>
 }
 
 export type OpenCodeE2E = {
@@ -157,7 +159,7 @@ export async function createOpenCodeE2E(
   const baseURL = `http://127.0.0.1:${port}`
 
   const close = async () => {
-    proxy.close()
+    await proxy.close()
     if (server.exitCode === null) server.kill()
     await Promise.race([server.exited, Bun.sleep(5_000)])
     if (server.exitCode === null) server.kill(9)
@@ -270,112 +272,40 @@ export async function createOpenCodeE2E(
 }
 
 async function startMockProvider(): Promise<MockProvider> {
-  const requests: ProxyRequest[] = []
-  let imageRequests = 0
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      const pathname = new URL(request.url).pathname
-      if (request.method === "POST" && pathname.endsWith("/images/generations")) {
-        imageRequests += 1
-        await request.json()
-        return Response.json({
-          created: Math.floor(Date.now() / 1000),
-          data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" }],
-        })
-      }
-      if (request.method !== "POST" || !pathname.endsWith("/chat/completions"))
-        return new Response("not found", { status: 404 })
-
-      const body = (await request.json()) as {
-        model?: string
-        messages?: unknown[]
-        stream?: boolean
-        tools?: Array<{ function?: { name?: string }; name?: string }>
-      }
-      const messages = body.messages ?? []
-      const serialized = JSON.stringify(messages)
-      const isCompaction = serialized.includes(SUMMARY_MARKER)
-      const userText = messages
-        .filter((item: any) => item.role === "user")
-        .map((item: any) => (typeof item.content === "string" ? item.content : JSON.stringify(item.content)))
-        .at(-1) ?? ""
-      const hasToolResult = messages.some((item: any) => item.role === "tool")
-      const hasImageTool = (body.tools ?? []).some((tool) => (tool.function?.name ?? tool.name) === "image_gen")
-      const imageToolCall = userText.includes("E2E_IMAGE_GEN") && hasImageTool && !hasToolResult
-      requests.push({
-        kind: isCompaction ? "compaction" : "primary",
-        model: body.model,
-        promptTokens: Math.round(serialized.length / 4),
-        messages,
-        tools: (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name).filter((name): name is string => !!name),
-      })
-
-      const toolCall = imageToolCall
-        ? {
-            id: `call-${crypto.randomUUID()}`,
-            type: "function" as const,
-            function: { name: "image_gen", arguments: JSON.stringify({ prompt: "E2E image", out: "e2e-image.png" }) },
-          }
-        : undefined
-
-      if (body.stream === false) {
-        return Response.json({
-          id: `chatcmpl-${crypto.randomUUID()}`,
-          object: "chat.completion",
-          created: Math.floor(Date.now() / 1000),
-          model: body.model ?? "gpt-5.6-luna",
-          choices: [{
-            index: 0,
-            message: {
-              role: "assistant",
-              content: toolCall ? null : isCompaction ? COMPACTION_RESPONSE : userText.includes("E2E_IMAGE_GEN") ? "E2E_IMAGE_OK" : PRIMARY_RESPONSE,
-              ...(toolCall ? { tool_calls: [toolCall] } : {}),
-            },
-            finish_reason: toolCall ? "tool_calls" : "stop",
-          }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        })
-      }
-
-      const id = `chatcmpl-${crypto.randomUUID()}`
-      const created = Math.floor(Date.now() / 1000)
-      const text = isCompaction ? COMPACTION_RESPONSE : userText.includes("E2E_IMAGE_GEN") ? "E2E_IMAGE_OK" : PRIMARY_RESPONSE
-      const firstDelta = toolCall
-        ? { role: "assistant", tool_calls: [{ index: 0, ...toolCall }] }
-        : { role: "assistant", content: text }
-      const chunks = [
-        {
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model: body.model ?? "gpt-5.6-luna",
-          choices: [{ index: 0, delta: firstDelta, finish_reason: null }],
-        },
-        {
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model: body.model ?? "gpt-5.6-luna",
-          choices: [{ index: 0, delta: {}, finish_reason: toolCall ? "tool_calls" : "stop" }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        },
-      ]
-      const bodyText = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n"
-      return new Response(bodyText, {
-        headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
-      })
-    },
-  })
-
+  const mock = new LLMock({ port: 0 })
+  mock.on({ predicate: (request) => JSON.stringify(request.messages).includes(SUMMARY_MARKER) }, { content: COMPACTION_RESPONSE })
+  mock.on({ toolCallId: "call_image_gen" }, { content: "E2E_IMAGE_OK" })
+  mock.on(
+    { userMessage: "E2E_IMAGE_GEN", toolName: "image_gen" },
+    { toolCalls: [{ id: "call_image_gen", name: "image_gen", arguments: { prompt: "E2E image", out: "e2e-image.png" } }] },
+  )
+  mock.onImage("E2E image", { image: { b64Json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } })
+  mock.on({}, { content: PRIMARY_RESPONSE })
+  await mock.start()
   return {
-    baseURL: `${server.url}v1`,
-    requests,
-    get imageRequests() {
-      return imageRequests
+    baseURL: `${mock.url}/v1`,
+    mock,
+    get requests() {
+      return mock
+        .getRequests()
+        .filter((entry) => entry.path.endsWith("/chat/completions"))
+        .map((entry) => {
+          const body = entry.body as { model?: string; messages?: unknown[]; tools?: Array<{ function?: { name?: string }; name?: string }> } | null
+          const messages = body?.messages ?? []
+          const fixtureResponse = (entry.response.fixture as { response?: { content?: unknown } } | null)?.response
+          return {
+            kind: fixtureResponse?.content === COMPACTION_RESPONSE ? "compaction" : "primary",
+            model: body?.model,
+            promptTokens: Math.round(JSON.stringify(messages).length / 4),
+            messages,
+            tools: (body?.tools ?? []).map((tool) => tool.function?.name ?? tool.name).filter((name): name is string => !!name),
+          } satisfies ProxyRequest
+        })
     },
-    close: () => server.stop(true),
+    get imageRequests() {
+      return mock.getRequests().filter((entry) => entry.path.endsWith("/images/generations")).length
+    },
+    close: () => mock.stop(),
   }
 }
 
