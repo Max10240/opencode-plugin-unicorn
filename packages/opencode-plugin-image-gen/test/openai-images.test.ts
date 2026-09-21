@@ -50,6 +50,7 @@ test("uses the standard generations and edits endpoints", async () => {
   const generated = await generateImage({
     baseURL: "https://api.example.test/v1",
     token: "token",
+    providerID: "custom",
     model: "gpt-image-1",
     prompt: "a cat",
     quality: "low",
@@ -63,6 +64,7 @@ test("uses the standard generations and edits endpoints", async () => {
   const edited = await generateImage({
     baseURL: "https://api.example.test/v1",
     token: "token",
+    providerID: "custom",
     model: "gpt-image-1",
     prompt: "edit this",
     images: [{ path: "/tmp/ref.png", name: "ref.png", mediaType: "image/png", data: new Uint8Array([1, 2]) }],
@@ -70,7 +72,7 @@ test("uses the standard generations and edits endpoints", async () => {
   expect(new TextDecoder().decode(edited.data)).toBe("EDIT")
 
   mode = "error"
-  expect(generateImage({ token: "token", model: "gpt-image-1", prompt: "a cat" })).rejects.toThrow(
+  expect(generateImage({ token: "token", providerID: "openai", model: "gpt-image-1", prompt: "a cat" })).rejects.toThrow(
     "Missing scopes: api.model.images.request",
   )
 })

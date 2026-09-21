@@ -20,6 +20,8 @@ OpenCode V2 的生图可行性验证子包。它优先使用 OpenCode `@opencode
 
 provider/model 的 `package`、`modelID`、`settings`、`headers`、`body`、provider baseURL、integration credential 和 key configuration 都从 OpenCode 已解析的 model catalog 进入请求；不会重新读取或猜测全局配置文件。
 
+这不等于“所有 provider 都必然能生图”：provider 必须提供 native image adapter，或实现 OpenAI-compatible `/images/*` 协议。只有语言模型、没有图片 endpoint/adapter 的 provider 会明确报不支持，而不会伪造一个不兼容请求。
+
 配置示例：
 
 ```jsonc

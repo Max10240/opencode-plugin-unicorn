@@ -13,6 +13,7 @@ export type ImageRequest = {
   readonly baseURL?: string
   readonly headers?: Readonly<Record<string, string>>
   readonly token: string
+  readonly providerID: string
   readonly model: string
   readonly packageName?: string
   readonly settings?: Readonly<Record<string, unknown>>
@@ -56,7 +57,7 @@ export async function readImageFiles(paths: readonly string[] | undefined, direc
 
 export async function generateImage(request: ImageRequest): Promise<GeneratedImage> {
   const packageName = normalizePackage(request.packageName)
-  const provider = await loadProviderFactory(packageName)
+  const provider = await loadProviderFactory(packageName, request.providerID, request.baseURL)
   const settings = nativeSettings(request.settings)
   const configuredBaseURL = typeof settings.baseURL === "string" ? settings.baseURL : undefined
   const input: Record<string, unknown> = {
@@ -96,7 +97,11 @@ function normalizePackage(packageName: string | undefined): string | undefined {
   return packageName
 }
 
-async function loadProviderFactory(packageName: string | undefined): Promise<ProviderFactory> {
+async function loadProviderFactory(
+  packageName: string | undefined,
+  providerID: string,
+  baseURL: string | undefined,
+): Promise<ProviderFactory> {
   const builtIn = builtInProvider(packageName)
   if (builtIn) return builtIn
 
@@ -112,7 +117,13 @@ async function loadProviderFactory(packageName: string | undefined): Promise<Pro
       // the generic OpenAI Images adapter remains usable from the configured URL.
     }
   }
-  return OpenAI as unknown as ProviderFactory
+  if (providerID === "openai" || packageName?.startsWith("@opencode/ai/providers/openai-compatible") || baseURL) {
+    return OpenAI as unknown as ProviderFactory
+  }
+  throw new Error(
+    `Provider ${providerID} package ${packageName ?? "unknown"} does not expose an image adapter. ` +
+      "Use an OpenCode image provider or configure an OpenAI-compatible Images endpoint.",
+  )
 }
 
 function builtInProvider(packageName: string | undefined): ProviderFactory | undefined {

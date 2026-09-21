@@ -56,6 +56,11 @@ export default Plugin.define({
 
           const credential = await resolveCredential(context, model.integrationID, model.providerID)
           const images = await readImageFiles(input.images, model.directory)
+          const runtimeSettings = {
+            ...model.settings,
+            ...(credential.metadata ?? {}),
+            ...(credential.configuration ?? {}),
+          }
           const headers = { ...model.headers }
           if (credential.source === "oauth" && credential.metadata) {
             const hasAccountHeader = Object.keys(headers).some((key) => key.toLowerCase() === "chatgpt-account-id")
@@ -65,16 +70,16 @@ export default Plugin.define({
           await tool.progress({ status: `Requesting image from ${model.providerID}/${model.modelID}` })
           const image = await generateImage(
             {
-              baseURL: typeof options.baseURL === "string" ? options.baseURL : model.baseURL,
+              baseURL:
+                typeof options.baseURL === "string"
+                  ? options.baseURL
+                  : resolveEnvironmentURL(runtimeSettings.baseURL) ?? model.baseURL,
               headers,
               token: credential.value,
+              providerID: model.providerID,
               model: model.modelID,
               packageName: model.packageName,
-              settings: {
-                ...model.settings,
-                ...(credential.metadata ?? {}),
-                ...(credential.configuration ?? {}),
-              },
+              settings: runtimeSettings,
               body: model.body,
               prompt: input.prompt,
               quality: input.quality,
@@ -100,3 +105,8 @@ export default Plugin.define({
     })
   },
 })
+
+function resolveEnvironmentURL(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  return value.replace(/\$\{([^}]+)\}/g, (placeholder, name: string) => process.env[name] ?? placeholder)
+}
