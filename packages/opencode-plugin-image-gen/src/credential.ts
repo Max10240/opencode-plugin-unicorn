@@ -12,7 +12,14 @@ export async function resolveCredential(
   if (connection) {
     const credential = await context.integration.connection.resolve(connection)
     if (credential?.type === "oauth") return { value: credential.access, source: "oauth", metadata: credential.metadata }
-    if (credential?.type === "key") return { value: credential.key, source: "key" }
+    if (credential?.type === "key") {
+      return {
+        value: credential.key,
+        source: "key",
+        metadata: credential.metadata,
+        configuration: credential.configuration,
+      }
+    }
   }
 
   // This is the standard OpenAI-compatible environment fallback. It keeps
