@@ -67,6 +67,26 @@ Unicorn 也集成了 `opencode-plugin-image-gen`，默认开启；关闭方式�
 
 图片工具仍使用原 image-gen 插件的 `image_gen` tool 和 provider/model 配置。
 
+Unicorn 的 TUI 入口还集成了 prompt reverse-search，默认开启，默认快捷键是 `ctrl+shift+r`：
+
+```jsonc
+// cli.json
+{
+  "plugins": [
+    {
+      "package": "@max10240/opencode-plugin-unicorn",
+      "options": {
+        "features": { "promptSearch": true },
+        "keybind": "ctrl+shift+r",
+      },
+    },
+  ],
+}
+```
+
+设置 `"features": { "promptSearch": false }` 可以关闭。搜索索引通过 session metadata 增量刷新，选择结果后会将
+原 prompt 作为当前 session 的新 user message 排队发送。
+
 ## 测试
 
 `bun test` 使用已安装的 `opencode` 启动真实服务，并通过临时 `OPENCODE_CONFIG_DIR` 和本地 OpenAI-compatible

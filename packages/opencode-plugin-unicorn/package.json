@@ -5,7 +5,8 @@
   "description": "Personal OpenCode plugin features",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./tui": "./src/tui.ts"
   },
   "scripts": {
     "test": "bun test",
@@ -13,6 +14,7 @@
   },
   "files": [
     "index.ts",
+    "tui.ts",
     "src",
     "README.md"
   ],
@@ -26,14 +28,23 @@
     "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
+    "@max10240/opencode-plugin-prompt-search": "^0.0.1",
     "@max10240/opencode-plugin-send-message-across-sessions": "^0.0.1",
     "@opencode/plugin": "^2.0.9",
     "jsonc-parser": "^3.3.1",
     "opencode-plugin-image-gen": "^0.0.2"
   },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.8",
+    "@opentui/solid": ">=0.5.8",
+    "solid-js": ">=1.9.0"
+  },
   "devDependencies": {
+    "@opentui/core": "^0.5.10",
+    "@opentui/solid": "^0.5.10",
     "@types/bun": "^1.3.0",
     "@types/node": "^22.0.0",
+    "solid-js": "^1.9.15",
     "typescript": "^5.8.2"
   }
 }
