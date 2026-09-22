@@ -7,7 +7,7 @@ import { LLMock } from "@copilotkit/aimock"
 
 setDefaultTimeout(120_000)
 
-test("searches a previous prompt across sessions through the real TUI overlay", async () => {
+test("inserts a previous prompt at the composer cursor through the real TUI overlay", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
 
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-prompt-search-e2e-"))
@@ -79,8 +79,12 @@ test("searches a previous prompt across sessions through the real TUI overlay", 
     )
 
     const history = await createSession(serverURL, password, workspaceHistory)
-    await sendPrompt(serverURL, password, history.id, "history-search-needle from another session")
+    for (let index = 1; index <= 12; index++) {
+      await sendPrompt(serverURL, password, history.id, `history-candidate-${String(index).padStart(2, "0")} from another session`)
+      await Bun.sleep(20)
+    }
     const current = await createSession(serverURL, password, workspaceCurrent)
+    const requestsBeforeSelection = proxy.mock.getRequests().length
 
     tmux(["new-window", "-t", tmuxName, "-n", "tui"])
     await Bun.sleep(2_000)
@@ -88,24 +92,36 @@ test("searches a previous prompt across sessions through the real TUI overlay", 
     await waitForPane(`${tmuxName}:tui`, "Prompt-Search-E2e", "TUI did not start")
     await Bun.sleep(1_500)
 
-    tmux(["send-keys", "-t", `${tmuxName}:tui`, "F12"])
-    await waitForPane(`${tmuxName}:tui`, "Search previous prompts", "prompt search dialog did not open")
-    tmux(["send-keys", "-t", `${tmuxName}:tui`, "history-search-needle"])
-    await waitForPane(`${tmuxName}:tui`, "history-search-needle", "prompt search did not filter the previous prompt")
-    tmux(["send-keys", "-t", `${tmuxName}:tui`, "Enter"])
+    const target = `${tmuxName}:tui`
+    const prefix = "draft-before "
+    const suffix = " draft-after"
+    tmux(["send-keys", "-t", target, `${prefix}${suffix}`])
+    await waitForPane(target, prefix, "composer draft did not appear")
+    tmux(["send-keys", "-t", target, ...Array.from({ length: suffix.length }, () => "Left")])
 
-    const expected = "history-search-needle from another session"
-    const delivered = await waitFor(async () => {
-      const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
-        serverURL,
-        password,
-        `/api/experimental/session/${current.id}/export`,
-      )
-      return exported.data.messages.find((message) => message.type === "user" && message.text === expected) ?? false
-    }, "selected previous prompt was not queued into the current session")
+    tmux(["send-keys", "-t", target, "F12"])
+    await waitForPane(target, "Search previous prompts", "prompt search dialog did not open")
+    const prompt = "history-candidate-01 from another session"
+    tmux(["send-keys", "-t", target, "history-candidate"])
+    await waitForPane(target, "history-candidate-12", "prompt search did not filter the previous prompts")
+    tmux(["send-keys", "-t", target, ...Array.from({ length: 11 }, () => "Down")])
+    await waitForPane(target, "history-candidate-01", "selected candidate did not scroll into view")
+    tmux(["send-keys", "-t", target, ...Array.from({ length: 11 }, () => "Up")])
+    await waitForPane(target, "history-candidate-12", "selected candidate did not scroll back into view")
+    tmux(["send-keys", "-t", target, ...Array.from({ length: 11 }, () => "Down")])
+    await waitForPane(target, "history-candidate-01", "selected candidate did not scroll into view again")
+    tmux(["send-keys", "-t", target, "Enter"])
 
-    expect(delivered).toMatchObject({ type: "user", text: expected })
-    expect(proxy.mock.getRequests().length).toBeGreaterThan(0)
+    const expected = `${prefix}${prompt}${suffix}`
+    await waitForPane(target, expected, "selected previous prompt was not inserted into the composer")
+
+    const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
+      serverURL,
+      password,
+      `/api/experimental/session/${current.id}/export`,
+    )
+    expect(exported.data.messages.some((message) => message.type === "user" && message.text === expected)).toBe(false)
+    expect(proxy.mock.getRequests().length).toBe(requestsBeforeSelection)
   } finally {
     tmux(["kill-session", "-t", tmuxName], false)
     await proxy.close()

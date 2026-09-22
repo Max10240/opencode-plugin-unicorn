@@ -49,7 +49,8 @@ export function setupPromptSearch(context: Context) {
                 context.ui.toast.show({ message: "Open a session first", variant: "warning" })
                 return
               }
-              context.ui.dialog.show(() => <PromptSearchDialog context={context} indexer={indexer} />)
+              const composer = context.renderer.currentFocusedEditor
+              context.ui.dialog.show(() => <PromptSearchDialog context={context} indexer={indexer} composer={composer} />)
             },
           },
         ],

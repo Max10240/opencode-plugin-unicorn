@@ -37,7 +37,7 @@ TUI plugin 使用 V2 的 `cli.json` 配置：
 ```
 
 搜索结果来自 OpenCode server 中所有可见 session 的 user prompts，索引按 session 更新时间增量刷新，并通过 TUI
-storage 缓存。选择结果后会把原 prompt 作为当前 session 的新 user message 排队发送。
+storage 缓存。选择结果后会把原 prompt 插入当前输入框的光标位置，不会自动提交。
 
 `cli.json` 中的 plugin options 和 `keybind` 都可以按机器覆盖：
 

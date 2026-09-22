@@ -85,7 +85,7 @@ Unicorn 的 TUI 入口还集成了 prompt reverse-search，默认开启，默认
 ```
 
 设置 `"features": { "promptSearch": false }` 可以关闭。搜索索引通过 session metadata 增量刷新，选择结果后会将
-原 prompt 作为当前 session 的新 user message 排队发送。
+原 prompt 插入当前输入框的光标位置，不会自动提交。
 
 ## 测试
 
