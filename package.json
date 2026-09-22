@@ -12,6 +12,7 @@
   "scripts": {
     "test": "bun run --workspaces --if-present test",
     "typecheck": "bun run --workspaces --if-present typecheck",
-    "check": "bun run typecheck && bun run test"
+    "check": "bun run typecheck && bun run test",
+    "publish:all": "npm version patch --ws && npm publish --ws"
   }
 }
