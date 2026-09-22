@@ -25,14 +25,15 @@
   "author": "",
   "license": "ISC",
   "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
+    "@max10240/opencode-plugin-image-gen": "^0.0.2",
     "@max10240/opencode-plugin-prompt-search": "^0.0.1",
     "@max10240/opencode-plugin-send-message-across-sessions": "^0.0.1",
     "@opencode/plugin": "^2.0.9",
-    "jsonc-parser": "^3.3.1",
-    "@max10240/opencode-plugin-image-gen": "^0.0.2"
+    "jsonc-parser": "^3.3.1"
   },
   "peerDependencies": {
     "@opentui/core": ">=0.5.8",

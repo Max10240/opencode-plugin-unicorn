@@ -24,7 +24,8 @@
   "author": "",
   "license": "ISC",
   "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.9"
