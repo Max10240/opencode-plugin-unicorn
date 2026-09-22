@@ -48,7 +48,7 @@
 }
 ```
 
-Unicorn 也集成了 `opencode-plugin-image-gen`，默认开启；关闭方式：
+Unicorn 也集成了 `@max10240/opencode-plugin-image-gen`，默认开启；关闭方式：
 
 ```jsonc
 {

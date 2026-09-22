@@ -1,4 +1,4 @@
-# opencode-plugin-image-gen
+# @max10240/opencode-plugin-image-gen
 
 OpenCode V2 的生图可行性验证子包。它优先使用 OpenCode `@opencode/ai` 的 native image adapter；没有 native adapter 时使用标准 OpenAI-compatible Images API：
 
@@ -29,7 +29,7 @@ provider/model 的 `package`、`modelID`、`settings`、`headers`、`body`、pro
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "opencode-plugin-image-gen",
+      "package": "@max10240/opencode-plugin-image-gen",
       "options": {
         "model": "openai/gpt-image-1"
       }

@@ -1,6 +1,6 @@
 import { Plugin } from "@opencode/plugin"
 import { setupSendMessageAcrossSessions } from "@max10240/opencode-plugin-send-message-across-sessions/setup"
-import { setupImageGen } from "opencode-plugin-image-gen"
+import { setupImageGen } from "@max10240/opencode-plugin-image-gen"
 import { updateGlobalConfig } from "./global-config.js"
 import {
   globalConfigFeatureEnabled,

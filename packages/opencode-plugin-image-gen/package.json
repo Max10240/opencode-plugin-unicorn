@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode-plugin-image-gen",
+  "name": "@max10240/opencode-plugin-image-gen",
   "version": "0.0.2",
   "description": "OpenCode V2 image generation PoC using standard provider Images APIs",
   "type": "module",
