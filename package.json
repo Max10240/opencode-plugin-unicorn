@@ -13,6 +13,7 @@
     "test": "bun run --workspaces --if-present test",
     "typecheck": "bun run --workspaces --if-present typecheck",
     "check": "bun run typecheck && bun run test",
-    "publish:all": "npm version patch --ws && npm publish --ws"
+    "publish:all": "npm version --ws patch && npm publish --ws",
+    "publish:all:prerelease": "npm version --ws prerelease && npm publish --ws --tag=prerelease"
   }
 }

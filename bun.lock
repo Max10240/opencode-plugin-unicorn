@@ -7,7 +7,7 @@
     },
     "packages/opencode-plugin-image-gen": {
       "name": "@max10240/opencode-plugin-image-gen",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "dependencies": {
         "@opencode/ai": "^2.0.9",
         "@opencode/plugin": "^2.0.9",
@@ -21,7 +21,7 @@
     },
     "packages/opencode-plugin-prompt-search": {
       "name": "@max10240/opencode-plugin-prompt-search",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "dependencies": {
         "@opencode/plugin": "^2.0.9",
       },
@@ -43,7 +43,7 @@
     },
     "packages/opencode-plugin-send-message-across-sessions": {
       "name": "@max10240/opencode-plugin-send-message-across-sessions",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "dependencies": {
         "@opencode/plugin": "^2.0.9",
       },
@@ -56,11 +56,11 @@
     },
     "packages/opencode-plugin-unicorn": {
       "name": "@max10240/opencode-plugin-unicorn",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "dependencies": {
-        "@max10240/opencode-plugin-image-gen": "^0.0.6",
-        "@max10240/opencode-plugin-prompt-search": "^0.0.6",
-        "@max10240/opencode-plugin-send-message-across-sessions": "^0.0.6",
+        "@max10240/opencode-plugin-image-gen": "^1",
+        "@max10240/opencode-plugin-prompt-search": "^1",
+        "@max10240/opencode-plugin-send-message-across-sessions": "^1",
         "@opencode/plugin": "^2.0.9",
         "jsonc-parser": "^3.3.1",
       },
