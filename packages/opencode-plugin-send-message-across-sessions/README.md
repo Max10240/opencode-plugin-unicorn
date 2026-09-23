@@ -31,6 +31,6 @@
 bun test
 ```
 
-测试使用已安装的 `opencode`、临时 `OPENCODE_CONFIG_DIR`、本地 OpenAI-compatible proxy 和 tmux，覆盖 standalone
-插件及 Unicorn 集成两种加载方式，并验证不同 cwd 的 session 收到真实的 user 消息。可用 `OPENCODE_BIN` 指定 OpenCode
-可执行文件。
+测试使用本地 `opencode`、本地 OpenAI-compatible proxy 和 tmux。每个场景都使用独立的 HOME、XDG 目录、配置和数据库；
+插件及其 Unicorn 依赖通过 `bun pm pack` 打成本地 tarball 后加载，不访问插件 registry。测试覆盖 standalone 插件及 Unicorn
+集成，并断言跨 cwd 的会话确实出现在列表中且收到 user 消息。可用 `OPENCODE_BIN` 指定 OpenCode 可执行文件。

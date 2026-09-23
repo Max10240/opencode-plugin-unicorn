@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -18,7 +18,9 @@ test("sends a user-style message across different cwd sessions through tmux", as
 })
 
 async function runScenario(mode: Mode) {
-  const root = await mkdtemp(path.join(os.tmpdir(), `opencode-send-session-${mode}-`))
+  const tempDirectory = process.env.OPENCODE_E2E_TMPDIR ?? path.join(os.tmpdir(), "opencode")
+  await mkdir(tempDirectory, { recursive: true })
+  const root = await mkdtemp(path.join(tempDirectory, `send-session-${mode}-`))
   const configDirectory = path.join(root, "config")
   const workspaceA = path.join(root, "workspace-a")
   const workspaceB = path.join(root, "workspace-b")
@@ -27,13 +29,13 @@ async function runScenario(mode: Mode) {
   const password = "send-message-e2e"
   const serverPort = await freePort()
   const serverURL = `http://127.0.0.1:${serverPort}`
-  const pluginRoot = path.resolve(import.meta.dir, "..")
-  const unicornRoot = path.resolve(import.meta.dir, "../../opencode-plugin-unicorn")
 
   try {
+    const localPackages = await prepareLocalPluginArtifacts(root)
     await mkdir(configDirectory, { recursive: true })
     await mkdir(workspaceA, { recursive: true })
     await mkdir(workspaceB, { recursive: true })
+    await mkdir(path.join(root, "tmp"), { recursive: true })
     await writeFile(
       path.join(configDirectory, "opencode.jsonc"),
       `${JSON.stringify(
@@ -41,9 +43,9 @@ async function runScenario(mode: Mode) {
           $schema: "https://opencode.ai/config.json",
           plugins: [
             mode === "standalone"
-              ? { package: pluginRoot }
+              ? { package: localPackages.sendMessageAcrossSessions }
               : {
-                  package: unicornRoot,
+                  package: localPackages.unicorn,
                   options: { features: { globalConfig: false, sendMessageAcrossSessions: true } },
                 },
           ],
@@ -65,6 +67,10 @@ async function runScenario(mode: Mode) {
     )
 
     const environment = {
+      PATH: process.env.PATH ?? "/usr/bin:/bin:/opt/homebrew/bin",
+      LANG: process.env.LANG ?? "en_US.UTF-8",
+      TERM: process.env.TERM ?? "xterm-256color",
+      TMPDIR: path.join(root, "tmp"),
       OPENCODE_CONFIG_DIR: configDirectory,
       OPENCODE_CONFIG_PROJECT_DISABLE: "1",
       OPENCODE_DB: path.join(root, "opencode.db"),
@@ -77,10 +83,10 @@ async function runScenario(mode: Mode) {
       XDG_CACHE_HOME: path.join(root, "xdg-cache"),
       XDG_STATE_HOME: path.join(root, "xdg-state"),
     }
-    const binary = process.env.OPENCODE_BIN ?? "opencode"
+    const binary = process.env.OPENCODE_BIN ? path.resolve(process.env.OPENCODE_BIN) : "opencode"
     const envCommand = (cwd: string, args: string[]) =>
       [
-        `cd ${shellQuote(cwd)} && env`,
+        `cd ${shellQuote(cwd)} && env -i`,
         ...Object.entries(environment).map(([key, value]) => `${key}=${shellQuote(String(value))}`),
         [binary, ...args].map(shellQuote).join(" "),
       ].join(" ")
@@ -88,15 +94,13 @@ async function runScenario(mode: Mode) {
     tmux(["new-session", "-d", "-s", tmuxName, "-n", "server", envCommand(root, ["serve", "--hostname", "127.0.0.1", "--port", String(serverPort)])])
     await waitFor(async () => (await fetch(`${serverURL}/api/info`, { headers: auth(password) }).catch(() => undefined))?.ok === true, "OpenCode server did not start")
 
-    // Activate the location plugin before creating sessions so the event watcher sees both session.created events.
-    await api(serverURL, password, "/api/model")
-    await Bun.sleep(500)
+    const pluginID = mode === "standalone" ? "max10240.send-message-across-sessions" : "max10240.unicorn"
+    // Plugin activation is location-scoped; load both cwd instances before their sessions are created.
+    await waitForPlugin(serverURL, password, workspaceA, pluginID)
+    await waitForPlugin(serverURL, password, workspaceB, pluginID)
 
     const target = await createSession(serverURL, password, workspaceB)
     const sender = await createSession(serverURL, password, workspaceA)
-    const pluginID = mode === "standalone" ? "max10240.send-message-across-sessions" : "max10240.unicorn"
-    await waitForPlugin(serverURL, password, workspaceA, pluginID)
-    await waitForPlugin(serverURL, password, workspaceB, pluginID)
     const message = "hello-from-tmux-across-cwd"
     proxy.configure(target.id, message)
 
@@ -138,6 +142,21 @@ async function runScenario(mode: Mode) {
         `${error instanceof Error ? error.message : String(error)}\nfixtures=${JSON.stringify(proxy.mock.getFixtures())}\njournal=${JSON.stringify(proxy.mock.getRequests())}`,
       )
     }
+
+    const listedSessionsCall = await waitFor(async () => {
+      const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
+        serverURL,
+        password,
+        `/api/experimental/session/${sender.id}/export`,
+      )
+      const call = exported.data.messages
+        .flatMap((entry) => (Array.isArray(entry.content) ? entry.content : []))
+        .find((entry) => entry.type === "tool" && entry.name === "list_online_sessions")
+      return call?.state?.status === "completed" ? call : false
+    }, "list_online_sessions did not persist a completed result")
+    const listedSessions = listedSessionsCall.state.metadata?.sessions as Array<Record<string, any>> | undefined
+    expect(listedSessions?.map((session) => session.id)).toContain(target.id)
+    expect(listedSessions?.find((session) => session.id === target.id)?.directory).toBe(workspaceB)
 
     tmux([
       "send-keys",
@@ -190,6 +209,84 @@ async function runScenario(mode: Mode) {
     await proxy.close()
     await rm(root, { recursive: true, force: true })
   }
+}
+
+async function prepareLocalPluginArtifacts(root: string) {
+  const packageSources = {
+    sendMessageAcrossSessions: path.resolve(import.meta.dir, ".."),
+    unicorn: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
+    imageGen: path.resolve(import.meta.dir, "../../opencode-plugin-image-gen"),
+    promptSearch: path.resolve(import.meta.dir, "../../opencode-plugin-prompt-search"),
+  }
+  const nodeModules = path.join(root, "node_modules")
+  const artifactDirectory = path.join(root, "artifacts")
+  await mkdir(artifactDirectory, { recursive: true })
+  await mkdir(nodeModules, { recursive: true })
+
+  const artifacts: Record<string, string> = {}
+  for (const [key, source] of Object.entries(packageSources)) {
+    const manifest = JSON.parse(await Bun.file(path.join(source, "package.json")).text()) as { name: string }
+    const packed = Bun.spawnSync([process.execPath, "pm", "pack", "--destination", artifactDirectory, "--quiet"], {
+      cwd: source,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (packed.exitCode !== 0) {
+      throw new Error(`Could not pack local plugin ${manifest.name}: ${packed.stderr.toString()}`)
+    }
+
+    const archiveName = (await readdir(artifactDirectory)).find((name) => name.startsWith(`${manifest.name.replace("@", "").replace("/", "-")}-`) && name.endsWith(".tgz"))
+    if (!archiveName) throw new Error(`bun pm pack did not create an archive for ${manifest.name}`)
+
+    const destination = path.join(nodeModules, ...manifest.name.split("/"))
+    await mkdir(destination, { recursive: true })
+    const extracted = Bun.spawnSync(["tar", "-xzf", path.join(artifactDirectory, archiveName), "-C", destination, "--strip-components=1"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (extracted.exitCode !== 0) {
+      throw new Error(`Could not extract local plugin ${manifest.name}: ${extracted.stderr.toString()}`)
+    }
+    artifacts[key] = destination
+  }
+
+  await linkLocalRuntimeDependencies(nodeModules, Object.values(packageSources))
+  return artifacts as {
+    sendMessageAcrossSessions: string
+    unicorn: string
+    imageGen: string
+    promptSearch: string
+  }
+}
+
+async function linkLocalRuntimeDependencies(nodeModules: string, packageSources: string[]) {
+  for (const packageRoot of packageSources) {
+    const sourceNodeModules = path.join(packageRoot, "node_modules")
+    for (const entry of await readdir(sourceNodeModules, { withFileTypes: true })) {
+      if (entry.name === ".bin" || entry.name === "@max10240") continue
+
+      const source = path.join(sourceNodeModules, entry.name)
+      const destination = path.join(nodeModules, entry.name)
+      if (entry.name.startsWith("@")) {
+        await mkdir(destination, { recursive: true })
+        for (const scopedEntry of await readdir(source)) {
+          if (scopedEntry === "max10240") continue
+          const scopedSource = path.join(source, scopedEntry)
+          const scopedDestination = path.join(destination, scopedEntry)
+          if (!(await pathExists(scopedDestination))) await symlink(scopedSource, scopedDestination, "dir")
+        }
+      } else if (!(await pathExists(destination))) {
+        await symlink(source, destination, "dir")
+      }
+    }
+  }
+}
+
+async function pathExists(target: string) {
+  return lstat(target).then(
+    () => true,
+    () => false,
+  )
 }
 
 async function waitForPlugin(serverURL: string, password: string, directory: string, pluginID: string) {

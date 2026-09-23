@@ -1,6 +1,6 @@
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Result as ToolResult } from "@opencode/plugin/promise/tool"
-import { acquireSessionDirectory, listOnlineSessions } from "./session-directory.js"
+import { acquireSessionDirectory, listOnlineSessions, listOnlineSessionsAcrossContexts } from "./session-directory.js"
 
 const SEND_TOOL = "send_message_across_sessions"
 const LIST_TOOL = "list_online_sessions"
@@ -12,7 +12,7 @@ type SendMessageInput = {
   readonly message: string
 }
 
-type PluginContext = Pick<Context, "event" | "session" | "tool">
+type PluginContext = Pick<Context, "event" | "session" | "storage" | "tool">
 type SessionPromptInput = Parameters<Context["session"]["prompt"]>[0]
 
 export async function setupSendMessageAcrossSessions(context: PluginContext) {
@@ -42,7 +42,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
         },
         execute: async (rawInput, tool) => {
           const input = rawInput as SendMessageInput
-          const available = listOnlineSessions(tool.sessionID)
+          const available = await listOnlineSessionsAcrossContexts(context, tool.sessionID)
           if (!input.target_session_id) return selectionResult(available)
 
           if (input.target_session_id === tool.sessionID)
@@ -80,7 +80,8 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
           required: [],
           additionalProperties: false,
         },
-        execute: async (_input, tool) => selectionResult(listOnlineSessions(tool.sessionID)),
+        execute: async (_input, tool) =>
+          selectionResult(await listOnlineSessionsAcrossContexts(context, tool.sessionID)),
       })
     })
 
