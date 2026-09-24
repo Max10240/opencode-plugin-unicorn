@@ -14,6 +14,7 @@
     "typecheck": "bun run --workspaces --if-present typecheck",
     "check": "bun run typecheck && bun run test",
     "publish:all": "npm version --ws patch && npm publish --ws",
-    "publish:all:prerelease": "npm version --ws prerelease && npm publish --ws --tag=prerelease"
+    "postpublish:all": "git commit -Am 'chore: publish'",
+    "publish:all:prerelease": "npm run public:all -- --tag=prerelease"
   }
 }
