@@ -1,8 +1,8 @@
-import { Image, ImageClient, ImageInput } from "@opencode/ai"
+import { Media } from "@opencode/ai"
 import type { ImageModel } from "@opencode/ai"
+import { make as makeAIClient } from "@opencode/ai/promise"
 import { Google, Meta, OpenAI, XAI, ZAI } from "@opencode/ai/providers"
 import { fetchLayer } from "@opencode/ai/route/executor"
-import { Effect, Layer } from "effect"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import type { GeneratedImage, ImageFile, ImageQuality } from "./types.js"
@@ -28,6 +28,20 @@ type ProviderFactory = {
   readonly configure: (input?: Record<string, unknown>) => { readonly image: (modelID: string) => ImageModel }
 }
 
+type ImageGenerationOptions = {
+  readonly n?: number
+  readonly size?: `${number}x${number}`
+  readonly aspectRatio?: `${number}:${number}`
+  readonly format?: string
+  readonly providerOptions?: Readonly<Record<string, unknown>>
+}
+
+type ParsedImageSize = {
+  readonly dimensions?: `${number}x${number}`
+  readonly aspectRatio?: `${number}:${number}`
+  readonly raw?: string
+}
+
 const MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
   ".jpeg": "image/jpeg",
@@ -36,7 +50,6 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
 }
 
-const imageClientLayer = ImageClient.layer.pipe(Layer.provide(fetchLayer))
 const CORE_SETTINGS = new Set(["chunkTimeout", "compaction", "fetch", "timeout", "transport"])
 
 export async function readImageFiles(paths: readonly string[] | undefined, directory: string): Promise<ImageFile[]> {
@@ -68,22 +81,23 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
     http: request.body === undefined ? undefined : { body: { ...request.body } },
   }
   const model = provider.configure(input).image(request.model)
-  const response = await Effect.runPromise(
-    Image.generate({
+  const size = request.size === undefined ? undefined : parseImageSize(request.size)
+  const imageClient = makeAIClient({ layer: fetchLayer })
+  try {
+    const response = await imageClient.image.generate({
       model,
       prompt: request.prompt,
-      images: (request.images ?? []).map((image) => ImageInput.bytes(image.data, image.mediaType)),
-      options: imageOptions(packageName, request.quality, request.size) as Record<string, unknown>,
-    }).pipe(Effect.provide(imageClientLayer)),
-  )
-  const image = response.image
-  if (!image) throw new Error(`Image provider ${packageName ?? "openai-compatible"} returned no image data.`)
-  if (image.data instanceof Uint8Array) return { data: image.data, mediaType: image.mediaType }
-  if (image.data.startsWith("data:")) return decodeDataUrl(image.data, image.mediaType)
-
-  const downloaded = await fetch(image.data)
-  if (!downloaded.ok) throw new Error(`Generated image download failed (${downloaded.status}).`)
-  return { data: new Uint8Array(await downloaded.arrayBuffer()), mediaType: image.mediaType }
+      images: (request.images ?? []).map((image) => Media.bytes(image.data, image.mediaType)),
+      ...imageOptions(packageName, request.quality, size),
+    })
+    const image = response.image
+    if (!image) throw new Error(`Image provider ${packageName ?? "openai-compatible"} returned no image data.`)
+    const dataUrl = image.source.type === "url" ? Media.parseDataUrl(image.source.url) : undefined
+    const materialized = dataUrl ?? (await imageClient.run(image.materialize()))
+    return { data: await imageClient.run(materialized.bytes()), mediaType: materialized.mediaType }
+  } finally {
+    await imageClient.dispose()
+  }
 }
 
 function nativeSettings(settings: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
@@ -140,37 +154,93 @@ function builtInProvider(packageName: string | undefined): ProviderFactory | und
   return undefined
 }
 
-function imageOptions(packageName: string | undefined, quality: ImageQuality | undefined, size: string | undefined) {
+function imageOptions(
+  packageName: string | undefined,
+  quality: ImageQuality | undefined,
+  size: ParsedImageSize | undefined,
+): ImageGenerationOptions {
   if (packageName === "@opencode/ai/providers/google") {
+    const dimensions = size?.dimensions ? googleSize(size.dimensions) : undefined
+    const aspectRatio = size?.aspectRatio ?? dimensions?.aspectRatio
     return {
-      ...(size ? googleSize(size) : {}),
-      ...(quality ? { thinkingLevel: quality.toUpperCase() } : {}),
+      ...(aspectRatio ? { aspectRatio } : {}),
+      providerOptions: {
+        ...(size?.raw !== undefined ? { imageConfig: { aspectRatio: size.raw } } : {}),
+        ...(dimensions?.imageSize ? { imageSize: dimensions.imageSize } : {}),
+        ...(quality ? { thinkingLevel: quality.toUpperCase() } : {}),
+      },
     }
   }
   if (packageName === "@opencode/ai/providers/xai") {
+    const aspectRatio = size?.aspectRatio ?? (size?.dimensions ? sizeToAspectRatio(size.dimensions) : undefined)
     return {
       n: 1,
-      responseFormat: "b64_json",
-      ...(size ? { aspectRatio: sizeToAspectRatio(size), resolution: sizeToResolution(size) } : {}),
+      ...(aspectRatio ? { aspectRatio } : {}),
+      providerOptions: {
+        responseFormat: "b64_json",
+        ...(size?.raw !== undefined ? { aspect_ratio: size.raw } : {}),
+        ...(size
+          ? { resolution: size.dimensions ? sizeToResolution(size.dimensions) : "1k" }
+          : {}),
+      },
     }
   }
   if (packageName === "@opencode/ai/providers/zai") {
-    return { ...(size ? { size } : {}), ...(quality ? { quality: quality === "high" ? "hd" : "standard" } : {}) }
+    const providerSize = size?.aspectRatio ?? size?.raw
+    return {
+      ...(size?.dimensions ? { size: size.dimensions } : {}),
+      providerOptions: {
+        ...(providerSize !== undefined ? { size: providerSize } : {}),
+        ...(quality ? { quality: quality === "high" ? "hd" : "standard" } : {}),
+      },
+    }
   }
   if (packageName === "@opencode/ai/providers/meta") {
-    return { n: 1, outputFormat: "png", responseFormat: "b64_json", ...(size ? { size } : {}) }
+    const providerSize = size?.aspectRatio ?? size?.raw
+    return {
+      n: 1,
+      format: "png",
+      ...(size?.dimensions ? { size: size.dimensions } : {}),
+      providerOptions: {
+        responseFormat: "b64_json",
+        ...(providerSize !== undefined ? { size: providerSize } : {}),
+      },
+    }
   }
+  const providerSize = size?.aspectRatio ?? size?.raw
   return {
     n: 1,
-    outputFormat: "png",
-    ...(quality ? { quality } : {}),
-    ...(size ? { size } : {}),
+    format: "png",
+    ...(size?.dimensions ? { size: size.dimensions } : {}),
+    providerOptions: {
+      ...(providerSize !== undefined ? { size: providerSize } : {}),
+      ...(quality ? { quality } : {}),
+    },
   }
 }
 
-function googleSize(size: string): Record<string, string> {
+function parseImageSize(size: string): ParsedImageSize {
+  const match = /^([1-9]\d*)x([1-9]\d*)$/.exec(size)
+  if (match && Number.isSafeInteger(Number(match[1])) && Number.isSafeInteger(Number(match[2]))) {
+    return { dimensions: size as `${number}x${number}` }
+  }
+
+  const ratio = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(size)
+  if (
+    ratio &&
+    Number.isFinite(Number(ratio[1])) &&
+    Number.isFinite(Number(ratio[2])) &&
+    Number(ratio[1]) > 0 &&
+    Number(ratio[2]) > 0
+  ) {
+    return { aspectRatio: size as `${number}:${number}` }
+  }
+
+  return { raw: size }
+}
+
+function googleSize(size: `${number}x${number}`): { readonly aspectRatio: `${number}:${number}`; readonly imageSize?: string } {
   const [width, height] = size.split("x").map(Number)
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return { aspectRatio: size }
   const ratio = width / height
   const aspectRatio =
     Math.abs(ratio - 1) < 0.05
@@ -185,9 +255,8 @@ function googleSize(size: string): Record<string, string> {
   return { aspectRatio, imageSize: Math.max(width, height) >= 2048 ? "2K" : "1K" }
 }
 
-function sizeToAspectRatio(size: string): string {
+function sizeToAspectRatio(size: `${number}x${number}`): `${number}:${number}` {
   const [width, height] = size.split("x").map(Number)
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return size
   const ratio = width / height
   if (Math.abs(ratio - 1) < 0.05) return "1:1"
   if (ratio > 1.5) return "16:9"
@@ -196,13 +265,7 @@ function sizeToAspectRatio(size: string): string {
   return "3:4"
 }
 
-function sizeToResolution(size: string): string {
+function sizeToResolution(size: `${number}x${number}`): string {
   const [width, height] = size.split("x").map(Number)
   return Math.max(width || 0, height || 0) > 1024 ? "2k" : "1k"
-}
-
-function decodeDataUrl(value: string, mediaType: string): GeneratedImage {
-  const separator = value.indexOf(",")
-  if (separator < 0) throw new Error("Generated image data URL is invalid.")
-  return { data: Uint8Array.from(Buffer.from(value.slice(separator + 1), "base64")), mediaType }
 }

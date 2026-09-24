@@ -14,7 +14,7 @@ export default Plugin.define({
 })
 
 export function setupPromptSearch(context: Context) {
-  const indexer = new PromptIndexer(context)
+  const indexer = new PromptIndexer(context, context.options.maxPrompts)
   const keybind = resolveKeybind(context.options)
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
 

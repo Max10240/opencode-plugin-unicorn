@@ -24,6 +24,7 @@ export type MockProvider = {
   readonly mock: LLMock
   readonly requests: ProxyRequest[]
   readonly imageRequests: number
+  readonly imageEditRequests: number
   readonly close: () => Promise<void>
 }
 
@@ -41,7 +42,7 @@ export type OpenCodeE2E = {
     readonly sessionID: string
     readonly messages: readonly Record<string, any>[]
   }>
-  readonly runImagePrompt: () => Promise<{
+  readonly runImagePrompt: (kind?: "generate" | "edit") => Promise<{
     readonly sessionID: string
     readonly messages: readonly Record<string, any>[]
   }>
@@ -50,6 +51,7 @@ export type OpenCodeE2E = {
 
 const SUMMARY_MARKER = "You MUST summarize the conversation above"
 const PRIMARY_RESPONSE = "E2E_PRIMARY_OK"
+const IMAGE_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 const COMPACTION_RESPONSE = `## Objective
 - Verify automatic context compaction through a local proxy.
 
@@ -77,7 +79,12 @@ const COMPACTION_RESPONSE = `## Objective
 - Deterministic E2E test.`
 
 export async function createOpenCodeE2E(
-  options: { readonly featureEnabled?: boolean; readonly imageGenEnabled?: boolean; readonly share?: string } = {},
+  options: {
+    readonly featureEnabled?: boolean
+    readonly imageGenEnabled?: boolean
+    readonly plugin?: "unicorn" | "image-gen"
+    readonly share?: string
+  } = {},
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-plugin-unicorn-e2e-"))
   const configDirectory = path.join(root, "config")
@@ -87,15 +94,20 @@ export async function createOpenCodeE2E(
   await mkdir(workspace, { recursive: true })
 
   const proxy = await startMockProvider()
-  const features = {
-    ...(options.featureEnabled === undefined ? {} : { globalConfig: options.featureEnabled }),
-    ...(options.imageGenEnabled === undefined ? {} : { imageGen: options.imageGenEnabled }),
-  }
+  const features = options.plugin === "image-gen"
+    ? {}
+    : {
+        ...(options.featureEnabled === undefined ? {} : { globalConfig: options.featureEnabled }),
+        ...(options.imageGenEnabled === undefined ? {} : { imageGen: options.imageGenEnabled }),
+      }
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugins: [
       {
-        package: path.resolve(import.meta.dir, ".."),
+        package:
+          options.plugin === "image-gen"
+            ? path.resolve(import.meta.dir, "../../opencode-plugin-image-gen")
+            : path.resolve(import.meta.dir, ".."),
         ...(Object.keys(features).length === 0 ? {} : { options: { features } }),
       },
     ],
@@ -233,7 +245,7 @@ export async function createOpenCodeE2E(
     return { sessionID, messages: exported.data.messages }
   }
 
-  const runImagePrompt = async () => {
+  const runImagePrompt = async (kind: "generate" | "edit" = "generate") => {
     const created = await api<{ data: { id: string } }>("/api/session", {
       method: "POST",
       body: JSON.stringify({
@@ -246,7 +258,7 @@ export async function createOpenCodeE2E(
     const sessionID = created.data.id
     await api(`/api/session/${sessionID}/prompt`, {
       method: "POST",
-      body: JSON.stringify({ text: "E2E_IMAGE_GEN", delivery: "queue" }),
+      body: JSON.stringify({ text: kind === "generate" ? "E2E_IMAGE_GEN" : "E2E_IMAGE_EDIT", delivery: "queue" }),
     })
     await api(`/api/experimental/session/${sessionID}/wait`, { method: "POST" })
     const exported = await api<{ data: { messages: Record<string, any>[] } }>(
@@ -275,11 +287,25 @@ async function startMockProvider(): Promise<MockProvider> {
   const mock = new LLMock({ port: 0 })
   mock.on({ predicate: (request) => JSON.stringify(request.messages).includes(SUMMARY_MARKER) }, { content: COMPACTION_RESPONSE })
   mock.on({ toolCallId: "call_image_gen" }, { content: "E2E_IMAGE_OK" })
+  mock.on({ toolCallId: "call_image_edit" }, { content: "E2E_IMAGE_EDIT_OK" })
   mock.on(
     { userMessage: "E2E_IMAGE_GEN", toolName: "image_gen" },
     { toolCalls: [{ id: "call_image_gen", name: "image_gen", arguments: { prompt: "E2E image", out: "e2e-image.png" } }] },
   )
-  mock.onImage("E2E image", { image: { b64Json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } })
+  mock.on(
+    { userMessage: "E2E_IMAGE_EDIT", toolName: "image_gen" },
+    {
+      toolCalls: [
+        {
+          id: "call_image_edit",
+          name: "image_gen",
+          arguments: { prompt: "E2E image edit", out: "e2e-edit.png", images: ["e2e-reference.png"] },
+        },
+      ],
+    },
+  )
+  mock.onImage("E2E image", { image: { b64Json: IMAGE_PNG_BASE64 } })
+  mock.onImage("E2E image edit", { image: { b64Json: IMAGE_PNG_BASE64 } })
   mock.on({}, { content: PRIMARY_RESPONSE })
   await mock.start()
   return {
@@ -304,6 +330,9 @@ async function startMockProvider(): Promise<MockProvider> {
     },
     get imageRequests() {
       return mock.getRequests().filter((entry) => entry.path.endsWith("/images/generations")).length
+    },
+    get imageEditRequests() {
+      return mock.getRequests().filter((entry) => entry.path.endsWith("/images/edits")).length
     },
     close: () => mock.stop(),
   }

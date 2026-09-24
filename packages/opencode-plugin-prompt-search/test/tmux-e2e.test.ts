@@ -7,15 +7,22 @@ import { LLMock } from "@copilotkit/aimock"
 
 setDefaultTimeout(120_000)
 
-test("inserts a previous prompt at the composer cursor through the real TUI overlay", async () => {
+test("searches and inserts prompts from live and deleted sessions through the real TUI overlay", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
 
+  await runScenario("standalone")
+  await runScenario("unicorn")
+})
+
+async function runScenario(mode: "standalone" | "unicorn") {
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-prompt-search-e2e-"))
   const config = path.join(root, "config")
   const workspaceHistory = path.join(root, "history")
   const workspaceCurrent = path.join(root, "current")
-  const pluginRoot = path.resolve(import.meta.dir, "..")
-  const tmuxName = `opencode-prompt-search-${process.pid}`
+  const promptSearchRoot = path.resolve(import.meta.dir, "..")
+  const unicornRoot = path.resolve(import.meta.dir, "../../opencode-plugin-unicorn")
+  const pluginRoot = mode === "standalone" ? promptSearchRoot : unicornRoot
+  const tmuxName = `opencode-prompt-search-${mode}-${process.pid}`
   const password = "prompt-search-e2e"
   const serverPort = await freePort()
   const serverURL = `http://127.0.0.1:${serverPort}`
@@ -46,10 +53,26 @@ test("inserts a previous prompt at the composer cursor through the real TUI over
         2,
       )}\n`,
     )
-    await writeFile(
-      path.join(config, "cli.json"),
-      `${JSON.stringify({ plugins: [{ package: pluginRoot, options: { keybind: "f12" } }] }, null, 2)}\n`,
-    )
+    const writeCLIConfig = (promptSearchEnabled: boolean) =>
+      writeFile(
+        path.join(config, "cli.json"),
+        `${JSON.stringify(
+          {
+            plugins: [
+              {
+                package: pluginRoot,
+                options:
+                  mode === "standalone"
+                    ? { keybind: "f12", maxPrompts: 2_000 }
+                    : { keybind: "f12", maxPrompts: 2_000, features: { promptSearch: promptSearchEnabled } },
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      )
+    await writeCLIConfig(mode !== "unicorn")
 
     const environment = {
       OPENCODE_CONFIG_DIR: config,
@@ -85,6 +108,22 @@ test("inserts a previous prompt at the composer cursor through the real TUI over
     }
     const current = await createSession(serverURL, password, workspaceCurrent)
     const requestsBeforeSelection = proxy.mock.getRequests().length
+
+    if (mode === "unicorn") {
+      const disabledTarget = `${tmuxName}:tui-disabled`
+      tmux(["new-window", "-t", tmuxName, "-n", "tui-disabled"])
+      await Bun.sleep(1_000)
+      tmux(["send-keys", "-t", disabledTarget, envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id]), "Enter"])
+      await waitForPane(disabledTarget, "Prompt-Search-E2e", "TUI with prompt search disabled did not start")
+      tmux(["send-keys", "-t", disabledTarget, "F12"])
+      await Bun.sleep(500)
+      tmux(["send-keys", "-t", disabledTarget, "prompt-search-disabled-check"])
+      await waitForPane(disabledTarget, "prompt-search-disabled-check", "disabled Unicorn TUI did not leave the composer usable")
+      const disabledScreen = new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", disabledTarget]).stdout)
+      expect(disabledScreen).not.toContain("Search previous prompts")
+      tmux(["kill-window", "-t", disabledTarget])
+      await writeCLIConfig(true)
+    }
 
     tmux(["new-window", "-t", tmuxName, "-n", "tui"])
     await Bun.sleep(2_000)
@@ -122,12 +161,36 @@ test("inserts a previous prompt at the composer cursor through the real TUI over
     )
     expect(exported.data.messages.some((message) => message.type === "user" && message.text === expected)).toBe(false)
     expect(proxy.mock.getRequests().length).toBe(requestsBeforeSelection)
+
+    await api(serverURL, password, `/api/session/${history.id}`, { method: "DELETE" })
+    const deleted = await fetch(`${serverURL}/api/session/${history.id}`, { headers: auth(password) })
+    expect(deleted.status).toBe(404)
+
+    tmux(["kill-window", "-t", target])
+    tmux(["new-window", "-t", tmuxName, "-n", "tui-after-delete"])
+    await Bun.sleep(1_000)
+    const restartedTarget = `${tmuxName}:tui-after-delete`
+    tmux(["send-keys", "-t", restartedTarget, envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id]), "Enter"])
+    await waitForPane(restartedTarget, "Prompt-Search-E2e", "restarted TUI did not start")
+
+    // Force a refresh after restart, when the deleted session is no longer in the API list.
+    const workspaceTrigger = path.join(root, "refresh-trigger")
+    await mkdir(workspaceTrigger, { recursive: true })
+    await createSession(serverURL, password, workspaceTrigger)
+    await Bun.sleep(1_500)
+    tmux(["send-keys", "-t", restartedTarget, "F12"])
+    await waitForPane(restartedTarget, "Search previous prompts", "prompt search did not reopen after deletion")
+    tmux(["send-keys", "-t", restartedTarget, "history-candidate-01"])
+    await waitForPane(restartedTarget, prompt, "indexed prompt from a deleted session was not retained")
+    tmux(["send-keys", "-t", restartedTarget, "Enter"])
+    await waitForPane(restartedTarget, prompt, "prompt from a deleted session could not be inserted")
+    expect(proxy.mock.getRequests().length).toBe(requestsBeforeSelection)
   } finally {
     tmux(["kill-session", "-t", tmuxName], false)
     await proxy.close()
     await rm(root, { recursive: true, force: true })
   }
-})
+}
 
 async function createSession(serverURL: string, password: string, directory: string) {
   const response = await api<{ data: { id: string } }>(serverURL, password, "/api/session", {

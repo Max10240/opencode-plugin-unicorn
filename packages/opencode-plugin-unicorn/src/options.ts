@@ -1,5 +1,6 @@
 export interface UnicornOptions {
   readonly globalConfig?: boolean
+  readonly maxPrompts?: number
   readonly features?: {
     readonly globalConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean

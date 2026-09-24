@@ -5,7 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import { LLMock } from "@copilotkit/aimock"
 
-type Mode = "standalone" | "unicorn"
+type Mode = "standalone" | "unicorn" | "unicorn-disabled"
 
 const hasTmux = Bun.spawnSync(["tmux", "-V"]).exitCode === 0
 
@@ -14,7 +14,7 @@ setDefaultTimeout(120_000)
 test("sends a user-style message across different cwd sessions through tmux", async () => {
   if (!hasTmux) throw new Error("tmux is required for this E2E test")
 
-  for (const mode of ["standalone", "unicorn"] as const) await runScenario(mode)
+  for (const mode of ["standalone", "unicorn", "unicorn-disabled"] as const) await runScenario(mode)
 })
 
 async function runScenario(mode: Mode) {
@@ -46,7 +46,13 @@ async function runScenario(mode: Mode) {
               ? { package: localPackages.sendMessageAcrossSessions }
               : {
                   package: localPackages.unicorn,
-                  options: { features: { globalConfig: false, sendMessageAcrossSessions: true } },
+                  options: {
+                    features: {
+                      globalConfig: false,
+                      sendMessageAcrossSessions: mode !== "unicorn-disabled",
+                      imageGen: false,
+                    },
+                  },
                 },
           ],
           providers: {
@@ -103,6 +109,21 @@ async function runScenario(mode: Mode) {
     const sender = await createSession(serverURL, password, workspaceA)
     const message = "hello-from-tmux-across-cwd"
     proxy.configure(target.id, message)
+
+    if (mode === "unicorn-disabled") {
+      await api(serverURL, password, `/api/session/${sender.id}/prompt`, {
+        method: "POST",
+        body: JSON.stringify({ text: "E2E_TOOL_PROBE", delivery: "queue" }),
+      })
+      await api(serverURL, password, `/api/experimental/session/${sender.id}/wait`, { method: "POST" })
+      const request = proxy.mock.getRequests().find((entry) => entry.path.endsWith("/chat/completions"))
+      expect(request).toBeDefined()
+      const tools = (request?.body as { tools?: Array<{ function?: { name?: string }; name?: string }> } | null)?.tools ?? []
+      const toolNames = tools.map((tool) => tool.function?.name ?? tool.name)
+      expect(toolNames).not.toContain("list_online_sessions")
+      expect(toolNames).not.toContain("send_message_across_sessions")
+      return
+    }
 
     tmux(["new-window", "-t", tmuxName, "-n", "target"])
     await Bun.sleep(1_000)
@@ -358,7 +379,7 @@ async function api<T>(baseURL: string, password: string, endpoint: string, init:
   })
   const text = await response.text()
   if (!response.ok) throw new Error(`${init.method ?? "GET"} ${endpoint} failed: ${response.status} ${text}`)
-  return JSON.parse(text) as T
+  return text.length === 0 ? (undefined as T) : (JSON.parse(text) as T)
 }
 
 function auth(password: string) {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { access } from "node:fs/promises"
+import { access, readFile, writeFile } from "node:fs/promises"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "./e2e-utils.js"
 
 test("updates the real global config and avoids compaction with the larger Luna context", async () => {
@@ -56,11 +56,25 @@ test("integrates image generation as an independently switchable Unicorn feature
   const enabled = await createOpenCodeE2E({ imageGenEnabled: true })
   try {
     await enabled.waitForModelContext(1_000_000)
+
+    const originalImage = Buffer.from("keep-existing-image")
+    await writeFile(`${enabled.workspace}/e2e-image.png`, originalImage)
     const result = await enabled.runImagePrompt()
     expect(result.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_GEN")).toBe(true)
     expect(enabled.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(true)
     expect(enabled.proxy.imageRequests).toBe(1)
-    await access(`${enabled.workspace}/e2e-image.png`)
+    expect(await readFile(`${enabled.workspace}/e2e-image.png`)).toEqual(originalImage)
+    await access(`${enabled.workspace}/e2e-image-v2.png`)
+
+    const referenceImage = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    )
+    await writeFile(`${enabled.workspace}/e2e-reference.png`, referenceImage)
+    const edit = await enabled.runImagePrompt("edit")
+    expect(edit.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_EDIT")).toBe(true)
+    expect(enabled.proxy.imageEditRequests).toBe(1)
+    await access(`${enabled.workspace}/e2e-edit.png`)
   } finally {
     await enabled.close()
   }
@@ -74,5 +88,17 @@ test("integrates image generation as an independently switchable Unicorn feature
     await expect(access(`${disabled.workspace}/e2e-image.png`)).rejects.toThrow()
   } finally {
     await disabled.close()
+  }
+
+  const standalone = await createOpenCodeE2E({ plugin: "image-gen" })
+  try {
+    await standalone.waitForModelContext(DEFAULT_LOW_LIMIT.context)
+    const result = await standalone.runImagePrompt()
+    expect(result.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_GEN")).toBe(true)
+    expect(standalone.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(true)
+    expect(standalone.proxy.imageRequests).toBe(1)
+    await access(`${standalone.workspace}/e2e-image.png`)
+  } finally {
+    await standalone.close()
   }
 })

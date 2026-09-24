@@ -78,6 +78,7 @@ Unicorn 的 TUI 入口还集成了 prompt reverse-search，默认开启，默认
       "options": {
         "features": { "promptSearch": true },
         "keybind": "ctrl+shift+r",
+        "maxPrompts": 2000,
       },
     },
   ],
@@ -85,7 +86,7 @@ Unicorn 的 TUI 入口还集成了 prompt reverse-search，默认开启，默认
 ```
 
 设置 `"features": { "promptSearch": false }` 可以关闭。搜索索引通过 session metadata 增量刷新，选择结果后会将
-原 prompt 插入当前输入框的光标位置，不会自动提交。
+原 prompt 插入当前输入框的光标位置，不会自动提交。`maxPrompts` 设置最多缓存的 prompt 数量，默认 2000。
 
 ## 测试
 
