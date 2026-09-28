@@ -10,10 +10,12 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun run --workspaces --if-present test",
-    "typecheck": "bun run --workspaces --if-present typecheck",
-    "check": "bun run typecheck && bun run test",
-    "publish:all": "npm version --ws patch && npm publish --ws",
+    "build": "bun run --cwd packages/opencode-plugin-send-message-across-sessions build && bun run --cwd packages/opencode-plugin-image-gen build && bun run --cwd packages/opencode-plugin-prompt-search build && bun run --cwd packages/opencode-plugin-unicorn build",
+    "test": "bun run build && bun run --workspaces --if-present test",
+    "typecheck": "bun run build && bun run --workspaces --if-present typecheck",
+    "test:packaged": "bun test test/packaged-e2e.test.ts",
+    "check": "bun run typecheck && bun run test && bun run test:packaged",
+    "publish:all": "bun run check && npm version --ws patch && bun run build && npm publish --ws",
     "postpublish:all": "git commit -am 'chore: publish'",
     "publish:all:prerelease": "npm run publish:all -- --tag=prerelease"
   }

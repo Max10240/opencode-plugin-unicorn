@@ -268,7 +268,7 @@ async function prepareLocalPluginArtifacts(root: string) {
     if (extracted.exitCode !== 0) {
       throw new Error(`Could not extract local plugin ${manifest.name}: ${extracted.stderr.toString()}`)
     }
-    artifacts[key] = destination
+    artifacts[key] = path.join(destination, "dist")
   }
 
   await linkLocalRuntimeDependencies(nodeModules, Object.values(packageSources))

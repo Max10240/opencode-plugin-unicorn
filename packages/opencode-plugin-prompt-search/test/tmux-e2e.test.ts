@@ -19,8 +19,8 @@ async function runScenario(mode: "standalone" | "unicorn") {
   const config = path.join(root, "config")
   const workspaceHistory = path.join(root, "history")
   const workspaceCurrent = path.join(root, "current")
-  const promptSearchRoot = path.resolve(import.meta.dir, "..")
-  const unicornRoot = path.resolve(import.meta.dir, "../../opencode-plugin-unicorn")
+  const promptSearchRoot = path.resolve(import.meta.dir, "../dist")
+  const unicornRoot = path.resolve(import.meta.dir, "../../opencode-plugin-unicorn/dist")
   const pluginRoot = mode === "standalone" ? promptSearchRoot : unicornRoot
   const tmuxName = `opencode-prompt-search-${mode}-${process.pid}`
   const password = "prompt-search-e2e"
@@ -181,6 +181,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
     tmux(["send-keys", "-t", restartedTarget, "F12"])
     await waitForPane(restartedTarget, "Search previous prompts", "prompt search did not reopen after deletion")
     tmux(["send-keys", "-t", restartedTarget, "history-candidate-01"])
+    tmux(["send-keys", "-t", restartedTarget, ...Array.from({ length: 11 }, () => "Down")])
     await waitForPane(restartedTarget, prompt, "indexed prompt from a deleted session was not retained")
     tmux(["send-keys", "-t", restartedTarget, "Enter"])
     await waitForPane(restartedTarget, prompt, "prompt from a deleted session could not be inserted")

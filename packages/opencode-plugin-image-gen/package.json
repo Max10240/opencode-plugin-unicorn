@@ -5,15 +5,16 @@
   "description": "OpenCode V2 image generation PoC using standard provider Images APIs",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/src/index.js"
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "files": [
-    "index.ts",
-    "src",
+    "dist/**/*.js",
     "README.md"
   ],
   "keywords": [

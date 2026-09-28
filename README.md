@@ -13,8 +13,9 @@
 
 ```bash
 bun install
+bun run build
 bun run typecheck
-bun test
+bun run check
 ```
 
 也可以只运行指定 workspace：
@@ -25,3 +26,5 @@ bun run --cwd packages/opencode-plugin-unicorn typecheck
 ```
 
 workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 package 保留自己的入口、依赖、测试和发布配置。
+
+发布时四个 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。`bun run check` 除了工作区测试，还会真实打包、安装四个包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用 tmux 检查搜索框的交互及响应式过滤。发布脚本会在改版本号、上传前执行完整检查。

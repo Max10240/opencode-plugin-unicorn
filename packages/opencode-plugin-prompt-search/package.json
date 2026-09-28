@@ -5,17 +5,17 @@
   "description": "Fast reverse-search for prompts across OpenCode sessions",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./tui": "./src/tui.tsx"
+    ".": "./dist/src/index.js",
+    "./tui": "./dist/src/tui.js"
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && bun build.mjs",
+    "prepack": "npm run build"
   },
   "files": [
-    "index.ts",
-    "tui.tsx",
-    "src",
+    "dist/**/*.js",
     "README.md"
   ],
   "keywords": [

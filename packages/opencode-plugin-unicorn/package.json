@@ -5,17 +5,17 @@
   "description": "Personal OpenCode plugin features",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./tui": "./src/tui.ts"
+    ".": "./dist/src/index.js",
+    "./tui": "./dist/src/tui.js"
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "files": [
-    "index.ts",
-    "tui.ts",
-    "src",
+    "dist/**/*.js",
     "README.md"
   ],
   "keywords": [

@@ -82,7 +82,9 @@ export async function createOpenCodeE2E(
   options: {
     readonly featureEnabled?: boolean
     readonly imageGenEnabled?: boolean
-    readonly plugin?: "unicorn" | "image-gen"
+    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "send-message"
+    readonly pluginPackage?: string
+    readonly pluginOptions?: Record<string, unknown>
     readonly share?: string
   } = {},
 ) {
@@ -94,21 +96,22 @@ export async function createOpenCodeE2E(
   await mkdir(workspace, { recursive: true })
 
   const proxy = await startMockProvider()
-  const features = options.plugin === "image-gen"
+  const features = options.plugin !== undefined && options.plugin !== "unicorn"
     ? {}
     : {
         ...(options.featureEnabled === undefined ? {} : { globalConfig: options.featureEnabled }),
         ...(options.imageGenEnabled === undefined ? {} : { imageGen: options.imageGenEnabled }),
       }
+  const pluginOptions = { ...(Object.keys(features).length === 0 ? {} : { features }), ...options.pluginOptions }
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugins: [
       {
         package:
-          options.plugin === "image-gen"
+          options.pluginPackage ?? (options.plugin === "image-gen"
             ? path.resolve(import.meta.dir, "../../opencode-plugin-image-gen")
-            : path.resolve(import.meta.dir, ".."),
-        ...(Object.keys(features).length === 0 ? {} : { options: { features } }),
+            : path.resolve(import.meta.dir, "..")),
+        ...(Object.keys(pluginOptions).length === 0 ? {} : { options: pluginOptions }),
       },
     ],
     ...(options.share === undefined ? {} : { share: options.share }),

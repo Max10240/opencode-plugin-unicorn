@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "jsx": "preserve",
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["index.ts", "tui.tsx", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["test", "dist"]
+}

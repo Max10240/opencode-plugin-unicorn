@@ -5,16 +5,17 @@
   "description": "Send user-style messages between OpenCode sessions",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./setup": "./src/setup.ts"
+    ".": "./dist/src/index.js",
+    "./setup": "./dist/src/setup.js"
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "files": [
-    "index.ts",
-    "src",
+    "dist/**/*.js",
     "README.md"
   ],
   "keywords": [
