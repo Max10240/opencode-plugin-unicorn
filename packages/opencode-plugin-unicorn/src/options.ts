@@ -5,6 +5,7 @@ export interface UnicornOptions {
     readonly globalConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
     readonly imageGen?: boolean
+    readonly showImg?: boolean
     readonly promptSearch?: boolean
   }
 }
@@ -30,6 +31,11 @@ export function imageGenFeatureEnabled(options: Readonly<Record<string, unknown>
 export function promptSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.promptSearch !== false
+}
+
+export function showImgFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.showImg !== false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

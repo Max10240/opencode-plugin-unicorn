@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
+import { checkGeneratedImagePreview, checkShowImg } from "../packages/opencode-plugin-show-img/test/e2e-utils.js"
 
 setDefaultTimeout(240_000)
 
@@ -12,8 +13,16 @@ const packages = [
   { directory: "opencode-plugin-send-message-across-sessions", id: "max10240.send-message-across-sessions", kind: "send-message" },
   { directory: "opencode-plugin-image-gen", id: "opencode.image-gen", kind: "image-gen" },
   { directory: "opencode-plugin-prompt-search", id: "max10240.prompt-search", kind: "prompt-search" },
+  { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
   { directory: "opencode-plugin-unicorn", id: "max10240.unicorn", kind: "unicorn" },
 ] as const
+
+const toolDescriptions = {
+  image_gen: "Generate or edit one image and save it to a file without overwriting existing files.",
+  show_img: "Show a server-side image to the user without adding it to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB.",
+  send_message_across_sessions: "Send a user message to another OpenCode session.",
+  list_online_sessions: "List other online OpenCode sessions across working directories.",
+}
 
 test("every npm tarball contains only JavaScript and runs in isolated real OpenCode", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-packaged-e2e-"))
@@ -29,7 +38,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(files).toContain("dist/index.js")
       expect(files.some((file) => /\.(?:ts|tsx|jsx|map)$/.test(file))).toBe(false)
       expect(files.every((file) => file === "package.json" || file === "README.md" || file.endsWith(".js"))).toBe(true)
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
@@ -37,14 +46,14 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
     }
 
     const install = path.join(root, "install")
-    run(["npm", "install", "--prefix", install, "--ignore-scripts", "--no-audit", "--no-fund", ...archives], root)
+    run(["npm", "install", "--prefix", install, "--registry=https://registry.npmjs.org/", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], root)
 
     for (const entry of packages) {
       const packageRoot = path.join(install, "node_modules", "@max10240", entry.directory)
       const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, string> }
       expect(Object.values(manifest.exports).every((file) => file.startsWith("./dist/") && file.endsWith(".js"))).toBe(true)
       expect(importWithNode(`@max10240/${entry.directory}`, install)).toBe(entry.id)
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
         expect(importWithNode(`@max10240/${entry.directory}/tui`, install)).toBe(`${entry.id}.tui`)
       }
       if (entry.kind === "send-message") {
@@ -79,7 +88,21 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
           expect(e2e.proxy.requests.some((request) => request.tools.includes("send_message_across_sessions") && request.tools.includes("list_online_sessions"))).toBe(true)
         }
 
+        if (entry.kind === "show-img" || entry.kind === "unicorn") await checkShowImg(e2e)
+        if (entry.kind === "image-gen" || entry.kind === "unicorn") await checkGeneratedImagePreview(e2e, entry.kind === "unicorn", entry.kind === "unicorn")
+
         if (entry.kind === "unicorn" || entry.kind === "prompt-search") await checkTUI(e2e, entry.id)
+        const seen = new Set<string>()
+        for (const request of e2e.proxy.mock.getRequests()) {
+          const body = request.body as { tools?: Array<{ function?: { name: string; description: string } }> } | null
+          for (const tool of body?.tools ?? []) {
+            const definition = tool.function
+            if (!definition || !(definition.name in toolDescriptions)) continue
+            seen.add(definition.name)
+            expect(definition.description).toBe(toolDescriptions[definition.name as keyof typeof toolDescriptions])
+          }
+        }
+        if (entry.kind === "unicorn") expect([...seen].sort()).toEqual(Object.keys(toolDescriptions).sort())
       } finally {
         await e2e.close()
       }

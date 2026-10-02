@@ -1,7 +1,7 @@
-export type ImageQuality = "low" | "medium" | "high" | "auto"
+export type ImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto"
 
 export type ImageGenOptions = {
-  /** Optional default model reference, for example `openai/gpt-image-1`. */
+  /** Default model override. Otherwise uses `openai/gpt-image-2.5-sunburst`. */
   readonly model?: unknown
   /** Optional OpenAI-compatible API base URL. Defaults to `https://api.openai.com/v1`. */
   readonly baseURL?: unknown

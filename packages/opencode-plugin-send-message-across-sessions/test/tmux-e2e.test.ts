@@ -125,23 +125,15 @@ async function runScenario(mode: Mode) {
       return
     }
 
-    tmux(["new-window", "-t", tmuxName, "-n", "target"])
-    await Bun.sleep(1_000)
+    // Start commands directly, without racing the user's interactive shell startup.
+    tmux(["set-option", "-g", "remain-on-exit", "on"])
+    tmux(["new-window", "-t", tmuxName, "-n", "target", envCommand(workspaceB, ["--server", serverURL, "--session", target.id])])
     tmux([
-      "send-keys",
+      "new-window",
       "-t",
-      `${tmuxName}:target`,
-      envCommand(workspaceB, ["--server", serverURL, "--session", target.id]),
-      "Enter",
-    ])
-    await Bun.sleep(1_500)
-
-    tmux(["new-window", "-t", tmuxName, "-n", "sender"])
-    await Bun.sleep(1_000)
-    tmux([
-      "send-keys",
-      "-t",
-      `${tmuxName}:sender`,
+      tmuxName,
+      "-n",
+      "sender",
       envCommand(workspaceA, [
         "run",
         "--server",
@@ -154,7 +146,6 @@ async function runScenario(mode: Mode) {
         sender.id,
         "E2E_LIST_SESSIONS",
       ]),
-      "Enter",
     ])
     try {
       await waitForPane(`${tmuxName}:sender`, "LIST_DONE", "list_online_sessions did not complete")
@@ -180,7 +171,8 @@ async function runScenario(mode: Mode) {
     expect(listedSessions?.find((session) => session.id === target.id)?.directory).toBe(workspaceB)
 
     tmux([
-      "send-keys",
+      "respawn-pane",
+      "-k",
       "-t",
       `${tmuxName}:sender`,
       envCommand(workspaceA, [
@@ -195,7 +187,6 @@ async function runScenario(mode: Mode) {
         sender.id,
         `E2E_SEND_MESSAGE target=${target.id} message=${message}`,
       ]),
-      "Enter",
     ])
     await waitForPane(`${tmuxName}:sender`, "SEND_DONE", "send_message_across_sessions did not complete")
 
@@ -238,6 +229,7 @@ async function prepareLocalPluginArtifacts(root: string) {
     unicorn: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
     imageGen: path.resolve(import.meta.dir, "../../opencode-plugin-image-gen"),
     promptSearch: path.resolve(import.meta.dir, "../../opencode-plugin-prompt-search"),
+    showImg: path.resolve(import.meta.dir, "../../opencode-plugin-show-img"),
   }
   const nodeModules = path.join(root, "node_modules")
   const artifactDirectory = path.join(root, "artifacts")

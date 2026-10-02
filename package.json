@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --cwd packages/opencode-plugin-send-message-across-sessions build && bun run --cwd packages/opencode-plugin-image-gen build && bun run --cwd packages/opencode-plugin-prompt-search build && bun run --cwd packages/opencode-plugin-unicorn build",
+    "build": "bun run --cwd packages/opencode-plugin-send-message-across-sessions build && bun run --cwd packages/opencode-plugin-image-gen build && bun run --cwd packages/opencode-plugin-prompt-search build && bun run --cwd packages/opencode-plugin-show-img build && bun run --cwd packages/opencode-plugin-unicorn build",
     "test": "bun run build && bun run --workspaces --if-present test",
     "typecheck": "bun run build && bun run --workspaces --if-present typecheck",
     "test:packaged": "bun test test/packaged-e2e.test.ts",

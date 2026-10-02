@@ -22,18 +22,17 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
       editor.add({
         name: SEND_TOOL,
         options: { codemode: false },
-        description:
-          "Send a user-style message to another OpenCode session. If target_session_id is omitted, choose one from list_online_sessions first.",
+        description: "Send a user message to another OpenCode session.",
         input: {
           type: "object",
           properties: {
             target_session_id: {
               type: "string",
-              description: "The target OpenCode session ID. Omit it to get a selection list.",
+              description: "Target session ID; omit to list available sessions.",
             },
             message: {
               type: "string",
-              description: "The message to deliver to the target session.",
+              description: "Message to send.",
               minLength: 1,
             },
           },
@@ -73,7 +72,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
       editor.add({
         name: LIST_TOOL,
         options: { codemode: false },
-        description: "List online OpenCode sessions from all working directories so the user can choose a target.",
+        description: "List other online OpenCode sessions across working directories.",
         input: {
           type: "object",
           properties: {},

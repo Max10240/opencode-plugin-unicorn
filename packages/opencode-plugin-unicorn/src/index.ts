@@ -1,11 +1,13 @@
 import { Plugin } from "@opencode/plugin"
 import { setupSendMessageAcrossSessions } from "@max10240/opencode-plugin-send-message-across-sessions/setup"
 import { setupImageGen } from "@max10240/opencode-plugin-image-gen"
+import { setupShowImg } from "@max10240/opencode-plugin-show-img"
 import { updateGlobalConfig } from "./global-config.js"
 import {
   globalConfigFeatureEnabled,
   imageGenFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
+  showImgFeatureEnabled,
 } from "./options.js"
 
 export default Plugin.define({
@@ -16,6 +18,7 @@ export default Plugin.define({
     if (sendMessageAcrossSessionsFeatureEnabled(ctx.options))
       cleanups.push(await setupSendMessageAcrossSessions(ctx))
     if (imageGenFeatureEnabled(ctx.options)) cleanups.push(await setupImageGen(ctx))
+    if (showImgFeatureEnabled(ctx.options)) cleanups.push(await setupShowImg(ctx))
 
     if (cleanups.length === 0) return
     return async () => {
@@ -28,6 +31,7 @@ export {
   globalConfigFeatureEnabled,
   imageGenFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
+  showImgFeatureEnabled,
 } from "./options.js"
 export {
   GLOBAL_CONFIG_FILE_NAMES,

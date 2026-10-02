@@ -36,6 +36,7 @@ export type OpenCodeE2E = {
   readonly baseURL: string
   readonly proxy: MockProvider
   readonly close: () => Promise<void>
+  readonly restart: () => Promise<void>
   readonly model: () => Promise<Record<string, any>>
   readonly waitForModelContext: (context: number) => Promise<Record<string, any>>
   readonly runLargePrompt: () => Promise<{
@@ -82,7 +83,7 @@ export async function createOpenCodeE2E(
   options: {
     readonly featureEnabled?: boolean
     readonly imageGenEnabled?: boolean
-    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "send-message"
+    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "send-message" | "show-img"
     readonly pluginPackage?: string
     readonly pluginOptions?: Record<string, unknown>
     readonly share?: string
@@ -117,6 +118,7 @@ export async function createOpenCodeE2E(
     ...(options.share === undefined ? {} : { share: options.share }),
     providers: {
       openai: {
+        settings: { baseURL: proxy.baseURL, apiKey: "proxy-test" },
         models: {
           "gpt-5.6-luna": {
             package: "@opencode/ai/providers/openai-compatible",
@@ -163,30 +165,46 @@ export async function createOpenCodeE2E(
     XDG_STATE_HOME: path.join(root, "xdg-state"),
   }
   const binary = process.env.OPENCODE_BIN ?? "opencode"
-  const server = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+  const startServer = () => Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: workspace,
     env: environment,
     stdout: "pipe",
     stderr: "pipe",
   })
-  const stdout = new Response(server.stdout).text()
-  const stderr = new Response(server.stderr).text()
+  let server = startServer()
+  let stdout = new Response(server.stdout).text()
+  let stderr = new Response(server.stderr).text()
   const baseURL = `http://127.0.0.1:${port}`
 
-  const close = async () => {
-    await proxy.close()
+  const stopServer = async () => {
     if (server.exitCode === null) server.kill()
     await Promise.race([server.exited, Bun.sleep(5_000)])
     if (server.exitCode === null) server.kill(9)
     await Promise.allSettled([stdout, stderr, server.exited])
+  }
+  const close = async () => {
+    await proxy.close()
+    await stopServer()
     await rm(root, { recursive: true, force: true })
   }
 
+  const ready = () => waitFor(async () => {
+    const response = await fetch(`${baseURL}/api/info`, {
+      headers: authorization(password), signal: AbortSignal.timeout(1_000),
+    }).catch(() => undefined)
+    return response?.ok === true
+  }, "OpenCode server did not start")
+
+  const restart = async () => {
+    await stopServer()
+    server = startServer()
+    stdout = new Response(server.stdout).text()
+    stderr = new Response(server.stderr).text()
+    await ready()
+  }
+
   try {
-    await waitFor(async () => {
-      const response = await fetch(`${baseURL}/api/info`, { headers: authorization(password) }).catch(() => undefined)
-      return response?.ok === true
-    }, "OpenCode server did not start")
+    await ready()
   } catch (error) {
     const output = await readProcessOutput(stderr)
     await close()
@@ -278,6 +296,7 @@ export async function createOpenCodeE2E(
     baseURL,
     proxy,
     close,
+    restart,
     model,
     waitForModelContext,
     runLargePrompt,

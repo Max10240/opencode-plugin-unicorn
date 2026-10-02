@@ -111,9 +111,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
 
     if (mode === "unicorn") {
       const disabledTarget = `${tmuxName}:tui-disabled`
-      tmux(["new-window", "-t", tmuxName, "-n", "tui-disabled"])
-      await Bun.sleep(1_000)
-      tmux(["send-keys", "-t", disabledTarget, envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id]), "Enter"])
+      tmux(["new-window", "-t", tmuxName, "-n", "tui-disabled", envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id])])
       await waitForPane(disabledTarget, "Prompt-Search-E2e", "TUI with prompt search disabled did not start")
       tmux(["send-keys", "-t", disabledTarget, "F12"])
       await Bun.sleep(500)
@@ -125,9 +123,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
       await writeCLIConfig(true)
     }
 
-    tmux(["new-window", "-t", tmuxName, "-n", "tui"])
-    await Bun.sleep(2_000)
-    tmux(["send-keys", "-t", `${tmuxName}:tui`, envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id]), "Enter"])
+    tmux(["new-window", "-t", tmuxName, "-n", "tui", envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id])])
     await waitForPane(`${tmuxName}:tui`, "Prompt-Search-E2e", "TUI did not start")
     await Bun.sleep(1_500)
 
@@ -167,10 +163,8 @@ async function runScenario(mode: "standalone" | "unicorn") {
     expect(deleted.status).toBe(404)
 
     tmux(["kill-window", "-t", target])
-    tmux(["new-window", "-t", tmuxName, "-n", "tui-after-delete"])
-    await Bun.sleep(1_000)
     const restartedTarget = `${tmuxName}:tui-after-delete`
-    tmux(["send-keys", "-t", restartedTarget, envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id]), "Enter"])
+    tmux(["new-window", "-t", tmuxName, "-n", "tui-after-delete", envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id])])
     await waitForPane(restartedTarget, "Prompt-Search-E2e", "restarted TUI did not start")
 
     // Force a refresh after restart, when the deleted session is no longer in the API list.

@@ -1,10 +1,57 @@
-import { afterEach, expect, mock, test } from "bun:test"
+import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 import { generateImage } from "../src/openai-images.js"
 
 const originalFetch = globalThis.fetch
+let currentFetch = originalFetch
+// The SDK caches its fetch layer. Keep one dispatcher and replace only its handler per case.
+const routedFetch = ((...args: Parameters<typeof fetch>) => currentFetch(...args)) as typeof fetch
+
+beforeEach(() => {
+  globalThis.fetch = routedFetch
+})
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  currentFetch = originalFetch
+})
+
+const latestModels = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst-2026-09-08"]
+const latestCases = latestModels.flatMap((model) => (["generate", "edit"] as const).flatMap((kind) =>
+  (["xhigh", "max"] as const).map((quality) => ({ model, kind, quality })),
+))
+
+test.each(latestCases)("passes $model and $quality unchanged to the $kind Image API", async ({ model, kind, quality }) => {
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+  let calls = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls++
+    const request = new Request(input, init)
+    expect(request.url).toBe(`https://image.example/v1/images/${kind === "generate" ? "generations" : "edits"}`)
+    expect(request.headers.get("authorization")).toBe("Bearer test-token")
+    expect(request.headers.get("x-provider")).toBe("configured")
+    if (kind === "generate") {
+      expect(await request.json()).toEqual({ model, prompt: "latest image", n: 1, output_format: "png", quality, size: "1024x1024", moderation: "auto" })
+    } else {
+      const form = await request.formData()
+      expect(form.get("model")).toBe(model)
+      expect(form.get("quality")).toBe(quality)
+      expect(form.get("size")).toBe("1024x1024")
+      expect(form.get("moderation")).toBe("auto")
+      const reference = form.get("image[]")
+      expect(reference).toBeInstanceOf(File)
+      expect(new Uint8Array(await (reference as File).arrayBuffer())).toEqual(bytes)
+    }
+    return Response.json({ data: [{ b64_json: Buffer.from(bytes).toString("base64") }] })
+  }) as unknown as typeof fetch
+  const result = await generateImage({
+    token: "test-token", providerID: "openai", packageName: "@opencode/ai/providers/openai",
+    baseURL: "https://image.example/v1", headers: { "x-provider": "configured" }, body: { moderation: "auto" },
+    model, quality, prompt: "latest image", size: "1024x1024",
+    images: kind === "edit" ? [{ path: "/server/reference.png", name: "reference.png", mediaType: "image/png", data: bytes }] : undefined,
+  })
+  expect(result.data).toEqual(bytes)
+  expect(result.mediaType).toBe("image/png")
+  expect(calls).toBe(1)
 })
 
 test("uses the latest image API for OpenAI and native providers", async () => {
@@ -12,7 +59,7 @@ test("uses the latest image API for OpenAI and native providers", async () => {
   const nativeRequests: Array<{ mode: string; url: string; body: Record<string, any> }> = []
   const imageData = Buffer.from("PNG").toString("base64")
   const downloadedPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     if (new URL(request.url).hostname === "images.example.test") return new Response(downloadedPng)
 

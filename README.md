@@ -8,6 +8,7 @@
 - [`@max10240/opencode-plugin-send-message-across-sessions`](./packages/opencode-plugin-send-message-across-sessions)：跨 cwd 的 session 消息插件。
 - [`@max10240/opencode-plugin-prompt-search`](./packages/opencode-plugin-prompt-search)：TUI 跨 session prompt reverse-search 插件。
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen)：基于标准 `/images/*` endpoint 的 V2 生图可行性验证 PoC。
+- [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img)：通过 ID 和 UI 专用 RPC 预览 server 图片，不将图片内容加入模型上下文。
 
 ## 开发
 
@@ -27,4 +28,4 @@ bun run --cwd packages/opencode-plugin-unicorn typecheck
 
 workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 package 保留自己的入口、依赖、测试和发布配置。
 
-发布时四个 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。`bun run check` 除了工作区测试，还会真实打包、安装四个包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用 tmux 检查搜索框的交互及响应式过滤。发布脚本会在改版本号、上传前执行完整检查。
+发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。`bun run check` 除了工作区测试，还会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用 tmux 检查搜索框的交互及响应式过滤，以及 show-img 的跨文件系统图片预览。发布脚本会在改版本号、上传前执行完整检查。

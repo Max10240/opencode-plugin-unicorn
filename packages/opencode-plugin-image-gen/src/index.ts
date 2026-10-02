@@ -1,9 +1,10 @@
 import { Plugin } from "@opencode/plugin"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import { resolveCredential } from "./credential.js"
-import { resolveImageModel } from "./model.js"
+import { DEFAULT_IMAGE_MODEL, resolveImageModel } from "./model.js"
 import { generateImage, readImageFiles } from "./openai-images.js"
 import { saveGeneratedImage } from "./output.js"
+import { prepareImagePreview } from "./preview.js"
 import type { ImageGenOptions, ImageToolInput } from "./types.js"
 
 const TOOL_NAME = "image_gen"
@@ -14,36 +15,29 @@ export async function setupImageGen(context: Context) {
     editor.add({
       name: TOOL_NAME,
       options: { codemode: false },
-      description: [
-        "Generate one raster image through the selected provider/model using OpenCode's native image adapter or the standard OpenAI Images protocol.",
-        "The tool uses the provider's native image route when available, including /images/generations and /images/edits routes.",
-        "If model is omitted, use the current session model; configure image_gen.model to select a dedicated image model.",
-        "Provider and model settings, headers, body overlays, credentials, modelID, and baseURL are inherited from OpenCode's resolved model catalog.",
-        "This tool never uses the Codex Responses or hosted image_generation tool.",
-        "Existing output files are never overwritten; the tool writes -v2, -v3, and so on.",
-      ].join(" "),
+      description: "Generate or edit one image and save it to a file without overwriting existing files.",
       input: {
         type: "object",
         properties: {
-          prompt: { type: "string", description: "Description of the image to generate." },
+          prompt: { type: "string", description: "Image description or editing instructions." },
           out: {
             type: "string",
             description: "Output path, relative to the current session directory unless absolute.",
           },
           model: {
             type: "string",
-            description: "Optional model reference, for example openai/gpt-image-1.",
+            description: `Provider/model; defaults to options.model or ${DEFAULT_IMAGE_MODEL}.`,
           },
           quality: {
             type: "string",
-            enum: ["low", "medium", "high", "auto"],
-            description: "Optional image quality passed to the provider.",
+            enum: ["low", "medium", "high", "xhigh", "max", "auto"],
+            description: "Image quality; xhigh and max require GPT Image 2.5.",
           },
-          size: { type: "string", description: "Optional image size such as 1024x1024." },
+          size: { type: "string", description: "Image size, for example 1024x1024." },
           images: {
             type: "array",
             items: { type: "string" },
-            description: "Optional reference image paths, relative to the current session directory.",
+            description: "Reference image paths for editing, relative to the session directory unless absolute.",
           },
         },
         required: ["prompt", "out"],
@@ -87,6 +81,7 @@ export async function setupImageGen(context: Context) {
           },
         )
         const saved = await saveGeneratedImage(input.out, model.directory, image.data)
+        const imagePreview = await prepareImagePreview(context, tool, saved.savedPath)
         return {
           content: saved.message,
           metadata: {
@@ -97,6 +92,7 @@ export async function setupImageGen(context: Context) {
             package: model.packageName,
             endpoint: images.length === 0 ? "/images/generations" : "/images/edits",
             credentialSource: credential.source,
+            ...(imagePreview ? { imagePreview } : {}),
           },
         }
       },
