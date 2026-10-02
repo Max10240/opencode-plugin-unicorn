@@ -28,4 +28,7 @@ bun run --cwd packages/opencode-plugin-unicorn typecheck
 
 workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 package 保留自己的入口、依赖、测试和发布配置。
 
+所有插件包使用同一个版本号，新增插件也与 Unicorn 当前版本对齐。`bun run check:versions` 可单独检查；
+构建和完整检查会自动校验，版本不一致时立即失败。
+
 发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。`bun run check` 除了工作区测试，还会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用 tmux 检查搜索框的交互及响应式过滤，以及 show-img 的跨文件系统图片预览。发布脚本会在改版本号、上传前执行完整检查。

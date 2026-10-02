@@ -5,6 +5,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
 import { checkGeneratedImagePreview, checkShowImg } from "../packages/opencode-plugin-show-img/test/e2e-utils.js"
+import { checkPluginVersions } from "../scripts/check-versions.mjs"
 
 setDefaultTimeout(240_000)
 
@@ -25,14 +26,16 @@ const toolDescriptions = {
 }
 
 test("every npm tarball contains only JavaScript and runs in isolated real OpenCode", async () => {
+  const { version } = await checkPluginVersions(repository)
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-packaged-e2e-"))
   try {
     run(["bun", "run", "build"], repository)
     const archives: string[] = []
     for (const entry of packages) {
       const output = run(["npm", "pack", "--json", "--pack-destination", root], path.join(repository, "packages", entry.directory))
-      const packed = JSON.parse(output) as Array<{ filename: string; files: Array<{ path: string }> }>
+      const packed = JSON.parse(output) as Array<{ filename: string; version: string; files: Array<{ path: string }> }>
       expect(packed).toHaveLength(1)
+      expect(packed[0]!.version).toBe(version)
       const files = packed[0]!.files.map((item) => item.path)
       expect(files).toContain("dist/src/index.js")
       expect(files).toContain("dist/index.js")
@@ -50,7 +53,8 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
 
     for (const entry of packages) {
       const packageRoot = path.join(install, "node_modules", "@max10240", entry.directory)
-      const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, string> }
+      const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")) as { version: string; exports: Record<string, string> }
+      expect(manifest.version).toBe(version)
       expect(Object.values(manifest.exports).every((file) => file.startsWith("./dist/") && file.endsWith(".js"))).toBe(true)
       expect(importWithNode(`@max10240/${entry.directory}`, install)).toBe(entry.id)
       if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
