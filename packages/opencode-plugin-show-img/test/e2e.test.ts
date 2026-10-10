@@ -10,7 +10,7 @@ for (const mode of ["standalone", "standalone-disabled", "unicorn", "unicorn-dis
     const e2e = await createOpenCodeE2E({
       plugin: mode.startsWith("standalone") ? "show-img" : "unicorn",
       pluginPackage: mode.startsWith("standalone") ? path.resolve(import.meta.dir, "../dist") : path.resolve(import.meta.dir, "../../opencode-plugin-unicorn/dist"),
-      pluginOptions: { features: { globalConfig: false, imageGen: false, promptSearch: false, showImg: !mode.endsWith("disabled") } },
+      pluginOptions: { features: { recommendedOpencodeConfig: false, imageGen: false, promptSearch: false, showImg: !mode.endsWith("disabled") } },
     })
     try { await checkShowImg(e2e, !mode.endsWith("disabled")) } finally { await e2e.close() }
   })

@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
 import { checkGeneratedImagePreview, checkShowImg } from "../packages/opencode-plugin-show-img/test/e2e-utils.js"
 import { checkPluginVersions } from "../scripts/check-versions.mjs"
+import { checkRecommendedConfig } from "../packages/opencode-plugin-recomended-opencode-config/test/e2e-utils.js"
+import { recommendedCommands } from "../packages/opencode-plugin-recomended-opencode-config/src/index.js"
 
-setDefaultTimeout(240_000)
+setDefaultTimeout(360_000)
 
 const repository = path.resolve(fileURLToPath(import.meta.url), "../..")
 const packages = [
@@ -15,6 +17,7 @@ const packages = [
   { directory: "opencode-plugin-image-gen", id: "opencode.image-gen", kind: "image-gen" },
   { directory: "opencode-plugin-prompt-search", id: "max10240.prompt-search", kind: "prompt-search" },
   { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
+  { directory: "opencode-plugin-recomended-opencode-config", id: "max10240.recomended-opencode-config", kind: "recommended-config" },
   { directory: "opencode-plugin-unicorn", id: "max10240.unicorn", kind: "unicorn" },
 ] as const
 
@@ -41,6 +44,8 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(files).toContain("dist/index.js")
       expect(files.some((file) => /\.(?:ts|tsx|jsx|map)$/.test(file))).toBe(false)
       expect(files.every((file) => file === "package.json" || file === "README.md" || file.endsWith(".js"))).toBe(true)
+      expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
+      if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
       if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
@@ -57,6 +62,12 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(manifest.version).toBe(version)
       expect(Object.values(manifest.exports).every((file) => file.startsWith("./dist/") && file.endsWith(".js"))).toBe(true)
       expect(importWithNode(`@max10240/${entry.directory}`, install)).toBe(entry.id)
+      if (entry.kind === "recommended-config") {
+        const output = run(["node", "--input-type=module", "-e", "const { recommendedRules, recommendedCommands } = await import(process.argv[1]); console.log(JSON.stringify({rules:recommendedRules,commands:recommendedCommands}))", `@max10240/${entry.directory}`], install)
+        expect(JSON.parse(output).rules.length).toBeGreaterThan(0)
+        expect(JSON.parse(output).rules.every((rule: Record<string, unknown>) => typeof rule.title === "string" && !("depth" in rule))).toBe(true)
+        expect(JSON.parse(output).commands).toEqual(recommendedCommands)
+      }
       if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
         expect(importWithNode(`@max10240/${entry.directory}/tui`, install)).toBe(`${entry.id}.tui`)
       }
@@ -68,6 +79,14 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         plugin: entry.kind,
         pluginPackage: path.join(packageRoot, "dist"),
         ...(entry.kind === "unicorn" || entry.kind === "prompt-search" ? { pluginOptions: { keybind: "f12" } } : {}),
+        ...(entry.kind === "recommended-config" ? {
+          pluginOptions: { enabled: true }, share: "manual", initialRules: "## Existing User Rules\n\nKeep user instructions\n",
+          configure: (config: Record<string, any>) => {
+            config.commands = { [Object.keys(recommendedCommands)[0]]: { template: "USER_COMMAND_TEMPLATE" }, "user-only-command": { template: "USER_ONLY" } }
+            config.providers.openai.settings.store = true
+            config.providers.openai.models["gpt-5.6-luna"].package = "@opencode/ai/providers/openai/chat"
+          },
+        } : {}),
       })
       try {
         await waitFor(async () => {
@@ -79,7 +98,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         }, `${entry.id} did not activate`)
 
         if (entry.kind === "unicorn") {
-          expect((await e2e.waitForModelContext(1_000_000)).limit.context).toBe(1_000_000)
+          expect((await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)).limit.context).toBe(DEFAULT_LOW_LIMIT.context)
           const result = await e2e.runImagePrompt()
           expect(result.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_GEN")).toBe(true)
           expect(e2e.proxy.imageRequests).toBe(1)
@@ -94,6 +113,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
 
         if (entry.kind === "show-img" || entry.kind === "unicorn") await checkShowImg(e2e)
         if (entry.kind === "image-gen" || entry.kind === "unicorn") await checkGeneratedImagePreview(e2e, entry.kind === "unicorn", entry.kind === "unicorn")
+        if (entry.kind === "recommended-config") await checkRecommendedConfig(e2e)
 
         if (entry.kind === "unicorn" || entry.kind === "prompt-search") await checkTUI(e2e, entry.id)
         const seen = new Set<string>()

@@ -12,7 +12,7 @@
     "test": "bun test test/*.test.ts && bun test --conditions=browser --preload @opentui/solid/preload test/tui",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && bun build.mjs",
-    "prepack": "npm run build"
+    "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
   },
   "files": [
     "dist/**/*.js",

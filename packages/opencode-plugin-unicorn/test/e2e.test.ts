@@ -2,19 +2,18 @@ import { expect, test } from "bun:test"
 import { access, readFile, writeFile } from "node:fs/promises"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "./e2e-utils.js"
 
-test("updates the real global config and avoids compaction with the larger Luna context", async () => {
+test("Unicorn does not change global config or Luna context by default", async () => {
   const e2e = await createOpenCodeE2E()
   try {
-    const model = await e2e.waitForModelContext(1_000_000)
-    expect(model.limit).toEqual({ context: 1_000_000, input: 922_000, output: 128_000 })
+    const model = await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)
+    expect(model.limit).toEqual(DEFAULT_LOW_LIMIT)
 
     const config = await e2e.config()
-    expect(config.share).toBe("disabled")
+    expect(config.share).toBeUndefined()
     expect(config.providers.openai.models["gpt-5.6-luna"].settings.baseURL).toBe(e2e.proxy.baseURL)
 
-    const result = await e2e.runLargePrompt()
-    expect(result.messages.some((message) => message.type === "compaction")).toBe(false)
-    expect(e2e.proxy.requests.map((request) => request.kind)).toEqual(["primary"])
+    await expect(access(`${e2e.configDirectory}/AGENTS.md`)).rejects.toThrow()
+    expect(config.providers.openai.settings.store).toBeUndefined()
   } finally {
     await e2e.close()
   }
@@ -38,15 +37,13 @@ test("without the feature, the same real OpenCode session compacts at the low li
   }
 })
 
-test("preserves an existing share policy while applying the global model configuration", async () => {
-  const e2e = await createOpenCodeE2E({ share: "manual" })
+test("recommended config does not change an existing share policy or model limits", async () => {
+  const e2e = await createOpenCodeE2E({ share: "manual", featureEnabled: true })
   try {
-    await e2e.waitForModelContext(1_000_000)
+    await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)
     expect((await e2e.config()).share).toBe("manual")
 
-    const result = await e2e.runLargePrompt()
-    expect(result.messages.some((message) => message.type === "compaction")).toBe(false)
-    expect(e2e.proxy.requests.map((request) => request.kind)).toEqual(["primary"])
+    expect((await e2e.config()).providers.openai.settings.store).toBe(false)
   } finally {
     await e2e.close()
   }
@@ -55,7 +52,7 @@ test("preserves an existing share policy while applying the global model configu
 test("integrates image generation as an independently switchable Unicorn feature", async () => {
   const enabled = await createOpenCodeE2E({ imageGenEnabled: true })
   try {
-    await enabled.waitForModelContext(1_000_000)
+    await enabled.waitForModelContext(DEFAULT_LOW_LIMIT.context)
 
     const originalImage = Buffer.from("keep-existing-image")
     await writeFile(`${enabled.workspace}/e2e-image.png`, originalImage)
@@ -81,7 +78,7 @@ test("integrates image generation as an independently switchable Unicorn feature
 
   const disabled = await createOpenCodeE2E({ imageGenEnabled: false })
   try {
-    await disabled.waitForModelContext(1_000_000)
+    await disabled.waitForModelContext(DEFAULT_LOW_LIMIT.context)
     await disabled.runImagePrompt()
     expect(disabled.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(false)
     expect(disabled.proxy.imageRequests).toBe(0)

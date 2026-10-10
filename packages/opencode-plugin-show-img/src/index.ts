@@ -50,8 +50,7 @@ export async function setupShowImg(context: Context) {
       })
     })
     return async () => {
-      await registration.dispose()
-      await rpc.dispose()
+      try { await registration.dispose() } finally { await rpc.dispose() }
     }
   } catch (error) {
     await rpc.dispose()

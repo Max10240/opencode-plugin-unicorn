@@ -11,7 +11,7 @@ for (const mode of ["standalone", "unicorn"] as const) {
     const e2e = await createOpenCodeE2E({
       plugin: mode === "standalone" ? "image-gen" : "unicorn",
       pluginPackage: path.resolve(import.meta.dir, mode === "standalone" ? "../dist" : "../../opencode-plugin-unicorn/dist"),
-      pluginOptions: { model: "openai/gpt-image-2.5-flare", features: { globalConfig: false, showImg: false, promptSearch: false } },
+      pluginOptions: { model: "openai/gpt-image-2.5-flare", features: { recommendedOpencodeConfig: false, showImg: false, promptSearch: false } },
     })
     try {
       const sessionID = await createSession(e2e)

@@ -15,7 +15,7 @@ for (const mode of ["image-gen-only", "image-gen-first", "show-img-first", "show
       pluginPackage: path.resolve(import.meta.dir, combined ? "../../opencode-plugin-unicorn/dist" : "../dist"),
       pluginOptions: {
         ...(mode === "show-img-first" ? { model: "openai/gpt-image-2.5-flare" } : {}),
-        features: { globalConfig: false, promptSearch: false, showImg: enabled },
+        features: { recommendedOpencodeConfig: false, promptSearch: false, showImg: enabled },
       },
     })
     const previewCalls = path.join(e2e.root, "preview-calls.txt")

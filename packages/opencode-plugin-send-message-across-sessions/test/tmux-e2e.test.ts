@@ -48,7 +48,7 @@ async function runScenario(mode: Mode) {
                   package: localPackages.unicorn,
                   options: {
                     features: {
-                      globalConfig: false,
+                      recommendedOpencodeConfig: false,
                       sendMessageAcrossSessions: mode !== "unicorn-disabled",
                       imageGen: false,
                     },
@@ -230,6 +230,7 @@ async function prepareLocalPluginArtifacts(root: string) {
     imageGen: path.resolve(import.meta.dir, "../../opencode-plugin-image-gen"),
     promptSearch: path.resolve(import.meta.dir, "../../opencode-plugin-prompt-search"),
     showImg: path.resolve(import.meta.dir, "../../opencode-plugin-show-img"),
+    recommendedConfig: path.resolve(import.meta.dir, "../../opencode-plugin-recomended-opencode-config"),
   }
   const nodeModules = path.join(root, "node_modules")
   const artifactDirectory = path.join(root, "artifacts")

@@ -1,0 +1,20 @@
+{
+  "review-your-changes-carefully": {
+    "template": "review all your changes carefully, ensure the changes work as expected and don't break any existed functionalities"
+  },
+  "commit": {
+    "template": "commit all the changes you made. Don't make commit again unless user ask you explicitly"
+  },
+  "inspect": {
+    "template": "what are you doing now and what problems are you encountering"
+  },
+  "keep-working": {
+    "template": "keep working, do not stop unless you finish all the jobs that you should do"
+  },
+  "keep-working-and-dont-ask-question": {
+    "template": "keep working and do not ask any questions, do not stop unless you finish all the jobs that you should do"
+  },
+  "hurry-and-forget": {
+    "template": "Do beblow things first, then forget them and continue all things you are working for: \n\n $ARGUMENTS"
+  }
+}

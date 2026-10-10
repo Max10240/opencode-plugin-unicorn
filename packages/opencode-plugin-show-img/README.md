@@ -77,7 +77,7 @@ bun run test
 - `test/tui/preview.test.tsx`：参考 OpenCode 的 `diff-viewer-image.test.tsx`，使用 OpenTUI `testRender` 检查
   实际 `ImageRenderable` 像素尺寸、窄/宽终端、加载态、错误恢复、请求取消和过期响应隔离。
 - `test/assets.test.ts` / `test/lifecycle.test.ts`：文件边界、storage 失败与注册清理。
-- 根目录 `bun run check` 还会构建、类型检查，并真实打包安装五个 npm 包后重复 TUI E2E。
+- 根目录 `bun run check` 还会构建、类型检查，并真实打包安装所有 npm 包后重复 TUI E2E。
 
 组件单测通过独立的 browser-condition + Solid preload 进程运行；请用 `bun run test`，不要用裸 `bun test`
 绕过该环境设置。跨文件系统的读取隔离使用 macOS `sandbox-exec`；其他平台只验证不同 cwd 与 RPC 传输。

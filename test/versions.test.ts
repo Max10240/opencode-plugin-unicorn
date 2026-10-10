@@ -9,8 +9,13 @@ const unicorn = { name: "@max10240/opencode-plugin-unicorn", version: "1.0.5" }
 test("all current plugin packages share the Unicorn version", async () => {
   const result = await checkPluginVersions()
   const current = JSON.parse(await readFile(new URL("../packages/opencode-plugin-unicorn/package.json", import.meta.url), "utf8"))
-  expect(result.count).toBeGreaterThanOrEqual(5)
+  expect(result.count).toBeGreaterThanOrEqual(6)
   expect(result.version).toBe(current.version)
+})
+
+test("publishing does not automatically create a commit", async () => {
+  const workspace = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+  expect(workspace.scripts["postpublish:all"]).toBeUndefined()
 })
 
 test("rejects a new plugin with its own initial version", () => {

@@ -1,0 +1,4 @@
+#!/bin/sh
+root=$(git rev-parse --show-toplevel) || exit 1
+node "$root/scripts/sync-recommended-rules.mjs" || exit 1
+git add -- "$root/packages/opencode-plugin-recomended-opencode-config/rules/AGENTS.md" "$root/packages/opencode-plugin-recomended-opencode-config/rules/commands.json"

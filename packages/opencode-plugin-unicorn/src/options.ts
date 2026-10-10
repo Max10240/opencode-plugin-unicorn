@@ -1,8 +1,7 @@
 export interface UnicornOptions {
-  readonly globalConfig?: boolean
   readonly maxPrompts?: number
   readonly features?: {
-    readonly globalConfig?: boolean
+    readonly recommendedOpencodeConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
     readonly imageGen?: boolean
     readonly showImg?: boolean
@@ -10,12 +9,9 @@ export interface UnicornOptions {
   }
 }
 
-export function globalConfigFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
-  if (options.globalConfig === false) return false
-  if (options.globalConfig === true) return true
-
+export function recommendedConfigFeatureOption(options: Readonly<Record<string, unknown>>): boolean | undefined {
   const features = options.features
-  return !isRecord(features) || features.globalConfig !== false
+  return isRecord(features) && typeof features.recommendedOpencodeConfig === "boolean" ? features.recommendedOpencodeConfig : undefined
 }
 
 export function sendMessageAcrossSessionsFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

@@ -11,7 +11,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build"
+    "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
   },
   "files": [
     "dist/**/*.js",

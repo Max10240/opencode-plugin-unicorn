@@ -30,3 +30,15 @@ test("disposes the already registered RPC if tool registration fails", async () 
   await expect(setupShowImg(context)).rejects.toThrow("tool registration failed")
   expect(disposed).toBe(true)
 })
+
+test("RPC cleanup still runs if disposing the tool registration fails", async () => {
+  let rpcDisposed = false
+  const context = {
+    storage: {},
+    rpc: { register: async () => ({ dispose: async () => { rpcDisposed = true } }) },
+    tool: { transform: async () => ({ dispose: async () => { throw new Error("tool cleanup failed") } }) },
+  } as unknown as Context
+  const cleanup = await setupShowImg(context)
+  await expect(cleanup()).rejects.toThrow("tool cleanup failed")
+  expect(rpcDisposed).toBe(true)
+})

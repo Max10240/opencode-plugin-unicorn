@@ -83,10 +83,14 @@ export async function createOpenCodeE2E(
   options: {
     readonly featureEnabled?: boolean
     readonly imageGenEnabled?: boolean
-    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "send-message" | "show-img"
+    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "send-message" | "show-img" | "recommended-config"
     readonly pluginPackage?: string
     readonly pluginOptions?: Record<string, unknown>
     readonly share?: string
+    readonly initialRules?: string
+    readonly isMaxSelf?: string
+    readonly configure?: (config: Record<string, any>) => void
+    readonly beforeStart?: (paths: { root: string; configDirectory: string; configPath: string }) => Promise<void>
   } = {},
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-plugin-unicorn-e2e-"))
@@ -100,7 +104,7 @@ export async function createOpenCodeE2E(
   const features = options.plugin !== undefined && options.plugin !== "unicorn"
     ? {}
     : {
-        ...(options.featureEnabled === undefined ? {} : { globalConfig: options.featureEnabled }),
+        ...(options.featureEnabled === undefined ? {} : { recommendedOpencodeConfig: options.featureEnabled }),
         ...(options.imageGenEnabled === undefined ? {} : { imageGen: options.imageGenEnabled }),
       }
   const pluginOptions = { ...(Object.keys(features).length === 0 ? {} : { features }), ...options.pluginOptions }
@@ -145,11 +149,14 @@ export async function createOpenCodeE2E(
       },
     },
   }
+  options.configure?.(config)
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
+  if (options.initialRules !== undefined) await writeFile(path.join(configDirectory, "AGENTS.md"), options.initialRules)
+  await options.beforeStart?.({ root, configDirectory, configPath })
 
   const port = await freePort()
   const password = "opencode-plugin-unicorn-e2e"
-  const environment = {
+  const environment: NodeJS.ProcessEnv = {
     ...process.env,
     OPENCODE_CONFIG_DIR: configDirectory,
     OPENCODE_CONFIG_PROJECT_DISABLE: "1",
@@ -164,6 +171,8 @@ export async function createOpenCodeE2E(
     XDG_CACHE_HOME: path.join(root, "xdg-cache"),
     XDG_STATE_HOME: path.join(root, "xdg-state"),
   }
+  if (options.isMaxSelf !== undefined) environment.IS_MAX_SELF = options.isMaxSelf
+  else delete environment.IS_MAX_SELF
   const binary = process.env.OPENCODE_BIN ?? "opencode"
   const startServer = () => Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: workspace,
