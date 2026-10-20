@@ -1,18 +1,23 @@
 import { Media } from "@opencode/ai"
-import type { ImageModel } from "@opencode/ai"
 import { make as makeAIClient } from "@opencode/ai/promise"
-import { Google, Meta, OpenAI, XAI, ZAI } from "@opencode/ai/providers"
 import { fetchLayer } from "@opencode/ai/route/executor"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import type { GeneratedImage, ImageFile, ImageQuality } from "./types.js"
+import { prepareImageModel } from "./deployment.js"
+import { openAIURLImage } from "./openai-url-result.js"
 
 export const DEFAULT_OPENAI_IMAGES_BASE_URL = "https://api.openai.com/v1"
 
 export type ImageRequest = {
   readonly baseURL?: string
   readonly headers?: Readonly<Record<string, string>>
-  readonly token: string
+  readonly token?: string
+  readonly credentialType?: "key" | "oauth"
+  readonly activation?: "auto" | "enabled" | "disabled"
+  readonly canonical?: string
+  readonly sessionID?: string
+  readonly signal?: AbortSignal
   readonly providerID: string
   readonly model: string
   readonly packageName?: string
@@ -22,10 +27,6 @@ export type ImageRequest = {
   readonly quality?: ImageQuality
   readonly size?: string
   readonly images?: readonly ImageFile[]
-}
-
-type ProviderFactory = {
-  readonly configure: (input?: Record<string, unknown>) => { readonly image: (modelID: string) => ImageModel }
 }
 
 type ImageGenerationOptions = {
@@ -50,8 +51,6 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
 }
 
-const CORE_SETTINGS = new Set(["chunkTimeout", "compaction", "fetch", "timeout", "transport"])
-
 export async function readImageFiles(paths: readonly string[] | undefined, directory: string): Promise<ImageFile[]> {
   return Promise.all(
     (paths ?? []).map(async (filePath) => {
@@ -69,18 +68,8 @@ export async function readImageFiles(paths: readonly string[] | undefined, direc
 }
 
 export async function generateImage(request: ImageRequest): Promise<GeneratedImage> {
-  const packageName = normalizePackage(request.packageName)
-  const provider = await loadProviderFactory(packageName, request.providerID, request.baseURL)
-  const settings = nativeSettings(request.settings)
-  const configuredBaseURL = typeof settings.baseURL === "string" ? settings.baseURL : undefined
-  const input: Record<string, unknown> = {
-    ...settings,
-    apiKey: request.token,
-    baseURL: request.baseURL ?? configuredBaseURL,
-    headers: request.headers === undefined ? undefined : { ...request.headers },
-    http: request.body === undefined ? undefined : { body: { ...request.body } },
-  }
-  const model = provider.configure(input).image(request.model)
+  request.signal?.throwIfAborted()
+  const { model, family } = await prepareImageModel(request)
   const size = request.size === undefined ? undefined : parseImageSize(request.size)
   const imageClient = makeAIClient({ layer: fetchLayer })
   try {
@@ -88,70 +77,21 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
       model,
       prompt: request.prompt,
       images: (request.images ?? []).map((image) => Media.bytes(image.data, image.mediaType)),
-      ...imageOptions(packageName, request.quality, size),
+      ...imageOptions(family, request.quality, size),
+      ...(request.sessionID ? { http: { headers: { "x-opencode-session-id": request.sessionID } } } : {}),
+    }, { signal: request.signal }).catch((error: unknown) => {
+      const image = model.route.id === "openai-images" ? openAIURLImage(error) : undefined
+      if (!image) throw error
+      return { image }
     })
     const image = response.image
-    if (!image) throw new Error(`Image provider ${packageName ?? "openai-compatible"} returned no image data.`)
+    if (!image) throw new Error(`Image provider ${request.providerID} returned no image data.`)
     const dataUrl = image.source.type === "url" ? Media.parseDataUrl(image.source.url) : undefined
-    const materialized = dataUrl ?? (await imageClient.run(image.materialize()))
-    return { data: await imageClient.run(materialized.bytes()), mediaType: materialized.mediaType }
+    const materialized = dataUrl ?? (await imageClient.run(image.materialize(), { signal: request.signal }))
+    return { data: await imageClient.run(materialized.bytes(), { signal: request.signal }), mediaType: materialized.mediaType }
   } finally {
     await imageClient.dispose()
   }
-}
-
-function nativeSettings(settings: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(settings ?? {}).filter(([key]) => !CORE_SETTINGS.has(key)))
-}
-
-function normalizePackage(packageName: string | undefined): string | undefined {
-  if (!packageName) return undefined
-  if (packageName.startsWith("aisdk:")) return packageName.slice("aisdk:".length)
-  if (packageName.startsWith("@opencode-ai/ai/")) return packageName.replace("@opencode-ai/", "@opencode/")
-  return packageName
-}
-
-async function loadProviderFactory(
-  packageName: string | undefined,
-  providerID: string,
-  baseURL: string | undefined,
-): Promise<ProviderFactory> {
-  const builtIn = builtInProvider(packageName)
-  if (builtIn) return builtIn
-
-  // Custom native provider packages can expose the same configure().image()
-  // surface as @opencode/ai. If they do not, fall back to the standard
-  // OpenAI Images wire format, which is what openai-compatible providers use.
-  if (packageName && !packageName.startsWith("@ai-sdk/") && !packageName.startsWith("@opencode/ai/providers/openai-compatible")) {
-    try {
-      const module = (await import(packageName)) as Partial<ProviderFactory>
-      if (typeof module.configure === "function") {
-        const configured = module.configure({ baseURL })
-        if (typeof configured?.image === "function") return module as ProviderFactory
-      }
-    } catch {
-      // OpenCode may have installed a custom package in its own package cache;
-      // the generic OpenAI Images adapter remains usable from the configured URL.
-    }
-  }
-  if (providerID === "openai" || packageName?.startsWith("@opencode/ai/providers/openai-compatible") || baseURL) {
-    return OpenAI as unknown as ProviderFactory
-  }
-  throw new Error(
-    `Provider ${providerID} package ${packageName ?? "unknown"} does not expose an image adapter. ` +
-      "Use an OpenCode image provider or configure an OpenAI-compatible Images endpoint.",
-  )
-}
-
-function builtInProvider(packageName: string | undefined): ProviderFactory | undefined {
-  if (packageName === "@opencode/ai/providers/google") return Google as unknown as ProviderFactory
-  if (packageName === "@opencode/ai/providers/meta") return Meta as unknown as ProviderFactory
-  if (packageName === "@opencode/ai/providers/xai") return XAI as unknown as ProviderFactory
-  if (packageName === "@opencode/ai/providers/zai") return ZAI as unknown as ProviderFactory
-  if (packageName === "@opencode/ai/providers/openai") return OpenAI as unknown as ProviderFactory
-  // openai-compatible, custom OpenAI-compatible packages, and image-only
-  // models not present in the language catalog use OpenAI's Images protocol.
-  return undefined
 }
 
 function imageOptions(

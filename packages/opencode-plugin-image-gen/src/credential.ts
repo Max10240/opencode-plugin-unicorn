@@ -1,13 +1,13 @@
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { ResolvedCredential } from "./types.js"
+import { mergeOverlay } from "./overlay.js"
 
 type CredentialContext = Pick<Context, "integration">
 
 export async function resolveCredential(
   context: CredentialContext,
   integrationID: string,
-  providerID: string,
-): Promise<ResolvedCredential> {
+): Promise<ResolvedCredential | undefined> {
   const connection = await context.integration.connection.active(integrationID)
   if (connection) {
     const credential = await context.integration.connection.resolve(connection)
@@ -15,18 +15,21 @@ export async function resolveCredential(
     if (credential?.type === "key") {
       return {
         value: credential.key,
-        source: "key",
+        source: connection.type === "env" ? "environment" : "key",
         metadata: credential.metadata,
         configuration: credential.configuration,
       }
     }
   }
 
-  // This is the standard OpenAI-compatible environment fallback. It keeps
-  // credentials out of plugin options and mirrors provider configuration.
-  if (providerID === "openai" && process.env.OPENAI_API_KEY) {
-    return { value: process.env.OPENAI_API_KEY, source: "environment" }
-  }
+  return undefined
+}
 
-  throw new Error(`No active credential found for provider ${providerID} (integration ${integrationID}).`)
+export function credentialSettings(settings: Readonly<Record<string, unknown>>, body: Readonly<Record<string, unknown>>, credential?: ResolvedCredential) {
+  const prepared = { ...settings }
+  if (prepared.apiKey === "") delete prepared.apiKey
+  return {
+    settings: { ...prepared, ...(credential?.metadata ?? {}), ...(credential?.configuration ?? {}) },
+    body: credential && credential.source !== "oauth" ? mergeOverlay(body, credential.metadata) : { ...body },
+  }
 }

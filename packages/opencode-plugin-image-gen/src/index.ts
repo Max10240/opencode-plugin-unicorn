@@ -1,6 +1,6 @@
 import { Plugin } from "@opencode/plugin"
 import type { Context } from "@opencode/plugin/promise/plugin"
-import { resolveCredential } from "./credential.js"
+import { credentialSettings, resolveCredential } from "./credential.js"
 import { DEFAULT_IMAGE_MODEL, resolveImageModel } from "./model.js"
 import { generateImage, readImageFiles } from "./openai-images.js"
 import { saveGeneratedImage } from "./output.js"
@@ -26,7 +26,7 @@ export async function setupImageGen(context: Context) {
           },
           model: {
             type: "string",
-            description: `Provider/model; defaults to options.model or ${DEFAULT_IMAGE_MODEL}.`,
+            description: `Provider/model with optional #variant; defaults to options.model or ${DEFAULT_IMAGE_MODEL}.`,
           },
           quality: {
             type: "string",
@@ -47,33 +47,30 @@ export async function setupImageGen(context: Context) {
         const input = rawInput as ImageToolInput
         const model = await resolveImageModel(context, tool.sessionID, input.model)
 
-        const credential = await resolveCredential(context, model.integrationID, model.providerID)
+        const credential = await resolveCredential(context, model.integrationID)
         const images = await readImageFiles(input.images, model.directory)
-        const runtimeSettings = {
-          ...model.settings,
-          ...(credential.metadata ?? {}),
-          ...(credential.configuration ?? {}),
-        }
+        const runtime = credentialSettings(model.settings, model.body, credential)
+        const runtimeSettings = runtime.settings
         const headers = { ...model.headers }
-        if (credential.source === "oauth" && credential.metadata) {
-          const hasAccountHeader = Object.keys(headers).some((key) => key.toLowerCase() === "chatgpt-account-id")
-          const accountID = credential.metadata.accountID ?? credential.metadata.accountId
-          if (!hasAccountHeader && typeof accountID === "string") headers["chatgpt-account-id"] = accountID
-        }
         await tool.progress({ status: `Requesting image from ${model.providerID}/${model.modelID}` })
         const image = await generateImage(
           {
             baseURL:
               typeof options.baseURL === "string"
-                ? options.baseURL
+                ? resolveEnvironmentURL(options.baseURL)
                 : resolveEnvironmentURL(runtimeSettings.baseURL) ?? model.baseURL,
             headers,
-            token: credential.value,
+            token: credential?.value,
+            credentialType: credential?.source === "oauth" ? "oauth" : credential ? "key" : undefined,
+            activation: model.activation,
+            canonical: model.canonical,
+            sessionID: tool.sessionID,
+            signal: (tool as typeof tool & { readonly signal?: AbortSignal }).signal,
             providerID: model.providerID,
             model: model.modelID,
             packageName: model.packageName,
             settings: runtimeSettings,
-            body: model.body,
+            body: runtime.body,
             prompt: input.prompt,
             quality: input.quality,
             size: input.size,
@@ -91,7 +88,8 @@ export async function setupImageGen(context: Context) {
             modelID: model.modelID,
             package: model.packageName,
             endpoint: images.length === 0 ? "/images/generations" : "/images/edits",
-            credentialSource: credential.source,
+            credentialSource: credential?.source ?? "provider",
+            ...(model.variant ? { variant: model.variant } : {}),
             ...(imagePreview ? { imagePreview } : {}),
           },
         }

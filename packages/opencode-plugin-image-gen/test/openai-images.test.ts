@@ -20,6 +20,104 @@ const latestCases = latestModels.flatMap((model) => (["generate", "edit"] as con
   (["xhigh", "max"] as const).map((quality) => ({ model, kind, quality })),
 ))
 
+test.each(["@opencode/ai/providers/meta/chat", "@opencode/ai/providers/meta/messages", "@opencode/ai/providers/meta/responses", "@opencode/ai/providers/zai/chat"])("native language entrypoint %s uses its family's image adapter", async (packageName) => {
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "GET") return new Response("PNG", { headers: { "content-type": "image/png" } })
+    expect(request.url).toBe("https://custom.example/v1/images/generations")
+    expect(request.headers.get("authorization")).toBe("Bearer synthetic")
+    if (packageName.includes("/zai/")) return Response.json({ data: [{ url: "https://images.example.test/result.png" }] })
+    return Response.json({ data: [{ b64_json: Buffer.from("PNG").toString("base64") }] })
+  }) as unknown as typeof fetch
+  const image = await generateImage({ providerID: "native", packageName, baseURL: "https://custom.example/v1", token: "synthetic", prompt: "proof", model: "image" })
+  expect([...image.data]).toEqual([80, 78, 71])
+})
+
+test("pre-cancelled generation makes no HTTP request", async () => {
+  let calls = 0
+  currentFetch = mock(async () => { calls++; return Response.json({ data: [{ b64_json: "UE5H" }] }) }) as unknown as typeof fetch
+  await expect(generateImage({ providerID: "openai", token: "synthetic", model: "image", prompt: "proof", signal: AbortSignal.abort() })).rejects.toThrow()
+  expect(calls).toBe(0)
+})
+
+test.each(["generation", "download"])("cancelling %s aborts the in-flight operation", async (phase) => {
+  const controller = new AbortController()
+  let aborted = false
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (phase === "download" && request.method === "POST") return Response.json({ data: [{ url: "https://images.example.test/result.png" }] })
+    return new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(phase === "generation" ? Response.json({ data: [{ b64_json: "UE5H" }] }) : new Response("PNG")), 500)
+      request.signal.addEventListener("abort", () => { clearTimeout(timer); aborted = true; reject(new DOMException("Aborted", "AbortError")) }, { once: true })
+      controller.abort()
+    })
+  }) as unknown as typeof fetch
+  await expect(generateImage({ providerID: "openai", token: "synthetic", model: "image", prompt: "proof", signal: controller.signal })).rejects.toThrow()
+  expect(aborted).toBe(true)
+})
+
+test.each(["generate", "edit"].flatMap((kind) => ["https", "data"].map((source) => ({ kind, source }))))("preserves $source URL image results for $kind without repeating generation or leaking auth to downloads", async ({ kind, source }) => {
+  let generations = 0
+  let downloads = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST") {
+      generations++
+      expect(new URL(request.url).pathname).toBe(`/v1/images/${kind === "edit" ? "edits" : "generations"}`)
+      expect(request.headers.get("authorization")).toBe("Bearer synthetic")
+      return Response.json({ data: [{ url: source === "https" ? "https://images.example.test/result.png" : "data:image/png;base64,UE5H" }] })
+    }
+    downloads++
+    expect(request.url).toBe("https://images.example.test/result.png")
+    expect(request.headers.get("authorization")).toBeNull()
+    expect(request.headers.get("x-opencode-session-id")).toBeNull()
+    return new Response("PNG", { headers: { "content-type": "image/png" } })
+  }) as unknown as typeof fetch
+  const result = await generateImage({
+    providerID: "gateway", packageName: "@opencode/ai/providers/openai-compatible", baseURL: "https://custom.example/v1",
+    token: "synthetic", sessionID: "synthetic-session", model: "image", prompt: "proof",
+    images: kind === "edit" ? [{ path: "/reference.png", name: "reference.png", mediaType: "image/png", data: new Uint8Array([80, 78, 71]) }] : undefined,
+  })
+  expect(new TextDecoder().decode(result.data)).toBe("PNG")
+  expect(result.mediaType).toBe("image/png")
+  expect(generations).toBe(1)
+  expect(downloads).toBe(source === "https" ? 1 : 0)
+})
+
+const authCases = (["header", "inline", "anonymous", "connection"] as const).flatMap((auth) =>
+  (["generate", "edit"] as const).map((kind) => ({ auth, kind })),
+)
+test.each(authCases)("uses $auth authentication for $kind without requiring a credential file", async ({ auth, kind }) => {
+  let calls = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls++
+    const request = new Request(input, init)
+    expect(request.url).toBe(`https://custom.example/v1/images/${kind === "edit" ? "edits" : "generations"}`)
+    expect(request.headers.get("authorization")).toBe(auth === "header" ? "Basic synthetic" : auth === "anonymous" ? null : auth === "inline" ? "Bearer inline" : "Bearer connection")
+    if (kind === "edit") expect((await request.formData()).get("image[]")).toBeInstanceOf(File)
+    return Response.json({ data: [{ b64_json: Buffer.from("PNG").toString("base64") }] })
+  }) as unknown as typeof fetch
+  await generateImage({
+    providerID: "custom", packageName: "@opencode/ai/providers/openai-compatible", activation: "enabled", baseURL: "https://custom.example/v1",
+    model: "image", prompt: "proof", token: auth === "connection" ? "connection" : undefined,
+    settings: auth === "inline" || auth === "connection" ? { apiKey: "inline" } : {}, headers: auth === "header" ? { Authorization: "Basic synthetic" } : {},
+    images: kind === "edit" ? [{ path: "/server/reference.png", name: "reference.png", mediaType: "image/png", data: new Uint8Array([137, 80, 78, 71]) }] : undefined,
+  })
+  expect(calls).toBe(1)
+})
+
+test("auth failures and unsupported native providers never retry against a weaker OpenAI fallback", async () => {
+  let calls = 0
+  currentFetch = mock(async () => {
+    calls++
+    return Response.json({ error: { message: "authentication rejected" } }, { status: 401 })
+  }) as unknown as typeof fetch
+  await expect(generateImage({ providerID: "custom", packageName: "@opencode/ai/providers/openai-compatible", activation: "enabled", baseURL: "https://custom.example/v1", settings: { apiKey: "bad-key" }, prompt: "proof", model: "image" })).rejects.toThrow("authentication rejected")
+  expect(calls).toBe(1)
+  await expect(generateImage({ providerID: "mistral", packageName: "@opencode/ai/providers/mistral", baseURL: "https://custom.example/v1", token: "synthetic", prompt: "proof", model: "image" })).rejects.toThrow("does not support image generation")
+  expect(calls).toBe(1)
+})
+
 test.each(latestCases)("passes $model and $quality unchanged to the $kind Image API", async ({ model, kind, quality }) => {
   const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
   let calls = 0

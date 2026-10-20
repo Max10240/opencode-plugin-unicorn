@@ -21,6 +21,7 @@ export type ImageToolInput = {
 export type ModelReference = {
   readonly providerID: string
   readonly modelID: string
+  readonly variant?: string
 }
 
 export type ResolvedImageModel = ModelReference & {
@@ -29,6 +30,8 @@ export type ResolvedImageModel = ModelReference & {
   readonly baseURL?: string
   readonly modelID: string
   readonly packageName?: string
+  readonly canonical?: string
+  readonly activation?: "auto" | "enabled" | "disabled"
   readonly settings: Readonly<Record<string, unknown>>
   readonly headers: Readonly<Record<string, string>>
   readonly body: Readonly<Record<string, unknown>>

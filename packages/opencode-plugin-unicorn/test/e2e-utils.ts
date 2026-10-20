@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { LLMock } from "@copilotkit/aimock"
 import { parse } from "jsonc-parser"
+import { e2eEnvironment } from "./e2e-environment.js"
 
 export const DEFAULT_LOW_LIMIT = {
   context: 200_000,
@@ -156,23 +157,7 @@ export async function createOpenCodeE2E(
 
   const port = await freePort()
   const password = "opencode-plugin-unicorn-e2e"
-  const environment: NodeJS.ProcessEnv = {
-    ...process.env,
-    OPENCODE_CONFIG_DIR: configDirectory,
-    OPENCODE_CONFIG_PROJECT_DISABLE: "1",
-    OPENCODE_DB: path.join(root, "opencode.db"),
-    OPENCODE_DISABLE_MODELS_FETCH: "1",
-    OPENAI_API_KEY: "e2e-image-key",
-    OPENCODE_PASSWORD: password,
-    OPENCODE_TEST_HOME: root,
-    HOME: root,
-    XDG_CONFIG_HOME: path.join(root, "xdg-config"),
-    XDG_DATA_HOME: path.join(root, "xdg-data"),
-    XDG_CACHE_HOME: path.join(root, "xdg-cache"),
-    XDG_STATE_HOME: path.join(root, "xdg-state"),
-  }
-  if (options.isMaxSelf !== undefined) environment.IS_MAX_SELF = options.isMaxSelf
-  else delete environment.IS_MAX_SELF
+  const environment = e2eEnvironment({ root, configDirectory, password, isMaxSelf: options.isMaxSelf })
   const binary = process.env.OPENCODE_BIN ?? "opencode"
   const startServer = () => Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: workspace,
