@@ -16,6 +16,7 @@ test("all current plugin packages share the Unicorn version", async () => {
 test("publishing does not automatically create a commit", async () => {
   const workspace = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
   expect(workspace.scripts["postpublish:all"]).toBeUndefined()
+  expect(workspace.scripts["publish:all"]).toStartWith("bun run check:fresh &&")
 })
 
 test("rejects a new plugin with its own initial version", () => {

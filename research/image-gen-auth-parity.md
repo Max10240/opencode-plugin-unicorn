@@ -37,7 +37,7 @@
 - `auth-e2e.test.ts` 增加 `header-only-edit`、`header-only-rejected`：真实 OpenCode 发送 multipart 参考图，
   本地网关校验 Basic/X-API-Key；拒绝认证时仅有一次图片请求、工具返回错误且没有输出文件。
 
-`bun run check` 在 `v2.1.0`、隔离安装的 `v2.0.21` 上分别通过 **211 项、0 失败**，含六包类型检查、
+`bun run check` 在 `v2.1.0`、隔离安装的 `v2.0.21` 上分别通过 **238 项、0 失败**（保留原 211 项，新增 27 项测试优化回归），含六包类型检查、
 真实 npm tarball 安装及 TUI/Unicorn 回归。另有 3 项隔离/清理测试；认证抓包入口也在两版重新运行。
 
 ## 验证范围

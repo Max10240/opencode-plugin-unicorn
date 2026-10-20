@@ -4,14 +4,21 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { LLMock } from "@copilotkit/aimock"
+import { commandIsListed } from "./palette.js"
+import { createTmux } from "../../../test/tmux.js"
+import { e2eEnvironment } from "../../opencode-plugin-unicorn/test/e2e-environment.js"
+
+const tmux = createTmux()
 
 setDefaultTimeout(120_000)
 
 test("searches and inserts prompts from live and deleted sessions through the real TUI overlay", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
 
-  await runScenario("standalone")
-  await runScenario("unicorn")
+  try {
+    await runScenario("standalone")
+    await runScenario("unicorn")
+  } finally { tmux(["kill-server"], false) }
 })
 
 async function runScenario(mode: "standalone" | "unicorn") {
@@ -58,6 +65,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
         path.join(config, "cli.json"),
         `${JSON.stringify(
           {
+            keybinds: { "command.palette.show": "f10" },
             plugins: [
               {
                 package: pluginRoot,
@@ -75,6 +83,8 @@ async function runScenario(mode: "standalone" | "unicorn") {
     await writeCLIConfig(mode !== "unicorn")
 
     const environment = {
+      ...e2eEnvironment({ root, configDirectory: config, password }),
+      TERM: "xterm-256color",
       OPENCODE_CONFIG_DIR: config,
       OPENCODE_CONFIG_PROJECT_DISABLE: "1",
       OPENCODE_DB: path.join(root, "opencode.db"),
@@ -90,7 +100,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
     const binary = process.env.OPENCODE_BIN ?? "opencode"
     const envCommand = (cwd: string, args: string[]) =>
       [
-        `cd ${shellQuote(cwd)} && env`,
+        `cd ${shellQuote(cwd)} && env -i`,
         ...Object.entries(environment).map(([key, value]) => `${key}=${shellQuote(value)}`),
         [binary, ...args].map(shellQuote).join(" "),
       ].join(" ")
@@ -114,7 +124,6 @@ async function runScenario(mode: "standalone" | "unicorn") {
       tmux(["new-window", "-t", tmuxName, "-n", "tui-disabled", envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id])])
       await waitForPane(disabledTarget, "Prompt-Search-E2e", "TUI with prompt search disabled did not start")
       tmux(["send-keys", "-t", disabledTarget, "F12"])
-      await Bun.sleep(500)
       tmux(["send-keys", "-t", disabledTarget, "prompt-search-disabled-check"])
       await waitForPane(disabledTarget, "prompt-search-disabled-check", "disabled Unicorn TUI did not leave the composer usable")
       const disabledScreen = new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", disabledTarget]).stdout)
@@ -125,7 +134,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
 
     tmux(["new-window", "-t", tmuxName, "-n", "tui", envCommand(workspaceCurrent, ["--server", serverURL, "--session", current.id])])
     await waitForPane(`${tmuxName}:tui`, "Prompt-Search-E2e", "TUI did not start")
-    await Bun.sleep(1_500)
+    await waitForSearchCommand(`${tmuxName}:tui`)
 
     const target = `${tmuxName}:tui`
     const prefix = "draft-before "
@@ -171,7 +180,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
     const workspaceTrigger = path.join(root, "refresh-trigger")
     await mkdir(workspaceTrigger, { recursive: true })
     await createSession(serverURL, password, workspaceTrigger)
-    await Bun.sleep(1_500)
+    await waitForSearchCommand(restartedTarget)
     tmux(["send-keys", "-t", restartedTarget, "F12"])
     await waitForPane(restartedTarget, "Search previous prompts", "prompt search did not reopen after deletion")
     tmux(["send-keys", "-t", restartedTarget, "history-candidate-01"])
@@ -229,13 +238,6 @@ function auth(password: string) {
   return { authorization: `Basic ${btoa(`opencode:${password}`)}` }
 }
 
-function tmux(args: string[], throwOnFailure = true) {
-  const result = Bun.spawnSync(["tmux", ...args], { stdout: "pipe", stderr: "pipe" })
-  if (throwOnFailure && result.exitCode !== 0)
-    throw new Error(`tmux ${args.join(" ")} failed: ${new TextDecoder().decode(result.stderr)}`)
-  return result
-}
-
 async function waitForPane(target: string, text: string, message: string) {
   try {
     await waitFor(
@@ -246,6 +248,16 @@ async function waitForPane(target: string, text: string, message: string) {
     const output = new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target], false).stdout)
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- ${target} ---\n${output}`)
   }
+}
+
+async function waitForSearchCommand(target: string) {
+  tmux(["send-keys", "-t", target, "F10"])
+  tmux(["send-keys", "-t", target, "-l", "Search previous prompts"])
+  await waitFor(async () => commandIsListed(new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout), "Search previous prompts") || false,
+    "Prompt search command did not register")
+  tmux(["send-keys", "-t", target, "Escape"])
+  await waitFor(async () => !new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout).includes("Search previous prompts") || false,
+    "Command palette did not close")
 }
 
 async function waitFor<T>(check: () => Promise<T | false>, message: string, timeout = 30_000): Promise<T> {

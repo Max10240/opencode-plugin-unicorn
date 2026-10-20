@@ -139,7 +139,7 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     ...Object.entries(environment).map(([key, value]) => `${key}=${quote(value)}`),
     [...sandbox, process.env.OPENCODE_BIN ?? "opencode", "--server", e2e.baseURL, "--session", sessionID].map(quote).join(" "),
   ].join(" ")
-  const socket = `show-img-${process.pid}-${Date.now()}`
+  const socket = `show-img-${process.pid}-${crypto.randomUUID()}`
   const tmux = (args: string[]) => {
     const result = Bun.spawnSync(["tmux", "-L", socket, "-f", "/dev/null", ...args], { stdout: "pipe", stderr: "pipe" })
     if (result.exitCode !== 0) throw new Error(`tmux failed: ${result.stderr}`)

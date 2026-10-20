@@ -4,20 +4,28 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { LLMock } from "@copilotkit/aimock"
+import { packWorkspace } from "../../../scripts/test-artifacts.mjs"
+import type { Archive } from "../../../scripts/test-artifacts.mjs"
+import { createTmux } from "../../../test/tmux.js"
 
 type Mode = "standalone" | "unicorn" | "unicorn-disabled"
 
 const hasTmux = Bun.spawnSync(["tmux", "-V"]).exitCode === 0
+const tmux = createTmux()
 
 setDefaultTimeout(120_000)
 
 test("sends a user-style message across different cwd sessions through tmux", async () => {
   if (!hasTmux) throw new Error("tmux is required for this E2E test")
 
-  for (const mode of ["standalone", "unicorn", "unicorn-disabled"] as const) await runScenario(mode)
+  const artifacts = await mkdtemp(path.join(os.tmpdir(), "send-session-archives-"))
+  try {
+    const archives = await packWorkspace(artifacts)
+    for (const mode of ["standalone", "unicorn", "unicorn-disabled"] as const) await runScenario(mode, archives)
+  } finally { tmux(["kill-server"], false); await rm(artifacts, { recursive: true, force: true }) }
 })
 
-async function runScenario(mode: Mode) {
+async function runScenario(mode: Mode, archives: Archive[]) {
   const tempDirectory = process.env.OPENCODE_E2E_TMPDIR ?? path.join(os.tmpdir(), "opencode")
   await mkdir(tempDirectory, { recursive: true })
   const root = await mkdtemp(path.join(tempDirectory, `send-session-${mode}-`))
@@ -31,7 +39,7 @@ async function runScenario(mode: Mode) {
   const serverURL = `http://127.0.0.1:${serverPort}`
 
   try {
-    const localPackages = await prepareLocalPluginArtifacts(root)
+    const localPackages = await prepareLocalPluginArtifacts(root, archives)
     await mkdir(configDirectory, { recursive: true })
     await mkdir(workspaceA, { recursive: true })
     await mkdir(workspaceB, { recursive: true })
@@ -223,7 +231,7 @@ async function runScenario(mode: Mode) {
   }
 }
 
-async function prepareLocalPluginArtifacts(root: string) {
+async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
   const packageSources = {
     sendMessageAcrossSessions: path.resolve(import.meta.dir, ".."),
     unicorn: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
@@ -233,28 +241,17 @@ async function prepareLocalPluginArtifacts(root: string) {
     recommendedConfig: path.resolve(import.meta.dir, "../../opencode-plugin-recomended-opencode-config"),
   }
   const nodeModules = path.join(root, "node_modules")
-  const artifactDirectory = path.join(root, "artifacts")
-  await mkdir(artifactDirectory, { recursive: true })
   await mkdir(nodeModules, { recursive: true })
 
   const artifacts: Record<string, string> = {}
   for (const [key, source] of Object.entries(packageSources)) {
     const manifest = JSON.parse(await Bun.file(path.join(source, "package.json")).text()) as { name: string }
-    const packed = Bun.spawnSync([process.execPath, "pm", "pack", "--destination", artifactDirectory, "--quiet"], {
-      cwd: source,
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    if (packed.exitCode !== 0) {
-      throw new Error(`Could not pack local plugin ${manifest.name}: ${packed.stderr.toString()}`)
-    }
-
-    const archiveName = (await readdir(artifactDirectory)).find((name) => name.startsWith(`${manifest.name.replace("@", "").replace("/", "-")}-`) && name.endsWith(".tgz"))
-    if (!archiveName) throw new Error(`bun pm pack did not create an archive for ${manifest.name}`)
+    const archive = archives.find((item) => item.manifest.name === manifest.name)
+    if (!archive) throw new Error(`Missing test archive for ${manifest.name}`)
 
     const destination = path.join(nodeModules, ...manifest.name.split("/"))
     await mkdir(destination, { recursive: true })
-    const extracted = Bun.spawnSync(["tar", "-xzf", path.join(artifactDirectory, archiveName), "-C", destination, "--strip-components=1"], {
+    const extracted = Bun.spawnSync(["tar", "-xzf", archive.file, "-C", destination, "--strip-components=1"], {
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -377,13 +374,6 @@ async function api<T>(baseURL: string, password: string, endpoint: string, init:
 
 function auth(password: string) {
   return { authorization: `Basic ${btoa(`opencode:${password}`)}` }
-}
-
-function tmux(args: string[], throwOnFailure = true) {
-  const result = Bun.spawnSync(["tmux", ...args], { stdout: "pipe", stderr: "pipe" })
-  if (throwOnFailure && result.exitCode !== 0)
-    throw new Error(`tmux ${args.join(" ")} failed: ${new TextDecoder().decode(result.stderr)}`)
-  return result
 }
 
 async function waitFor<T>(check: () => Promise<T | false>, message: string, timeout = 30_000): Promise<T> {

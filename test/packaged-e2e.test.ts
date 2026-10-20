@@ -8,6 +8,8 @@ import { checkGeneratedImagePreview, checkShowImg } from "../packages/opencode-p
 import { checkPluginVersions } from "../scripts/check-versions.mjs"
 import { checkRecommendedConfig } from "../packages/opencode-plugin-recomended-opencode-config/test/e2e-utils.js"
 import { recommendedCommands } from "../packages/opencode-plugin-recomended-opencode-config/src/index.js"
+import { installArchives, packWorkspace } from "../scripts/test-artifacts.mjs"
+import { mapLimit } from "../scripts/workspace.mjs"
 
 setDefaultTimeout(360_000)
 
@@ -32,11 +34,10 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
   const { version } = await checkPluginVersions(repository)
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-packaged-e2e-"))
   try {
-    run(["bun", "run", "build"], repository)
-    const archives: string[] = []
+    const archives = await packWorkspace(path.join(root, "artifacts"))
     for (const entry of packages) {
-      const output = run(["npm", "pack", "--json", "--pack-destination", root], path.join(repository, "packages", entry.directory))
-      const packed = JSON.parse(output) as Array<{ filename: string; version: string; files: Array<{ path: string }> }>
+      const archive = archives.find((item) => path.basename(item.directory) === entry.directory)!
+      const packed = [archive.packed]
       expect(packed).toHaveLength(1)
       expect(packed[0]!.version).toBe(version)
       const files = packed[0]!.files.map((item) => item.path)
@@ -50,13 +51,12 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
-      archives.push(path.join(root, packed[0]!.filename))
     }
 
     const install = path.join(root, "install")
-    run(["npm", "install", "--prefix", install, "--registry=https://registry.npmjs.org/", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], root)
+    await installArchives(archives, install)
 
-    for (const entry of packages) {
+    await mapLimit(packages, 3, async (entry) => {
       const packageRoot = path.join(install, "node_modules", "@max10240", entry.directory)
       const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")) as { version: string; exports: Record<string, string> }
       expect(manifest.version).toBe(version)
@@ -162,7 +162,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       } finally {
         await e2e.close()
       }
-    }
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
