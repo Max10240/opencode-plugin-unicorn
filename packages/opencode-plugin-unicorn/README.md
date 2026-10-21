@@ -15,6 +15,7 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
         "imageGen": true,
         "showImg": true,
         "promptSearch": true,
+        "sessionSearch": true,
         "recommendedOpencodeConfig": false
       }
     }
@@ -22,7 +23,7 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
 }
 ```
 
-前四项默认开启，分别控制跨 session 消息、生图、用户图片预览和历史 prompt 检索。
+前五项默认开启，分别控制跨 session 消息、生图、用户图片预览、历史 prompt 检索和当前 session 对话检索。
 关闭其中一项不影响其他项，每个子插件也可独立加载。
 
 `recommendedOpencodeConfig` 对应独立的
@@ -43,8 +44,9 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": { "promptSearch": true, "showImg": true },
+      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true },
       "keybind": "ctrl+shift+r",
+      "sessionSearchKeybind": "ctrl+shift+f",
       "maxPrompts": 2000
     }
   }]
@@ -52,6 +54,8 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
 ```
 
 历史 prompt 检索默认 `ctrl+shift+r`，最多缓存 2000 条。选择结果插入输入框，不自动提交。
+当前 session 检索默认 `ctrl+shift+f`，搜索用户/agent 正文，选择结果滚动定位，不插入输入框。
+它按页读取保存的历史，包含压缩前原文；详见独立的 [session-search 插件](../opencode-plugin-session-search)。
 图片预览显示在输入框上方，点击放大，Esc 关闭；不依赖全局图片预览开关。
 
 ## 开发

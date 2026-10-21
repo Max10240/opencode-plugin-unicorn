@@ -1,11 +1,13 @@
 export interface UnicornOptions {
   readonly maxPrompts?: number
+  readonly sessionSearchKeybind?: string
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
     readonly imageGen?: boolean
     readonly showImg?: boolean
     readonly promptSearch?: boolean
+    readonly sessionSearch?: boolean
   }
 }
 
@@ -27,6 +29,11 @@ export function imageGenFeatureEnabled(options: Readonly<Record<string, unknown>
 export function promptSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.promptSearch !== false
+}
+
+export function sessionSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.sessionSearch !== false
 }
 
 export function showImgFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

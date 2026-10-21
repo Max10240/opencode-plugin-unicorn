@@ -10,6 +10,7 @@ import { checkRecommendedConfig } from "../packages/opencode-plugin-recomended-o
 import { recommendedCommands } from "../packages/opencode-plugin-recomended-opencode-config/src/index.js"
 import { installArchives, packWorkspace } from "../scripts/test-artifacts.mjs"
 import { mapLimit } from "../scripts/workspace.mjs"
+import { checkSessionSearch } from "../packages/opencode-plugin-session-search/test/e2e-utils.js"
 
 setDefaultTimeout(360_000)
 
@@ -18,6 +19,7 @@ const packages = [
   { directory: "opencode-plugin-send-message-across-sessions", id: "max10240.send-message-across-sessions", kind: "send-message" },
   { directory: "opencode-plugin-image-gen", id: "opencode.image-gen", kind: "image-gen" },
   { directory: "opencode-plugin-prompt-search", id: "max10240.prompt-search", kind: "prompt-search" },
+  { directory: "opencode-plugin-session-search", id: "max10240.session-search", kind: "session-search" },
   { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
   { directory: "opencode-plugin-recomended-opencode-config", id: "max10240.recomended-opencode-config", kind: "recommended-config" },
   { directory: "opencode-plugin-unicorn", id: "max10240.unicorn", kind: "unicorn" },
@@ -47,7 +49,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(files.every((file) => file === "package.json" || file === "README.md" || file.endsWith(".js"))).toBe(true)
       expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
       if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search") {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
@@ -68,7 +70,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         expect(JSON.parse(output).rules.every((rule: Record<string, unknown>) => typeof rule.title === "string" && !("depth" in rule))).toBe(true)
         expect(JSON.parse(output).commands).toEqual(recommendedCommands)
       }
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search") {
         expect(importWithNode(`@max10240/${entry.directory}/tui`, install)).toBe(`${entry.id}.tui`)
       }
       if (entry.kind === "send-message") {
@@ -148,6 +150,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         }
 
         if (entry.kind === "unicorn" || entry.kind === "prompt-search") await checkTUI(e2e, entry.id)
+        if (entry.kind === "session-search" || entry.kind === "unicorn") await checkSessionSearch(e2e, { combined: entry.kind === "unicorn" })
         const seen = new Set<string>()
         for (const request of e2e.proxy.mock.getRequests()) {
           const body = request.body as { tools?: Array<{ function?: { name: string; description: string } }> } | null

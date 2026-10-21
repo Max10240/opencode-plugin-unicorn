@@ -7,6 +7,7 @@
 - [`@max10240/opencode-plugin-unicorn`](./packages/opencode-plugin-unicorn)：个人 OpenCode 插件，发布包名保持不变。
 - [`@max10240/opencode-plugin-send-message-across-sessions`](./packages/opencode-plugin-send-message-across-sessions)：跨 cwd 的 session 消息插件。
 - [`@max10240/opencode-plugin-prompt-search`](./packages/opencode-plugin-prompt-search)：TUI 跨 session prompt reverse-search 插件。
+- [`@max10240/opencode-plugin-session-search`](./packages/opencode-plugin-session-search)：搜索当前 session 的用户/agent 对话，回车自动滚动定位，包含已保存的压缩前历史。
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen)：基于标准 `/images/*` endpoint 的 V2 生图可行性验证 PoC。
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img)：通过 ID 和 UI 专用 RPC 预览 server 图片，不将图片内容加入模型上下文。
 - [`@max10240/opencode-plugin-recomended-opencode-config`](./packages/opencode-plugin-recomended-opencode-config)：可选补充全局规则和 inline commands，并设置已有 OpenAI 的 `store:false`。
@@ -25,7 +26,7 @@ bun run check
 | 命令 | 范围 |
 | --- | --- |
 | `bun run test:unit` | 单元测试和 headless TUI 渲染；不构建、不启动 OpenCode |
-| `bun run check:fast` | 构建一次、六包类型检查、单元/渲染测试；不联网安装依赖 |
+| `bun run check:fast` | 构建一次、全部 workspace 类型检查、单元/渲染测试；不联网安装依赖 |
 | `bun run test:e2e` | 构建一次、源码 server/TUI E2E |
 | `bun run test` | 单元、渲染和源码 E2E，不包含安装包验证 |
 | `bun run test:packaged` | 本轮 npm 归档的全新安装及 server/TUI 验证 |

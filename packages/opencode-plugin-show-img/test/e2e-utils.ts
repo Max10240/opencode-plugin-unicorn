@@ -2,10 +2,10 @@ import { expect } from "bun:test"
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { crc32 } from "node:zlib"
-import type { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
+import type { OpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
 import { rasterFixtures } from "./fixtures.js"
 
-export type E2E = Awaited<ReturnType<typeof createOpenCodeE2E>>
+export type E2E = OpenCodeE2E
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 const PRIVATE_MARKER = "PRIVATE_IMAGE_BYTES_NOT_FOR_MODEL_6b3f"
 const png = Buffer.from(PNG_BASE64, "base64")

@@ -237,6 +237,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     unicorn: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
     imageGen: path.resolve(import.meta.dir, "../../opencode-plugin-image-gen"),
     promptSearch: path.resolve(import.meta.dir, "../../opencode-plugin-prompt-search"),
+    sessionSearch: path.resolve(import.meta.dir, "../../opencode-plugin-session-search"),
     showImg: path.resolve(import.meta.dir, "../../opencode-plugin-show-img"),
     recommendedConfig: path.resolve(import.meta.dir, "../../opencode-plugin-recomended-opencode-config"),
   }

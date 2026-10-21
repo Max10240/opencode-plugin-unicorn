@@ -30,5 +30,6 @@ export {
   recommendedConfigFeatureOption,
   imageGenFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
+  sessionSearchFeatureEnabled,
   showImgFeatureEnabled,
 } from "./options.js"

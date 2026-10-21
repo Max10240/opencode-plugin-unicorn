@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@max10240/opencode-plugin-session-search",
+  "version": "1.0.6",
+  "description": "Search user and agent messages in the current OpenCode session and jump to a result",
+  "type": "module",
+  "exports": { ".": "./dist/src/index.js", "./tui": "./dist/src/tui.js" },
+  "scripts": {
+    "test": "bun test test/*.test.ts && bun test --conditions=browser --preload @opentui/solid/preload test/tui",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && bun build.mjs",
+    "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
+  },
+  "files": ["dist/**/*.js", "README.md"],
+  "license": "MIT",
+  "dependencies": { "@opencode/plugin": "^2.0.9" },
+  "peerDependencies": { "@opentui/core": ">=0.5.8", "@opentui/solid": ">=0.5.8", "solid-js": ">=1.9.0" },
+  "devDependencies": {
+    "@opentui/core": "^0.5.10", "@opentui/solid": "^0.5.10", "@types/bun": "^1.3.0",
+    "@types/node": "^22.0.0", "solid-js": "^1.9.15", "typescript": "^5.8.2"
+  },
+  "publishConfig": { "registry": "https://registry.npmjs.org/", "access": "public" }
+}

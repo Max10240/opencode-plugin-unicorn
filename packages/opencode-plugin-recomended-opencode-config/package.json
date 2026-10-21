@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-recomended-opencode-config",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Merge recommended OpenCode rules and disable OpenAI response storage",
   "type": "module",
   "exports": { ".": "./dist/src/index.js" },
