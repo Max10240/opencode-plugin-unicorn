@@ -1,6 +1,10 @@
 export interface UnicornOptions {
-  readonly maxPrompts?: number
-  readonly sessionSearchKeybind?: string
+  readonly recommendedOpencodeConfig?: Readonly<Record<string, unknown>>
+  readonly sendMessageAcrossSessions?: Readonly<Record<string, unknown>>
+  readonly imageGen?: Readonly<Record<string, unknown>>
+  readonly showImg?: Readonly<Record<string, unknown>>
+  readonly promptSearch?: Readonly<Record<string, unknown>>
+  readonly sessionSearch?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
@@ -9,6 +13,14 @@ export interface UnicornOptions {
     readonly promptSearch?: boolean
     readonly sessionSearch?: boolean
   }
+}
+
+export type ChildPlugin = Exclude<keyof UnicornOptions, "features">
+
+export function childContext<T extends { readonly options: Readonly<Record<string, unknown>> }>(context: T, plugin: ChildPlugin): Omit<T, "options"> & { readonly options: Readonly<Record<string, unknown>> } {
+  const options = context.options[plugin]
+  // Keep host getters live without mutating the context shared by sibling plugins.
+  return Object.create(context, { options: { value: isRecord(options) ? options : {}, enumerable: true } })
 }
 
 export function recommendedConfigFeatureOption(options: Readonly<Record<string, unknown>>): boolean | undefined {

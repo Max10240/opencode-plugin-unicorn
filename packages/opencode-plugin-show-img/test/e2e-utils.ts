@@ -112,10 +112,14 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
   await mkdir(configDirectory, { recursive: true })
   const config = await e2e.config()
   const plugin = (config.plugins.find((entry: { package: string }) => entry.package.includes("opencode-plugin-show-img")) ?? config.plugins[0]) as { package: string }
+  const pluginRoot = path.basename(plugin.package) === "dist" ? path.dirname(plugin.package) : plugin.package
+  const combined = path.basename(pluginRoot) === "opencode-plugin-unicorn"
   const configure = (showImg: boolean) => writeFile(path.join(configDirectory, "cli.json"), JSON.stringify({
     session: { image_preview: false }, prompt: { image_preview: false },
     keybinds: { "session.list": "f8", "session.tab.select.1": "f9" },
-    plugins: [{ package: plugin.package, options: { features: { promptSearch: false, showImg } } }],
+    plugins: [{ package: plugin.package, options: combined
+      ? { features: { promptSearch: false }, showImg: { features: { showImg } } }
+      : { features: { promptSearch: false, showImg } } }],
   }))
   await configure(true)
   const sandbox = process.platform === "darwin"

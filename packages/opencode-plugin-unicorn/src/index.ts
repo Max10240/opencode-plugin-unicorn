@@ -5,6 +5,7 @@ import { setupShowImg } from "@max10240/opencode-plugin-show-img"
 import { setupRecommendedOpencodeConfig } from "@max10240/opencode-plugin-recomended-opencode-config"
 import { disposeAll } from "./cleanup.js"
 import {
+  childContext,
   recommendedConfigFeatureOption,
   imageGenFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
@@ -15,11 +16,12 @@ export default Plugin.define({
   id: "max10240.unicorn",
   async setup(ctx) {
     const cleanups: Array<() => Promise<void>> = []
-    await setupRecommendedOpencodeConfig({ options: { enabled: recommendedConfigFeatureOption(ctx.options) } })
+    if (recommendedConfigFeatureOption(ctx.options) !== false)
+      await setupRecommendedOpencodeConfig(childContext(ctx, "recommendedOpencodeConfig"))
     if (sendMessageAcrossSessionsFeatureEnabled(ctx.options))
-      cleanups.push(await setupSendMessageAcrossSessions(ctx))
-    if (imageGenFeatureEnabled(ctx.options)) cleanups.push(await setupImageGen(ctx))
-    if (showImgFeatureEnabled(ctx.options)) cleanups.push(await setupShowImg(ctx))
+      cleanups.push(await setupSendMessageAcrossSessions(childContext(ctx, "sendMessageAcrossSessions")))
+    if (imageGenFeatureEnabled(ctx.options)) cleanups.push(await setupImageGen(childContext(ctx, "imageGen")))
+    if (showImgFeatureEnabled(ctx.options)) cleanups.push(await setupShowImg(childContext(ctx, "showImg")))
 
     if (cleanups.length === 0) return
     return () => disposeAll(cleanups)

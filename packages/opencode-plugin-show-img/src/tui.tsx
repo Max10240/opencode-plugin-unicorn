@@ -13,6 +13,7 @@ export default Plugin.define({
 })
 
 export function setupImagePreview(context: Context) {
+  if (!showImgEnabled(context.options)) return () => {}
   return context.ui.slot({
     append: "session.composer.top",
     render: (input) => <ImagePreviewSlot context={context} sessionID={input.sessionID} />,

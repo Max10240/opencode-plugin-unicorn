@@ -24,6 +24,7 @@ async function renderPreview(read: Read, width = 80, height = 24) {
   const unregister = () => { removed = true }
   let removed = false
   const context = {
+    options: {},
     client: { rpc: () => ({ read }) },
     data: { session: {
       message: { list: (id: string) => messages()[id] ?? [] },

@@ -48,7 +48,7 @@ export async function checkSessionSearch(e2e: OpenCodeE2E, options: { combined?:
     session: { scrollbar: true }, keybinds: {
       "command.palette.show": "f10", "session.list": "f8", "session.message.user.next": "f6", "session.message.user.previous": "f7", "session.last": "f9",
     },
-    plugins: [{ package: plugin, options: options.combined ? { features, keybind: "f12", sessionSearchKeybind: "f11" } : { features, keybind: "f11" } }],
+    plugins: [{ package: plugin, options: options.combined ? { features, promptSearch: { keybind: "f12", maxPrompts: 2000 }, sessionSearch: { keybind: "f11" } } : { features, keybind: "f11" } }],
   }
   const cliPath = path.join(e2e.configDirectory, "cli.json")
   await writeFile(cliPath, JSON.stringify(cliConfig))
@@ -78,6 +78,7 @@ export async function checkSessionSearch(e2e: OpenCodeE2E, options: { combined?:
     tmux(["new-session", "-d", "-s", "search", "-x", "115", "-y", "36", command])
     await waitFor(async () => pane().includes(title) && pane().includes("f10 commands"), "Session search TUI did not start")
     tmux(["send-keys", "-t", "search", "F10"])
+    await waitFor(async () => pane().includes("Commands"), "Command palette did not open")
     tmux(["send-keys", "-t", "search", "-l", "Search current session"])
     if (options.disabled) {
       await waitFor(async () => pane().includes("Search current session"), "Command palette did not accept its query")

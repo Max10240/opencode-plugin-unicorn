@@ -38,7 +38,7 @@ test("without the feature, the same real OpenCode session compacts at the low li
 })
 
 test("recommended config does not change an existing share policy or model limits", async () => {
-  const e2e = await createOpenCodeE2E({ share: "manual", featureEnabled: true })
+  const e2e = await createOpenCodeE2E({ share: "manual", featureEnabled: true, pluginOptions: { recommendedOpencodeConfig: { enabled: true } } })
   try {
     await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)
     expect((await e2e.config()).share).toBe("manual")

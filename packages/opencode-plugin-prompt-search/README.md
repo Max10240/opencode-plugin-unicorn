@@ -30,6 +30,7 @@ TUI plugin 使用 V2 的 `cli.json` 配置：
         "features": {
           "promptSearch": true,
         },
+        "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
       },
     },
   ],

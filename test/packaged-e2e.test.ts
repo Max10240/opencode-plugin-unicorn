@@ -80,7 +80,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       const e2e = await createOpenCodeE2E({
         plugin: entry.kind,
         pluginPackage: path.join(packageRoot, "dist"),
-        ...(entry.kind === "unicorn" || entry.kind === "prompt-search" ? { pluginOptions: { keybind: "f12" } } : {}),
+        ...(entry.kind === "unicorn" ? { pluginOptions: { promptSearch: { keybind: "f12" } } } : entry.kind === "prompt-search" ? { pluginOptions: { keybind: "f12" } } : {}),
         ...(entry.kind === "recommended-config" ? {
           pluginOptions: { enabled: true }, share: "manual", initialRules: "## Existing User Rules\n\nKeep user instructions\n",
           configure: (config: Record<string, any>) => {
@@ -134,7 +134,8 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
               headers: { Authorization: "Basic synthetic-packaged-auth" },
               models: { image: { limit: DEFAULT_LOW_LIMIT } },
             }
-            config.plugins[0].options = { ...config.plugins[0].options, model: "packaged-header-auth/image" }
+            const imageOptions = { model: "packaged-header-auth/image" }
+            config.plugins[0].options = { ...config.plugins[0].options, ...(entry.kind === "unicorn" ? { imageGen: imageOptions } : imageOptions) }
             await writeFile(e2e.configPath, JSON.stringify(config))
             await waitFor(async () => {
               const response = await fetch(`${e2e.baseURL}/api/model?${new URLSearchParams({ directory: e2e.workspace })}`, { headers: authorization() })
@@ -174,7 +175,8 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
 async function checkTUI(e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>, pluginID: string) {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for packaged TUI E2E")
   const configured = (await e2e.config()).plugins[0] as { package: string }
-  await writeFile(path.join(e2e.configDirectory, "cli.json"), `${JSON.stringify({ plugins: [{ package: configured.package, options: { keybind: "f12" } }] })}\n`)
+  const options = pluginID === "max10240.unicorn" ? { promptSearch: { keybind: "f12" } } : { keybind: "f12" }
+  await writeFile(path.join(e2e.configDirectory, "cli.json"), `${JSON.stringify({ plugins: [{ package: configured.package, options }] })}\n`)
   const created = await fetch(`${e2e.baseURL}/api/session`, {
     method: "POST",
     headers: { ...authorization(), "content-type": "application/json" },

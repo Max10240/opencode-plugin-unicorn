@@ -6,6 +6,7 @@ test("removes both tool and RPC registrations during cleanup", async () => {
   const disposed: string[] = []
   const names: string[] = []
   const context = {
+    options: {},
     storage: {},
     rpc: { register: async () => ({ dispose: async () => { disposed.push("rpc") } }) },
     tool: { transform: async (edit: (editor: { add: (tool: { name: string }) => void }) => void) => {
@@ -23,6 +24,7 @@ test("removes both tool and RPC registrations during cleanup", async () => {
 test("disposes the already registered RPC if tool registration fails", async () => {
   let disposed = false
   const context = {
+    options: {},
     storage: {},
     rpc: { register: async () => ({ dispose: async () => { disposed = true } }) },
     tool: { transform: async () => { throw new Error("tool registration failed") } },
@@ -34,6 +36,7 @@ test("disposes the already registered RPC if tool registration fails", async () 
 test("RPC cleanup still runs if disposing the tool registration fails", async () => {
   let rpcDisposed = false
   const context = {
+    options: {},
     storage: {},
     rpc: { register: async () => ({ dispose: async () => { rpcDisposed = true } }) },
     tool: { transform: async () => ({ dispose: async () => { throw new Error("tool cleanup failed") } }) },

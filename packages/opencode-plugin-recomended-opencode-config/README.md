@@ -18,7 +18,8 @@
 }
 ```
 
-Unicorn 使用 `options.features.recommendedOpencodeConfig`；显式开关优先，未配置时同样读取环境变量。
+Unicorn 将 `options.recommendedOpencodeConfig` 原样透传，例如 `{ "enabled": true }`。
+`options.features.recommendedOpencodeConfig: false` 强制关闭；其余情况遵循上述 `enabled` / 环境变量规则。
 关闭后不撤销已写入的规则或设置。
 
 ## 合并行为

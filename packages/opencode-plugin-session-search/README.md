@@ -16,8 +16,8 @@
 输入过滤，↑/↓ 选择，Enter 跳转，Esc 关闭；加载跳转期间可按 Esc 取消。
 匹配不区分大小写，空白分隔的词按 AND 匹配。最多展示 100 条匹配，可继续缩小查询。
 
-Unicorn 默认启用，可用 `features.sessionSearch:false` 独立关闭；`sessionSearchKeybind` 单独设置快捷键，
-不会与 prompt-search 的 `keybind` 配置混用。server 入口无副作用，不要求加载 prompt-search。
+Unicorn 默认启用，可用 `features.sessionSearch:false` 独立关闭；通过 `options.sessionSearch.keybind` 设置快捷键，
+对应对象直接作为插件 options 传入，不会与 `options.promptSearch.keybind` 混用。server 入口无副作用，不要求加载 prompt-search。
 
 ## 历史、压缩与隐私
 

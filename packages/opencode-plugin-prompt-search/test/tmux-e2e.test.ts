@@ -72,7 +72,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
                 options:
                   mode === "standalone"
                     ? { keybind: "f12", maxPrompts: 2_000 }
-                    : { keybind: "f12", maxPrompts: 2_000, features: { promptSearch: promptSearchEnabled } },
+                    : { promptSearch: { keybind: "f12", maxPrompts: 2_000 }, features: { promptSearch: promptSearchEnabled } },
               },
             ],
           },

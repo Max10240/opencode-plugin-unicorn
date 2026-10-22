@@ -12,6 +12,7 @@ export default Plugin.define({
 })
 
 export async function setupShowImg(context: Context) {
+  if (!showImgEnabled(context.options)) return async () => {}
   const assets = createPreviewAssets(context.storage)
   const rpc = await context.rpc.register(ImagePreview, {
     read: async (rawInput, request) => {

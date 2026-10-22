@@ -71,7 +71,8 @@ OpenAI-compatible endpoint 必须支持 `/images/generations` / `/images/edits`�
 `show_img` 可用时，保存后直接调用它准备用户预览，只在 metadata 中携带 ID/文件名；不要求模型额外发起调用。
 缺失、关闭或预览失败均不影响生图结果，不会重试生图或删除输出。只加载 image-gen 仍可正常保存图片。
 
-Unicorn 的 `features.imageGen` / `features.showImg` 分别控制生图和预览；`options.model` 同样生效。
+Unicorn 的 `features.imageGen` / `features.showImg` 分别控制生图和预览；生图参数放在 `options.imageGen`，
+例如 `options.imageGen.model`、`options.imageGen.baseURL`，对象原样透传给独立插件。
 
 ## 验证与证据
 

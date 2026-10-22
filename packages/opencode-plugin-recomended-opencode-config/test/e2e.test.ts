@@ -17,7 +17,7 @@ for (const mode of ["standalone", "unicorn"] as const) {
       const e2e = await createOpenCodeE2E({
         plugin: mode === "standalone" ? "recommended-config" : "unicorn",
         pluginPackage: path.resolve(import.meta.dir, mode === "standalone" ? "../dist" : "../../opencode-plugin-unicorn/dist"),
-        pluginOptions: mode === "standalone" ? { enabled: explicit } : { features: { recommendedOpencodeConfig: explicit, promptSearch: false } },
+        pluginOptions: mode === "standalone" ? { enabled: explicit } : { recommendedOpencodeConfig: { enabled: explicit }, features: { promptSearch: false } },
         isMaxSelf: scenario === "env-empty" ? "" : scenario === "env-zero" ? "0" : scenario === "env-false" ? "false" : scenario === "env-on" || scenario === "explicit-off" ? "1" : undefined,
         initialRules: "## Existing User Rules\n\nKeep user instructions\n",
         share: "manual",
@@ -43,6 +43,22 @@ for (const mode of ["standalone", "unicorn"] as const) {
       } finally { await e2e.close() }
     })
   }
+}
+
+for (const feature of [false, true]) {
+  test(`Unicorn: feature=${feature} never overrides the nested recommended-config enabled flag`, async () => {
+    const e2e = await createOpenCodeE2E({
+      featureEnabled: feature, isMaxSelf: "1", initialRules: "# User\n\nKeep original\n",
+      pluginOptions: { recommendedOpencodeConfig: { enabled: !feature } },
+      configure: (config) => { config.providers.openai.settings.store = true },
+    })
+    try {
+      await e2e.runImagePrompt()
+      expect((await e2e.config()).providers.openai.settings.store).toBe(true)
+      expect(await readFile(path.join(e2e.configDirectory, "AGENTS.md"), "utf8")).toBe("# User\n\nKeep original\n")
+      expect(e2e.proxy.imageRequests).toBe(1)
+    } finally { await e2e.close() }
+  })
 }
 
 test("Unicorn hot reload enables and disables recommendations without disabling image_gen", async () => {
@@ -89,7 +105,7 @@ test("an absent OpenAI key or JSON variant is not created", async () => {
 
 test("a rules merge failure does not disable other Unicorn plugins or rewrite user files", async () => {
   const e2e = await createOpenCodeE2E({
-    featureEnabled: true, initialRules: "# User rules\n\nKeep original\n",
+    featureEnabled: true, pluginOptions: { recommendedOpencodeConfig: { enabled: true } }, initialRules: "# User rules\n\nKeep original\n",
     configure: (config) => { config.providers.openai.settings.store = true },
   })
   try {
@@ -126,7 +142,7 @@ test("a valid IS_MAX_SELF enables a level-6 document and restarting does not dup
 test("unclosed user Markdown never grows and does not block inline commands, storage settings, or image generation", async () => {
   const markdown = "# User\n\n```md\nunclosed"
   const e2e = await createOpenCodeE2E({
-    featureEnabled: true, initialRules: markdown,
+    featureEnabled: true, pluginOptions: { recommendedOpencodeConfig: { enabled: true } }, initialRules: markdown,
     configure: (config) => { config.providers.openai.settings.store = true },
   })
   try {
@@ -144,7 +160,7 @@ test("unclosed user Markdown never grows and does not block inline commands, sto
 
 test("linked dotfiles remain linked and OpenCode observes the recommended rules, commands, and store setting", async () => {
   const e2e = await createOpenCodeE2E({
-    featureEnabled: true, share: "manual", initialRules: "## Existing User Rules\n\nKeep user instructions\n",
+    featureEnabled: true, pluginOptions: { recommendedOpencodeConfig: { enabled: true } }, share: "manual", initialRules: "## Existing User Rules\n\nKeep user instructions\n",
     configure: (config) => {
       config.providers.openai.settings.store = true
       config.providers.openai.models["gpt-5.6-luna"].package = "@opencode/ai/providers/openai/chat"
