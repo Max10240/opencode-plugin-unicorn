@@ -25,26 +25,26 @@ export async function setupImageGen(context: Context) {
             description: "Output path, relative to the current session directory unless absolute.",
           },
           model: {
-            type: "string",
-            description: `Provider/model with optional #variant; defaults to options.model or ${DEFAULT_IMAGE_MODEL}.`,
+            type: ["string", "null"],
+            description: `Provider/model with optional #variant; omitted or null uses options.model or ${DEFAULT_IMAGE_MODEL}.`,
           },
           quality: {
-            type: "string",
-            enum: ["low", "medium", "high", "xhigh", "max", "auto"],
-            description: "Image quality; xhigh and max require GPT Image 2.5.",
+            type: ["string", "null"],
+            enum: ["low", "medium", "high", "xhigh", "max", "auto", null],
+            description: "Image quality; null uses the default. xhigh and max require GPT Image 2.5.",
           },
-          size: { type: "string", description: "Image size, for example 1024x1024." },
+          size: { type: ["string", "null"], description: "Image size, for example 1024x1024; null uses the default." },
           images: {
-            type: "array",
+            type: ["array", "null"],
             items: { type: "string" },
-            description: "Reference image paths for editing, relative to the session directory unless absolute.",
+            description: "Reference image paths for editing, relative to the session directory unless absolute; null means no references.",
           },
         },
         required: ["prompt", "out"],
         additionalProperties: false,
       },
       execute: async (rawInput, tool) => {
-        const input = rawInput as ImageToolInput
+        const input = normalizeImageInput(rawInput as ImageToolInput)
         const model = await resolveImageModel(context, tool.sessionID, input.model)
 
         const credential = await resolveCredential(context, model.integrationID)
@@ -103,6 +103,17 @@ export default Plugin.define({
   id: "opencode.image-gen",
   setup: setupImageGen,
 })
+
+export function normalizeImageInput(input: ImageToolInput) {
+  return {
+    prompt: input.prompt,
+    out: input.out,
+    ...(input.model == null ? {} : { model: input.model }),
+    ...(input.quality == null ? {} : { quality: input.quality }),
+    ...(input.size == null ? {} : { size: input.size }),
+    ...(input.images == null ? {} : { images: input.images }),
+  }
+}
 
 function resolveEnvironmentURL(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined

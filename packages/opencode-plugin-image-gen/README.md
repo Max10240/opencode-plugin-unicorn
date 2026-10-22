@@ -27,6 +27,8 @@
 ```
 
 有参考图时增加 `images`，路径相对当前 session 目录；无参考图生成，有参考图编辑。
+可选字段 `model`、`quality`、`size`、`images` 均接受 `null`，与未提供相同，调用图片 API 前会移除。
+必填字段 `prompt`、`out` 仍只接受字符串。
 OpenAI-compatible endpoint 必须支持 `/images/generations` / `/images/edits`，能对话不代表能生图。
 支持 base64、图片 URL 和 data URL 结果；URL 下载不携带生成请求的认证头，也不会重复发起生图。
 

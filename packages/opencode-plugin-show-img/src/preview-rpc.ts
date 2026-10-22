@@ -26,8 +26,9 @@ export const ImagePreview = Rpc.define({
 export type PreviewReference = { assetID: string; name: string }
 export type PreviewImage = { mime: string; data: string; name: string }
 
-export function previewReference(metadata: Readonly<Record<string, unknown>> | undefined): PreviewReference | undefined {
-  const value = metadata?.imagePreview
+export function previewReference(metadata: unknown): PreviewReference | undefined {
+  if (!metadata || typeof metadata !== "object" || !("imagePreview" in metadata)) return
+  const value = metadata.imagePreview
   if (!value || typeof value !== "object") return
   if (!("assetID" in value) || typeof value.assetID !== "string") return
   if (!("name" in value) || typeof value.name !== "string") return

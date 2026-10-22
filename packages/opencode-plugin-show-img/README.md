@@ -29,9 +29,12 @@
 { "abs_file_path": "/absolute/path/on/server/image.png" }
 ```
 
-TUI 在当前 session 的输入框上方显示最近一次预览，点击缩略图或尺寸文字可放大，Esc 关闭。不会修改或读取
+TUI 将每次预览显示在对应工具输出下方，随会话正文滚动，不固定在输入框旁。点击缩略图或尺寸文字可放大，Esc 关闭。不会修改或读取
 `session.image_preview` / `prompt.image_preview`；两项关闭时仍可显示。支持 PNG、JPEG、GIF 和 WebP，最大 20 MiB。
 不支持的终端由 OpenTUI 自动退化为彩色字符块。
+只在消息行已挂载且接近视口时读取和解码图片；远离视口、切换 session、撤回或关闭插件会取消相关读取并释放展示资源。
+预览依赖宿主消息行锚点；未挂载或未公开锚点的折叠行暂不展示，不回退到固定底栏。
+已在 OpenCode `v2.0.21`、`v2.1.0` 验证。
 
 与 image-gen 同时启用时，image-gen 保存图片后会直接调用 `show_img` 准备预览引用，TUI 也识别 `image_gen`
 结果中的预览 metadata，不要求模型额外调用展示工具。没有 image-gen 时，本插件的 `show_img` 仍可独立使用。
@@ -73,9 +76,9 @@ bun run test
 - `test/server-e2e.test.ts`：真实工具错误路径、四种格式 RPC、非法参数和跨 session 访问拒绝、server 重启、
   symlink 替换、文件类型变更/增长/删除。
 - `test/e2e.test.ts`：独立插件和 Unicorn 的开关；真实 tmux 缩略图/放大/Esc/窗口缩放、实时完成、四种格式、
-  解码及 RPC 失败恢复、session 切换、client 热重载、server/client 重启，以及 UI 与模型内容隔离。
+  随正文滚动与滚回恢复、解码及 RPC 失败恢复、session 切换、client 热重载、server/client 重启，以及 UI 与模型内容隔离。
 - `test/tui/preview.test.tsx`：参考 OpenCode 的 `diff-viewer-image.test.tsx`，使用 OpenTUI `testRender` 检查
-  实际 `ImageRenderable` 像素尺寸、窄/宽终端、加载态、错误恢复、请求取消和过期响应隔离。
+  实际 `ImageRenderable` 像素尺寸、滚动裁剪、多图共存、虚拟化、窄/宽终端、错误恢复、取消和过期响应隔离。
 - `test/assets.test.ts` / `test/lifecycle.test.ts`：文件边界、storage 失败与注册清理。
 - 根目录 `bun run check` 还会构建、类型检查，并真实打包安装所有 npm 包后重复 TUI E2E。
 

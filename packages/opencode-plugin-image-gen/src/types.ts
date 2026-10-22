@@ -12,10 +12,10 @@ export type ImageGenOptions = {
 export type ImageToolInput = {
   readonly prompt: string
   readonly out: string
-  readonly model?: string
-  readonly quality?: ImageQuality
-  readonly size?: string
-  readonly images?: string[]
+  readonly model?: string | null
+  readonly quality?: ImageQuality | null
+  readonly size?: string | null
+  readonly images?: string[] | null
 }
 
 export type ModelReference = {

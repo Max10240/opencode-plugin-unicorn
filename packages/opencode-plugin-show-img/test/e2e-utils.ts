@@ -116,7 +116,7 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
   const combined = path.basename(pluginRoot) === "opencode-plugin-unicorn"
   const configure = (showImg: boolean) => writeFile(path.join(configDirectory, "cli.json"), JSON.stringify({
     session: { image_preview: false }, prompt: { image_preview: false },
-    keybinds: { "session.list": "f8", "session.tab.select.1": "f9" },
+    keybinds: { "session.list": "f8", "session.tab.select.1": "f9", "session.first": "f6", "session.last": "f7" },
     plugins: [{ package: plugin.package, options: combined
       ? { features: { promptSearch: false }, showImg: { features: { showImg } } }
       : { features: { promptSearch: false, showImg } } }],
@@ -156,14 +156,24 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     await waitFor(async () => pane().includes(`Image preview: ${path.basename(file)}`), "Image preview did not appear")
     await waitFor(async () => pane().includes("1 x 1") && pane().includes("Click to enlarge"), "RPC image did not decode in the TUI")
     expect(pane()).not.toContain("Image preview unavailable")
-    const row = pane().split("\n").findIndex((line) => line.includes("Click to enlarge")) + 1
-    tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;5;${row}M\x1b[<0;5;${row}m`])
+    const lines = pane().split("\n")
+    const row = lines.findIndex((line) => line.includes("Click to enlarge")) + 1
+    const column = lines[row - 1].indexOf("Click to enlarge") + 1
+    tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`])
     await waitFor(async () => pane().includes("Esc to close"), "Click-to-enlarge dialog did not open")
     tmux(["resize-window", "-t", "preview", "-x", "80", "-y", "28"])
     await waitFor(async () => pane().includes("Esc to close") && pane().includes(path.basename(file)), "Image dialog did not adapt to a narrow terminal")
     tmux(["send-keys", "-t", "preview", "Escape"])
     await waitFor(async () => !pane().includes("Esc to close"), "Image dialog did not close")
     tmux(["resize-window", "-t", "preview", "-x", "100", "-y", "36"])
+
+    e2e.proxy.mock.prependFixture({ match: { userMessage: "E2E_SCROLL_IMAGE", hasToolResult: false }, response: { content: "scroll transcript line\n".repeat(60) + "IMAGE_SCROLL_END" } })
+    await prompt(e2e, sessionID, "E2E_SCROLL_IMAGE")
+    await waitFor(async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Image stayed fixed at the bottom instead of scrolling with its tool output")
+    tmux(["send-keys", "-t", "preview", "F6"])
+    await waitFor(async () => pane().includes(`Image preview: ${path.basename(file)}`) && pane().includes("Click to enlarge"), "Scrolling back did not restore the original inline preview")
+    tmux(["send-keys", "-t", "preview", "F7"])
+    await waitFor(async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Last-message navigation left the old preview pinned")
 
     const liveFile = path.join(serverOnly, "live-image.png")
     await writeFile(liveFile, imageBytes)
@@ -174,8 +184,14 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_show_img_live" }, response: { content: "SHOW_IMG_LIVE_DONE" } })
     await prompt(e2e, sessionID, "E2E_SHOW_IMG_LIVE")
     await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Live tool completion did not update the preview")
+    const liveLines = pane().split("\n")
+    const liveHeader = liveLines.findIndex((line) => line.includes("Image preview: live-image.png"))
+    const liveRow = liveLines.findIndex((line, index) => index > liveHeader && line.includes("Click to enlarge")) + 1
+    const liveColumn = liveLines[liveRow - 1].indexOf("Click to enlarge") + 1
+    tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${liveColumn};${liveRow}M\x1b[<0;${liveColumn};${liveRow}m`])
+    await waitFor(async () => pane().includes("Esc to close"), "Live image did not enlarge before disabling the plugin")
     await configure(false)
-    await waitFor(async () => !pane().includes("Image preview:"), "Client showImg feature did not disable the preview")
+    await waitFor(async () => !pane().includes("Image preview:") && !pane().includes("Esc to close"), "Client showImg feature left an inline preview or enlarged dialog after disabling")
     await configure(true)
     await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Client plugin reload did not restore the persisted preview reference")
 
@@ -189,7 +205,7 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
       await writeFile(file, fixture.bytes)
       expect((await showImage(e2e, sessionID, file)).state.status).toBe("completed")
       await waitFor(async () => pane().includes(`Image preview: format-${fixture.kind}.bin`) && pane().includes(`${fixture.width} x ${fixture.height}`), `${fixture.kind} did not decode in the real TUI`)
-      expect(pane()).not.toContain("Could not decode image")
+      expect(pane().slice(pane().lastIndexOf(`Image preview: format-${fixture.kind}.bin`))).not.toContain("Could not decode image")
     }
 
     const deleted = path.join(serverOnly, "deleted.png")
