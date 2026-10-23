@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-unicorn",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "description": "Personal OpenCode plugin features",
   "type": "module",
   "exports": {
@@ -12,7 +12,7 @@
     "test": "bun test test/*.test.ts && bun test --conditions=browser --preload @opentui/solid/preload test/tui",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && node build.mjs",
-    "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
+    "prepack": "node ../../scripts/sync-plugin-dependencies.mjs && node ../../scripts/sync-recommended-rules.mjs && npm run build"
   },
   "files": [
     "dist/**/*.js",
@@ -29,12 +29,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@max10240/opencode-plugin-image-gen": "^1",
-    "@max10240/opencode-plugin-prompt-search": "^1",
-    "@max10240/opencode-plugin-session-search": "^1",
-    "@max10240/opencode-plugin-send-message-across-sessions": "^1",
-    "@max10240/opencode-plugin-show-img": "^1",
-    "@max10240/opencode-plugin-recomended-opencode-config": "^1",
+    "@max10240/opencode-plugin-image-gen": "1.0.9",
+    "@max10240/opencode-plugin-prompt-search": "1.0.9",
+    "@max10240/opencode-plugin-session-search": "1.0.9",
+    "@max10240/opencode-plugin-send-message-across-sessions": "1.0.9",
+    "@max10240/opencode-plugin-show-img": "1.0.9",
+    "@max10240/opencode-plugin-recomended-opencode-config": "1.0.9",
     "@opencode/plugin": "^2.0.9"
   },
   "peerDependencies": {

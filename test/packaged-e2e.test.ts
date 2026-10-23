@@ -11,6 +11,7 @@ import { recommendedCommands } from "../packages/opencode-plugin-recomended-open
 import { installArchives, packWorkspace } from "../scripts/test-artifacts.mjs"
 import { mapLimit } from "../scripts/workspace.mjs"
 import { checkSessionSearch } from "../packages/opencode-plugin-session-search/test/e2e-utils.js"
+import { installUnicornOnly } from "./unicorn-install.js"
 
 setDefaultTimeout(360_000)
 
@@ -57,6 +58,14 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
 
     const install = path.join(root, "install")
     await installArchives(archives, install)
+
+    const unicornOnly = await installUnicornOnly(archives, path.join(root, "single-package"), path.join(install, "package-lock.json"))
+    const isolated = await createOpenCodeE2E({ plugin: "unicorn", pluginPackage: path.join(unicornOnly, "dist") })
+    try {
+      await checkShowImg(isolated)
+      await checkGeneratedImagePreview(isolated, true)
+      await checkSessionSearch(isolated, { combined: true })
+    } finally { await isolated.close() }
 
     await mapLimit(packages, 3, async (entry) => {
       const packageRoot = path.join(install, "node_modules", "@max10240", entry.directory)

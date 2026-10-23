@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-session-search",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "description": "Search user and agent messages in the current OpenCode session and jump to a result",
   "type": "module",
   "exports": { ".": "./dist/src/index.js", "./tui": "./dist/src/tui.js" },

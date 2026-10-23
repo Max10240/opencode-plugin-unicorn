@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { assertPluginVersions, checkPluginVersions } from "../scripts/check-versions.mjs"
+import { syncPluginDependencies } from "../scripts/sync-plugin-dependencies.mjs"
 
 const unicorn = { name: "@max10240/opencode-plugin-unicorn", version: "1.0.5" }
 
@@ -17,6 +18,39 @@ test("publishing does not automatically create a commit", async () => {
   const workspace = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
   expect(workspace.scripts["postpublish:all"]).toBeUndefined()
   expect(workspace.scripts["publish:all"]).toStartWith("bun run check:fresh &&")
+  expect(workspace.scripts["publish:all"]).toContain("--git-tag-version=false")
+  expect(workspace.scripts["publish:all"]).toContain("npm version --ws patch --git-tag-version=false --workspaces-update=false && bun run sync:versions && bun run build")
+})
+
+test("runtime child dependencies must pin the exact shared version, not prefer an older latest tag", () => {
+  const child = { name: "@max10240/opencode-plugin-show-img", version: unicorn.version }
+  for (const field of ["dependencies", "optionalDependencies"]) {
+    for (const value of ["^1", `^${unicorn.version}`, `~${unicorn.version}`, "latest", "prerelease", "1.0.1"]) {
+      expect(() => assertPluginVersions([{ ...unicorn, [field]: { [child.name]: value } }, child])).toThrow("exactly")
+    }
+  }
+  expect(assertPluginVersions([{ ...unicorn, dependencies: { [child.name]: child.version, external: "^1" } }, child]).count).toBe(2)
+})
+
+test("dependency synchronization follows a version bump without changing unrelated manifest formatting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opencode-dependency-sync-"))
+  try {
+    await mkdir(path.join(root, "packages", "unicorn"), { recursive: true })
+    await mkdir(path.join(root, "packages", "child"))
+    const child = { name: "@max10240/opencode-plugin-show-img", version: "1.0.9" }
+    const file = path.join(root, "packages/unicorn/package.json")
+    const original = `${JSON.stringify({ ...unicorn, version: child.version, dependencies: { [child.name]: "^1", external: "^2" } })}\n`
+    await writeFile(file, original)
+    await writeFile(path.join(root, "packages/child/package.json"), JSON.stringify(child))
+    await expect(checkPluginVersions(root)).rejects.toThrow("exactly")
+    await syncPluginDependencies(root)
+    expect(await readFile(file, "utf8")).toBe(original.replace('"^1"', '"1.0.9"'))
+    expect((await checkPluginVersions(root)).version).toBe(child.version)
+    const before = await stat(file)
+    await Bun.sleep(10)
+    await syncPluginDependencies(root)
+    expect((await stat(file)).mtimeMs).toBe(before.mtimeMs)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test("rejects a new plugin with its own initial version", () => {

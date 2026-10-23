@@ -251,13 +251,19 @@ async function waitForPane(target: string, text: string, message: string) {
 }
 
 async function waitForSearchCommand(target: string) {
-  tmux(["send-keys", "-t", target, "F10"])
-  tmux(["send-keys", "-t", target, "-l", "Search previous prompts"])
-  await waitFor(async () => commandIsListed(new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout), "Search previous prompts") || false,
-    "Prompt search command did not register")
-  tmux(["send-keys", "-t", target, "Escape"])
-  await waitFor(async () => !new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout).includes("Search previous prompts") || false,
-    "Command palette did not close")
+  try {
+    tmux(["send-keys", "-t", target, "F10"])
+    await waitForPane(target, "Commands", "Command palette did not open")
+    tmux(["send-keys", "-t", target, "-l", "Search previous prompts"])
+    await waitFor(async () => commandIsListed(new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout), "Search previous prompts") || false,
+      "Prompt search command did not register")
+    tmux(["send-keys", "-t", target, "Escape"])
+    await waitFor(async () => !new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target]).stdout).includes("Search previous prompts") || false,
+      "Command palette did not close")
+  } catch (error) {
+    const screen = new TextDecoder().decode(tmux(["capture-pane", "-p", "-t", target], false).stdout)
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- ${target} ---\n${screen}`)
+  }
 }
 
 async function waitFor<T>(check: () => Promise<T | false>, message: string, timeout = 30_000): Promise<T> {

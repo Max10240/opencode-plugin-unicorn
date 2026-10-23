@@ -88,4 +88,8 @@ Unicorn 不再读取顶层 `model`、`baseURL`、`integrationID`、`keybind`、`
 ## 开发
 
 根目录运行 `bun run check`，使用真实 OpenCode、tmux 和隔离的本地 mock 验证各插件及 npm 安装包。
-所有插件版本一致，统一发布到 npm；不会自动执行发布。
+所有插件版本一致，内部依赖精确固定到同版本，不使用 `^1`，避免 `latest` / `prerelease` 标签不同步时安装旧子包。
+统一升版后运行 `bun run sync:versions` 同步内部依赖；`publish:all` 已包含此步骤，不自动创建 Git commit/tag。
+升版阶段不重装 workspace 依赖，待版本及内部依赖同步完成后再构建。
+`check:fresh` 还会只安装 Unicorn，在 `latest` 指向旧子包的隔离 registry 中验证依赖解析，并运行图片随正文滚动的 tmux E2E。
+不会自动执行发布或更新正在运行的插件。

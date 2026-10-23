@@ -46,8 +46,10 @@ bun run check
 `opencode/unicorn-test-cache`，可用 `UNICORN_TEST_CACHE_DIR` 指定可写目录并在 CI 中缓存。
 需要检查依赖范围内的新版本时运行 `check:fresh`；该入口不使用缓存锁，但仍可利用 npm 下载缓存。
 安装器使用独立 npm 配置，保留网络代理/CA 设置，不读取用户的 npm 认证配置或预加载脚本。
+Unicorn 另做单包安装：子包始终通过本地 registry 重新解析并校验本轮 tarball 完整性，避免七包同时安装掩盖依赖问题。
+普通检查复用第三方依赖锁；`fresh` 入口重新解析第三方版本。本地 registry 同时验证 `latest` 指向旧子包的情况。
 
-正式 `npm pack` / `npm publish` 的 prepack 构建和规则同步保持不变；只有验证了本轮构建的测试打包才跳过重复生命周期脚本。
+正式 `npm pack` / `npm publish` 的 prepack 仍执行构建和规则同步，Unicorn 还会同步内部依赖版本；只有验证了本轮构建的测试打包才跳过重复生命周期脚本。
 
 也可以只运行指定 workspace：
 
@@ -59,7 +61,7 @@ bun run --cwd packages/opencode-plugin-unicorn typecheck
 workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 package 保留自己的入口、依赖、测试和发布配置。
 
 所有插件包使用同一个版本号，新增插件也与 Unicorn 当前版本对齐。`bun run check:versions` 可单独检查；
-构建和完整检查会自动校验，版本不一致时立即失败。
+构建和完整检查会自动校验，包版本不一致或内部依赖未精确固定到同版本时立即失败；统一升版后用 `bun run sync:versions` 同步依赖。
 
 推荐规则模板使用全局 `AGENTS.md` 的硬链接。`bun install` 安装 pre-commit hook，commit 和 prepack 前重新同步；
 `bun run sync:rules` 可手动同步。已有 Git hook 不会被覆盖。commands 只提取全局 JSONC 的对应字段，不收录完整配置。
