@@ -64,7 +64,7 @@ export async function installUnicornOnly(archives: readonly Archive[], root: str
     const directory = path.join(root, "unicorn-only")
     const dependencies = { [unicorn.manifest.name]: `file:${path.relative(directory, unicorn.file)}` }
     let seed: any
-    if (dependencyLock && process.env.UNICORN_TEST_FRESH_INSTALL !== "1") {
+    if (dependencyLock) {
       seed = JSON.parse(await readFile(dependencyLock, "utf8"))
       seed.name = "unicorn-only-install-test"
       seed.packages[""].name = seed.name
@@ -72,11 +72,11 @@ export async function installUnicornOnly(archives: readonly Archive[], root: str
       const parent = seed.packages[`node_modules/${unicorn.manifest.name}`]
       parent.resolved = dependencies[unicorn.manifest.name]
       parent.integrity = `sha512-${createHash("sha512").update(await readFile(unicorn.file)).digest("base64")}`
-      // Freeze only external dependencies. All child plugins must still resolve through the adversarial registry.
+      // Reuse this run's external resolution, including fresh runs. Child plugins still resolve independently.
       for (const item of children) delete seed.packages[`node_modules/${item.manifest.name}`]
     }
     if (seed) {
-      try { await timed("npm install (Unicorn only, cached external dependencies)", () => install(directory, dependencies, seed)) }
+      try { await timed("npm install (Unicorn only, current external lock)", () => install(directory, dependencies, seed)) }
       catch {
         await rm(path.join(directory, "node_modules"), { recursive: true, force: true })
         await rm(path.join(directory, "package-lock.json"), { force: true })

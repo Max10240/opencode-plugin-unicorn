@@ -81,6 +81,7 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
     if (["test", "e2e", "check"].includes(mode)) await test("e2e")
     if (["packaged", "check"].includes(mode)) await test("packaged")
     await verifyBuild(root, lease)
+    return lease
   } finally {
     await rm(temporary, { recursive: true, force: true })
     console.log(`[check] total: ${((performance.now() - started) / 1000).toFixed(2)}s`)

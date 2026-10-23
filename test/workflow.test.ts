@@ -85,7 +85,7 @@ test("bounded concurrency preserves result order and drains started jobs on fail
 test("full check builds exactly once, runs every test once, and deletes the build lease", async () => fixture(async (root) => {
   const calls: Array<{ args: string[]; cwd: string; lease?: string }> = []
   let packs = 0
-  await executeWorkflow("check", { root, pack: async () => { packs++; return [] }, run: async (args: string[], options: any) => {
+  const proof = await executeWorkflow("check", { root, pack: async () => { packs++; return [] }, run: async (args: string[], options: any) => {
     const lease = options.env?.[BUILD_MANIFEST]
     if (lease) expect(JSON.parse(await readFile(lease, "utf8")).root).toBe(root)
     calls.push({ args, cwd: options.cwd, lease })
@@ -100,6 +100,22 @@ test("full check builds exactly once, runs every test once, and deletes the buil
   expect(tests.filter((call) => call.args.includes("--conditions=browser"))).toHaveLength(2)
   const lease = tests[0].lease!
   await expect(readFile(lease)).rejects.toThrow()
+  expect(proof!.root).toBe(root)
+  await verifyBuild(root, proof)
+}))
+
+test("manifest overrides preserve version-only fingerprints without hiding source changes", async () => fixture(async (root) => {
+  const file = path.join(root, "packages/a/package.json")
+  const original = await readFile(file)
+  const before = await buildFingerprint(root)
+  const manifest = JSON.parse(original.toString())
+  manifest.version = "1.0.1"
+  await writeFile(file, JSON.stringify(manifest))
+  const overrides = new Map([[file, original]])
+  expect(await buildFingerprint(root)).not.toBe(before)
+  expect(await buildFingerprint(root, overrides)).toBe(before)
+  await writeFile(path.join(root, "packages/a/source.ts"), "unvalidated source")
+  expect(await buildFingerprint(root, overrides)).not.toBe(before)
 }))
 
 test("fast and unit entrypoints never run server or packaged tests", async () => fixture(async (root) => {

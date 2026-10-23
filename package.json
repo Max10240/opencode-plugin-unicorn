@@ -27,7 +27,8 @@
     "check:full": "node scripts/workflow.mjs check",
     "check:fresh": "node scripts/workflow.mjs check --fresh",
     "check": "node scripts/workflow.mjs check",
-    "publish:all": "bun run check:fresh && npm version --ws patch --git-tag-version=false --workspaces-update=false && bun run sync:versions && bun run build && npm login --registry=https://registry.npmjs.org && npm publish --ws",
+    "publish:all": "node scripts/publish.mjs",
+    "publish:all:dry-run": "node scripts/publish.mjs --dry-run",
     "publish:all:prerelease": "npm run publish:all -- --tag=prerelease"
   },
   "devDependencies": { "jsonc-parser": "^3.3.1" }

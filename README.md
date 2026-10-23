@@ -47,7 +47,7 @@ bun run check
 需要检查依赖范围内的新版本时运行 `check:fresh`；该入口不使用缓存锁，但仍可利用 npm 下载缓存。
 安装器使用独立 npm 配置，保留网络代理/CA 设置，不读取用户的 npm 认证配置或预加载脚本。
 Unicorn 另做单包安装：子包始终通过本地 registry 重新解析并校验本轮 tarball 完整性，避免七包同时安装掩盖依赖问题。
-普通检查复用第三方依赖锁；`fresh` 入口重新解析第三方版本。本地 registry 同时验证 `latest` 指向旧子包的情况。
+普通检查复用第三方依赖锁；`fresh` 入口重新解析一轮第三方版本，Unicorn 单包安装复用本轮结果，不重复联网解析。本地 registry 同时验证 `latest` 指向旧子包的情况。
 
 正式 `npm pack` / `npm publish` 的 prepack 仍执行构建和规则同步，Unicorn 还会同步内部依赖版本；只有验证了本轮构建的测试打包才跳过重复生命周期脚本。
 
@@ -67,3 +67,15 @@ workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 
 `bun run sync:rules` 可手动同步。已有 Git hook 不会被覆盖。commands 只提取全局 JSONC 的对应字段，不收录完整配置。
 
 发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。完整检查会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用独立 tmux socket 检查交互、响应式过滤和跨文件系统图片预览。发布脚本会在改版本号、上传前执行 `check:fresh`。
+
+### 发布与 dry run
+
+```sh
+npm run publish:all -- --dry-run
+npm run publish:all:prerelease -- --dry-run
+```
+
+dry run 执行完整 fresh 检查，只在临时 workspace 模拟下一版本；不修改实际包版本、不登录、不创建 Git commit/tag、不上传 npm。
+移除 `--dry-run` 才会实际发布。已有 npm 认证时跳过登录；网络认证错误直接失败，不反复打开登录流程。
+实际发布保留每包 prepack 构建，不再额外做一轮 workspace 构建；显式禁用生命周期脚本时才保留该轮构建。
+升版后、进入 npm 发布前会校验源码、现有产物和包配置，仅允许预期的版本及内部依赖变更；随后按上述方式构建。不覆盖或回退用户改动。

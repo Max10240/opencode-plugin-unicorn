@@ -65,7 +65,7 @@ export async function treeFiles(directory, excluded = new Set()) {
   return result
 }
 
-export async function buildFingerprint(root) {
+export async function buildFingerprint(root, overrides = new Map()) {
   const inputs = [path.join(root, "package.json")]
   for (const directory of ["packages", "scripts", "test"]) {
     inputs.push(...await treeFiles(path.join(root, directory), new Set(["node_modules", "dist", "coverage"])))
@@ -81,7 +81,7 @@ export async function buildFingerprint(root) {
   }
   const hash = createHash("sha256")
   for (const [kind, files] of [["input", inputs], ["output", outputs]]) {
-    for (const file of files.sort()) hash.update(JSON.stringify([kind, path.relative(root, file), (await readFile(file)).toString("base64")]))
+    for (const file of files.sort()) hash.update(JSON.stringify([kind, path.relative(root, file), (overrides.has(file) ? overrides.get(file) : await readFile(file)).toString("base64")]))
   }
   return hash.digest("hex")
 }
