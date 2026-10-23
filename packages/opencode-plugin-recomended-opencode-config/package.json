@@ -1,17 +1,22 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-recomended-opencode-config",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Merge recommended OpenCode rules and disable OpenAI response storage",
   "type": "module",
-  "exports": { ".": "./dist/src/index.js" },
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && bun build.mjs",
     "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
   },
-  "files": ["dist/**/*.js", "README.md"],
+  "files": [
+    "dist/**/*.js",
+    "README.md"
+  ],
   "license": "MIT",
   "dependencies": {
     "@opencode/plugin": "^2.0.9",
@@ -23,5 +28,8 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.8.2"
   },
-  "publishConfig": { "registry": "https://registry.npmjs.org/", "access": "public" }
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
 }
