@@ -31,5 +31,5 @@
     "publish:all:dry-run": "node scripts/publish.mjs --dry-run",
     "publish:all:prerelease": "npm run publish:all -- --tag=prerelease"
   },
-  "devDependencies": { "jsonc-parser": "^3.3.1" }
+  "devDependencies": { "jsonc-parser": "^3.3.1", "yaml": "^2.8.1" }
 }

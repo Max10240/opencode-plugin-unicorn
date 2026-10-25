@@ -64,7 +64,8 @@ workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 
 构建和完整检查会自动校验，包版本不一致或内部依赖未精确固定到同版本时立即失败；统一升版后用 `bun run sync:versions` 同步依赖。
 
 推荐规则模板使用全局 `AGENTS.md` 的硬链接。`bun install` 安装 pre-commit hook，commit 和 prepack 前重新同步；
-`bun run sync:rules` 可手动同步。已有 Git hook 不会被覆盖。commands 只提取全局 JSONC 的对应字段，不收录完整配置。
+`bun run sync:rules` 可手动同步。已有 Git hook 不会被覆盖。命令收集源 JSONC 的 `commands` 和同目录 `.commands/`、
+`command/`、`commands/` 下的 Markdown，不收录完整配置、不执行模板；同名用户命令不覆盖。
 
 发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。完整检查会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用独立 tmux socket 检查交互、响应式过滤和跨文件系统图片预览。发布脚本会在改版本号、上传前执行 `check:fresh`。
 

@@ -181,6 +181,41 @@ test("inline commands are added without overwriting user definitions, comments, 
   expect(updateConfigText(result, commands)).toBe(result)
 })
 
+test("Markdown command names and values keep config placeholders literal without changing inline expansion or user commands", () => {
+  const name = "team/{env:COMMAND_NAME}"
+  const markdown = { template: "Literal {env:SECRET} and {file:private.txt}; $ARGUMENTS !`git diff`", description: "Description {file:private.txt}" }
+  const inline = { template: "Expand {env:INLINE} and {file:inline.txt}" }
+  const commands = { [name]: markdown, inline, keep: { template: "RECOMMENDED" } }
+  const protectedNames = new Set([name, "keep"])
+  const original = '{\n// user comment\n"commands":{"keep":{"template":"USER {env:USER}"},},\n}'
+  const updated = updateConfigText(original, commands, new Set(), protectedNames)
+  expect(parse(updated).commands).toEqual({ keep: { template: "USER {env:USER}" }, [name]: markdown, inline })
+  expect(updated).toContain("// user comment")
+  expect(updated).not.toContain("{env:COMMAND_NAME}")
+  expect(updated).not.toContain("{env:SECRET}")
+  expect(updated).not.toContain("{file:private.txt}")
+  expect(updated).toContain("{env:INLINE}")
+  expect(updated).toContain("{file:inline.txt}")
+  expect(updated).toContain("USER {env:USER}")
+  expect(updateConfigText(updated, commands, new Set(), protectedNames)).toBe(updated)
+})
+
+test("reapplying Markdown recommendations leaves literal JSON escapes and file timestamps intact", async () => {
+  await fixture(async (directory) => {
+    const commands = { markdown: { template: "Literal {env:SECRET} and {file:private.txt}" } }
+    const names = new Set(["markdown"])
+    await applyRecommendedConfig(directory, [], commands, names)
+    const file = path.join(directory, "opencode.jsonc")
+    const original = await readFile(file, "utf8")
+    const timestamp = (await stat(file)).mtimeMs
+    expect(original).not.toContain("{env:SECRET}")
+    expect(parse(original).commands).toEqual(commands)
+    expect(await applyRecommendedConfig(directory, [], commands, names)).toEqual({ rulesChanged: false, configChanged: [] })
+    expect(await readFile(file, "utf8")).toBe(original)
+    expect((await stat(file)).mtimeMs).toBe(timestamp)
+  })
+})
+
 test("existing commands in either JSON variant or a global Markdown directory are never shadowed", async () => {
   await fixture(async (directory) => {
     const { mkdir } = await import("node:fs/promises")

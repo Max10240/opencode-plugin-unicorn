@@ -1,4 +1,4 @@
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser"
+import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type Edit, type Node, type ParseError } from "jsonc-parser"
 import { randomUUID } from "node:crypto"
 import { chmod, lstat, lutimes, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -27,7 +27,27 @@ export function updateOpenAIStore(markdown: string): string {
   }))
 }
 
-export function updateConfigText(text: string, commands: RecommendedCommands = {}, existingCommands: ReadonlySet<string> = new Set()) {
+// Keep Markdown's config-like text literal when serializing it into JSONC.
+function preserveCommandLiterals(text: string, name: string) {
+  const root = parseTree(text, undefined, { allowTrailingComma: true })
+  const command = root && findNodeAtLocation(root, ["commands", name])
+  const key = command?.parent?.children?.[0]
+  if (!command || !key) throw new Error(`Cannot locate recommended command: ${name}`)
+  const edits: Edit[] = []
+  const visit = (node: Node) => {
+    if (node.type === "string") {
+      const original = text.slice(node.offset, node.offset + node.length)
+      const content = original.replaceAll("{", "\\u007b")
+      if (content !== original) edits.push({ offset: node.offset, length: node.length, content })
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+  visit(key)
+  visit(command)
+  return applyEdits(text, edits)
+}
+
+export function updateConfigText(text: string, commands: RecommendedCommands = {}, existingCommands: ReadonlySet<string> = new Set(), markdownCommands: ReadonlySet<string> = new Set()) {
   let updated = updateOpenAIStore(text)
   const document = parse(text) as Record<string, unknown>
   if (Object.hasOwn(document, "commands") && !object(document.commands)) throw new Error("OpenCode commands must be an object")
@@ -37,6 +57,7 @@ export function updateConfigText(text: string, commands: RecommendedCommands = {
     updated = applyEdits(updated, modify(updated, ["commands", name], command, {
       formattingOptions: { tabSize: 2, insertSpaces: true, eol: text.includes("\r\n") ? "\r\n" : "\n" },
     }))
+    if (markdownCommands.has(name)) updated = preserveCommandLiterals(updated, name)
   }
   return updated
 }
@@ -112,7 +133,7 @@ async function commandState(directory: string, files: readonly string[]) {
   return { names, markdown, documents }
 }
 
-export async function applyRecommendedConfig(directory: string, rules: readonly RecommendedRule[], commands: RecommendedCommands = {}) {
+export async function applyRecommendedConfig(directory: string, rules: readonly RecommendedRule[], commands: RecommendedCommands = {}, markdownCommands: ReadonlySet<string> = new Set()) {
   directory = path.resolve(directory)
   directory = await realpath(directory).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return directory
@@ -151,7 +172,7 @@ export async function applyRecommendedConfig(directory: string, rules: readonly 
       let state: Awaited<ReturnType<typeof commandState>> | undefined
       const changed = await atomicUpdate(file, async (text, exists) => {
         state = await commandState(directory, configs.filter((candidate) => candidate !== file))
-        return updateConfigText(exists ? text : "{}\n", commands, state.names)
+        return updateConfigText(exists ? text : "{}\n", commands, state.names, markdownCommands)
       }, Object.keys(missing).length > 0, async () => {
         if (!state) return false
         for (const [file, original] of state.documents) if (await read(file) !== original) return false

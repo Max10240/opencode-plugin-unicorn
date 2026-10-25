@@ -50,7 +50,7 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 `enabled` 未配置时才读取 server 环境中的 `IS_MAX_SELF`；变量缺失、为空、为 `0` 或 `false` 时关闭。
 例如 `"recommendedOpencodeConfig": { "enabled": true }` 显式启用；Unicorn 不会把 feature 开关转换为 `enabled`。
 旧 `globalConfig` 开关已移除，Luna 上下文限制和 `share` 不再自动修改。
-推荐配置插件也会补充缺失的 inline commands；已有同名用户命令保持原样。
+推荐配置插件会将源 inline 和 Markdown 命令补充到缺失的 inline commands；已有同名用户命令保持原样。
 
 图像模型默认 `openai/gpt-image-2.5-sunburst`。`options.imageGen.model` 可覆盖默认值，单次 `image_gen` 的 `model` 参数
 优先级最高。生成/编辑成功后，`show_img` 可用时自动准备 UI 预览；缺失或失败不影响生图，不向模型返回图片内容。
