@@ -131,9 +131,14 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
             if (request.headers.get("authorization") !== "Basic synthetic-packaged-auth") return new Response("Missing gateway authentication", { status: 401 })
             verifiedHeader = true
             const url = new URL(request.url)
-            return fetch(`${e2e.proxy.baseURL}${url.pathname.replace(/^\/v1/, "")}${url.search}`, {
+            const response = await fetch(`${e2e.proxy.baseURL}${url.pathname.replace(/^\/v1/, "")}${url.search}`, {
               method: request.method, headers: request.headers, body: await request.arrayBuffer(), signal: AbortSignal.timeout(30_000),
             })
+            if (/\/images\/(generations|edits)$/.test(url.pathname) && response.ok) return Response.json({
+              ...await response.json() as Record<string, unknown>,
+              size: null, output_format: null, quality: null, background: null, usage: null,
+            })
+            return response
           } })
           try {
             const config = await e2e.config()

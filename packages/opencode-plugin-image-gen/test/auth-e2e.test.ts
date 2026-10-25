@@ -42,7 +42,10 @@ for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "
             return Response.json({ error: { message: "research request signature missing" } }, { status: 401 })
           }
         }
-        if (url.pathname.endsWith("/images/generations") || url.pathname.endsWith("/images/edits")) return Response.json({ data: [{ b64_json: png }] })
+        if (url.pathname.endsWith("/images/generations") || url.pathname.endsWith("/images/edits")) return Response.json({
+          data: [{ b64_json: png, ...(headerOnly ? { mime_type: null } : {}) }],
+          ...(headerOnly ? { size: null, output_format: null, quality: null, background: null, usage: null } : {}),
+        })
         if (url.pathname.endsWith("/chat/completions")) return fetch(`${upstream}/chat/completions`, {
           method: "POST", headers: request.headers, body: raw, signal: AbortSignal.timeout(15_000), redirect: "error",
         })

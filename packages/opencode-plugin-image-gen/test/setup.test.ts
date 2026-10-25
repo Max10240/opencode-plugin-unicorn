@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
-import { access, mkdtemp, readFile, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { normalizeImageInput, setupImageGen } from "../src/index.js"
@@ -61,6 +61,39 @@ test("the tool schema accepts null for every optional field and null never reach
       await registered.execute(undefined, { model: null, quality: null, size: null, images: null })
       expect(requests).toBe(1)
       expect(await readFile(path.join(directory, "proof.png"), "utf8")).toBe("PNG")
+    } finally { await registered.dispose() }
+  } finally { server.stop(true); await rm(directory, { recursive: true, force: true }) }
+})
+
+const responseCases = (["generate", "edit"] as const).flatMap((kind) =>
+  (["nullable", "empty", "rejected"] as const).map((mode) => ({ kind, mode })))
+
+test.each(responseCases)("the registered tool saves only valid $mode $kind results", async ({ kind, mode }) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "image-gen-response-"))
+  let requests = 0
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    requests++
+    expect(new URL(request.url).pathname).toEndWith(`/images/${kind === "edit" ? "edits" : "generations"}`)
+    if (kind === "edit") expect((await request.formData()).get("size")).toBeNull()
+    else expect(await request.json()).not.toHaveProperty("size")
+    return Response.json({
+      data: [{ b64_json: mode === "empty" ? "" : "UE5H", mime_type: null }],
+      size: null, quality: null, output_format: null, background: null, usage: null,
+    }, { status: mode === "rejected" ? 401 : 200 })
+  } })
+  try {
+    await writeFile(path.join(directory, "reference.png"), "PNG")
+    const registered = await fixture(directory, server.url.origin)
+    try {
+      const result = registered.execute(undefined, { size: null, ...(kind === "edit" ? { images: ["reference.png"] } : {}) })
+      if (mode === "nullable") {
+        expect((await result).content).toContain("proof.png")
+        expect(await readFile(path.join(directory, "proof.png"), "utf8")).toBe("PNG")
+      } else {
+        await expect(result).rejects.toThrow()
+        await expect(access(path.join(directory, "proof.png"))).rejects.toThrow()
+      }
+      expect(requests).toBe(1)
     } finally { await registered.dispose() }
   } finally { server.stop(true); await rm(directory, { recursive: true, force: true }) }
 })

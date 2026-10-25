@@ -31,6 +31,8 @@
 必填字段 `prompt`、`out` 仍只接受字符串。
 OpenAI-compatible endpoint 必须支持 `/images/generations` / `/images/edits`，能对话不代表能生图。
 支持 base64、图片 URL 和 data URL 结果；URL 下载不携带生成请求的认证头，也不会重复发起生图。
+OpenAI-compatible 响应的可选元数据接受 `null`；兼容解析仍校验字段类型，并拒绝损坏的 base64、空内容和 HTTP 错误，不重新生图。
+并发保存同一路径时以独占创建方式分配版本名，避免互相覆盖。
 
 ## 模型与配置
 

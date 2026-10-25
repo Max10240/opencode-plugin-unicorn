@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import type { GeneratedImage, ImageFile, ImageQuality } from "./types.js"
 import { prepareImageModel } from "./deployment.js"
-import { openAIURLImage } from "./openai-url-result.js"
+import { openAICompatibleImage } from "./openai-image-result.js"
 
 export const DEFAULT_OPENAI_IMAGES_BASE_URL = "https://api.openai.com/v1"
 
@@ -80,7 +80,7 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
       ...imageOptions(family, request.quality, size),
       ...(request.sessionID ? { http: { headers: { "x-opencode-session-id": request.sessionID } } } : {}),
     }, { signal: request.signal }).catch((error: unknown) => {
-      const image = model.route.id === "openai-images" ? openAIURLImage(error) : undefined
+      const image = model.route.id === "openai-images" ? openAICompatibleImage(error) : undefined
       if (!image) throw error
       return { image }
     })
@@ -88,7 +88,9 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
     if (!image) throw new Error(`Image provider ${request.providerID} returned no image data.`)
     const dataUrl = image.source.type === "url" ? Media.parseDataUrl(image.source.url) : undefined
     const materialized = dataUrl ?? (await imageClient.run(image.materialize(), { signal: request.signal }))
-    return { data: await imageClient.run(materialized.bytes(), { signal: request.signal }), mediaType: materialized.mediaType }
+    const data = await imageClient.run(materialized.bytes(), { signal: request.signal })
+    if (data.byteLength === 0) throw new Error(`Image provider ${request.providerID} returned empty image data.`)
+    return { data, mediaType: materialized.mediaType }
   } finally {
     await imageClient.dispose()
   }

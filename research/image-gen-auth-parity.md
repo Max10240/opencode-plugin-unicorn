@@ -31,9 +31,9 @@
   配置覆盖或预加载脚本，显式 self-config 测试选项仍有效。
 - 实测 `v2.1.0` 会拒绝旧图片 SDK 引用的 `effect/dist/unstable/http/index.js`；
   图片 SDK 最低版本改为 `2.1.1`，未更改其他插件的 SDK 下限、Core 或全局配置。
-- 新 SDK 的 OpenAI 图片解码只接受 b64_json。`openai-url-result.ts` 保留旧有 URL/data URL 结果：
+- 新 SDK 的 OpenAI 图片解码只接受 b64_json。`openai-image-result.ts` 兼容 URL/data URL 结果和可选响应元数据的 null：
   仅解析已收到的 OpenAI 图片响应，不重试生图、不改变认证；Schema 验证拒绝无效数据和认证错误。
-  `openai-images.test.ts` 验证生成/编辑 URL 下载、认证不转发和下载取消，`openai-url-result.test.ts` 覆盖解析边界。
+  `openai-images.test.ts` 验证生成/编辑、nullable 响应、URL 下载、认证不转发和下载取消，`openai-image-result.test.ts` 覆盖解析边界。
 - `auth-e2e.test.ts` 增加 `header-only-edit`、`header-only-rejected`：真实 OpenCode 发送 multipart 参考图，
   本地网关校验 Basic/X-API-Key；拒绝认证时仅有一次图片请求、工具返回错误且没有输出文件。
 

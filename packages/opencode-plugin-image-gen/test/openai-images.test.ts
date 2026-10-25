@@ -20,6 +20,138 @@ const latestCases = latestModels.flatMap((model) => (["generate", "edit"] as con
   (["xhigh", "max"] as const).map((quality) => ({ model, kind, quality })),
 ))
 
+const compatibilityCases = (["generate", "edit"] as const).flatMap((kind) =>
+  (["base64", "https", "data"] as const).map((format) => ({ kind, format })))
+const nullMetadata = [
+  { size: null }, { output_format: null }, { quality: null }, { background: null }, { usage: null },
+  { dataMetadata: { mime_type: null } },
+  { usage: { input_tokens: null, output_tokens: null, total_tokens: null, input_tokens_details: null, output_tokens_details: null } },
+  { size: null, output_format: null, quality: null, background: null, usage: null, dataMetadata: { mime_type: null } },
+]
+
+test.each(compatibilityCases)("accepts nullable response metadata for $format $kind without regenerating", async ({ kind, format }) => {
+  let response: Record<string, unknown> = {}
+  let generations = 0
+  let downloads = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "GET") {
+      downloads++
+      expect(request.headers.get("authorization")).toBeNull()
+      expect(request.headers.get("x-opencode-session-id")).toBeNull()
+      return new Response("PNG", { headers: { "content-type": "image/png" } })
+    }
+    generations++
+    expect(new URL(request.url).pathname).toBe(`/v1/images/${kind === "edit" ? "edits" : "generations"}`)
+    return Response.json(response)
+  }) as unknown as typeof fetch
+  for (const metadata of nullMetadata) {
+    const { dataMetadata, ...topLevel } = metadata
+    response = { ...topLevel, data: [{
+      ...(format === "base64" ? { b64_json: "UE5H" } : { url: format === "https" ? "https://images.example.test/result.png" : "data:image/png;base64,UE5H" }),
+      ...dataMetadata,
+    }] }
+    const result = await generateImage({
+      providerID: "gateway", packageName: "@opencode/ai/providers/openai-compatible", baseURL: "https://custom.example/v1",
+      token: "synthetic", sessionID: "synthetic-session", model: "image", prompt: "proof",
+      images: kind === "edit" ? [{ path: "/reference.png", name: "reference.png", mediaType: "image/png", data: new Uint8Array([80, 78, 71]) }] : undefined,
+    })
+    expect(new TextDecoder().decode(result.data)).toBe("PNG")
+    expect(result.mediaType).toBe("image/png")
+  }
+  expect(generations).toBe(nullMetadata.length)
+  expect(downloads).toBe(format === "https" ? nullMetadata.length : 0)
+})
+
+test.each(["generate", "edit"] as const)("nullable %s responses preserve declared formats and image ordering", async (kind) => {
+  let response: Record<string, unknown> = {}
+  let generations = 0
+  let downloads = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "GET") {
+      downloads++
+      expect(request.url).toBe("https://images.example.test/first.webp")
+      expect(request.headers.get("authorization")).toBeNull()
+      return new Response("FIRST", { headers: { "content-type": "image/webp" } })
+    }
+    generations++
+    return Response.json(response)
+  }) as unknown as typeof fetch
+  const cases = [
+    { data: [{ b64_json: "RklSU1Q=", url: null }, { url: "https://images.example.test/unused.png" }], output_format: "webp", expected: "image/webp" },
+    { data: [{ b64_json: "RklSU1Q=", mime_type: "image/jpeg" }], output_format: null, expected: "image/jpeg" },
+    { data: [{ b64_json: null, url: "https://images.example.test/first.webp" }], output_format: "webp", expected: "image/webp" },
+    { data: [{ b64_json: "", url: "https://images.example.test/first.webp" }], output_format: "webp", expected: "image/webp" },
+    { data: [{ url: "data:image/jpeg;base64,RklSU1Q=" }], output_format: null, expected: "image/jpeg" },
+  ]
+  for (const { expected, ...body } of cases) {
+    response = { size: null, ...body }
+    const result = await generateImage({
+      providerID: "gateway", packageName: "@opencode/ai/providers/openai-compatible", baseURL: "https://custom.example/v1",
+      token: "synthetic", model: "image", prompt: "proof",
+      images: kind === "edit" ? [{ path: "/reference.png", name: "reference.png", mediaType: "image/png", data: new Uint8Array([80, 78, 71]) }] : undefined,
+    })
+    expect(new TextDecoder().decode(result.data)).toBe("FIRST")
+    expect(result.mediaType).toBe(expected)
+  }
+  expect(generations).toBe(cases.length)
+  expect(downloads).toBe(2)
+})
+
+test("malformed and empty image results never become successful empty files or repeat generation", async () => {
+  const invalid = [
+    { data: null }, { data: [] }, { data: [{}] }, { data: [{ b64_json: null }] },
+    { data: [{ b64_json: "" }] }, { data: [{ b64_json: "!!!" }], size: null },
+    { data: [{ url: "" }], size: null }, { data: [{ url: 42 }], size: null },
+    { data: [{ b64_json: "UE5H" }], size: 42 }, { data: [{ b64_json: "UE5H" }], output_format: 42 },
+    { data: [{ b64_json: "UE5H" }], quality: {} }, { data: [{ b64_json: "UE5H" }], background: [] },
+    { data: [{ b64_json: "UE5H" }], usage: "invalid" },
+    { data: [{ b64_json: "UE5H" }], size: null, usage: { input_tokens: "invalid" } },
+    { data: [{ url: "https://images.example.test/result.png" }], size: 42 },
+    { data: [{ url: "https://images.example.test/result.png", mime_type: 42 }] },
+  ]
+  for (const response of invalid) {
+    let calls = 0
+    currentFetch = mock(async () => { calls++; return Response.json(response) }) as unknown as typeof fetch
+    await expect(generateImage({ providerID: "gateway", baseURL: "https://custom.example/v1", token: "synthetic", model: "image", prompt: "proof" })).rejects.toThrow()
+    expect(calls).toBe(1)
+  }
+})
+
+test.each([401, 403, 429, 500])("HTTP %s image failures cannot be recovered from a success-shaped body", async (status) => {
+  let calls = 0
+  currentFetch = mock(async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: "UE5H", url: "https://images.example.test/result.png" }], size: null }, { status })
+  }) as unknown as typeof fetch
+  try {
+    await generateImage({ providerID: "gateway", baseURL: "https://custom.example/v1", token: "synthetic", model: "image", prompt: "proof" })
+    throw new Error("Expected the provider HTTP failure")
+  } catch (error) {
+    expect((error as { reason?: { http?: { status?: number } } }).reason?.http?.status).toBe(status)
+  }
+  expect(calls).toBe(1)
+})
+
+test.each(["empty", "http-error"])("a %s image download fails without repeating generation", async (mode) => {
+  let generations = 0
+  let downloads = 0
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST") {
+      generations++
+      return Response.json({ data: [{ url: "https://images.example.test/result.png" }], size: null })
+    }
+    downloads++
+    expect(request.headers.get("authorization")).toBeNull()
+    return mode === "empty" ? new Response("") : new Response("not found", { status: 404 })
+  }) as unknown as typeof fetch
+  await expect(generateImage({ providerID: "gateway", baseURL: "https://custom.example/v1", token: "synthetic", model: "image", prompt: "proof" })).rejects.toThrow()
+  expect(generations).toBe(1)
+  expect(downloads).toBe(1)
+})
+
 test.each(["@opencode/ai/providers/meta/chat", "@opencode/ai/providers/meta/messages", "@opencode/ai/providers/meta/responses", "@opencode/ai/providers/zai/chat"])("native language entrypoint %s uses its family's image adapter", async (packageName) => {
   currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
