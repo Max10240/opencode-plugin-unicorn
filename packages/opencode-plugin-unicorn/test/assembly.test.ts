@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import unicorn from "../src/index.js"
+import { decryptEnvelope } from "../../opencode-plugin-sensitive-encrypt/src/crypto.js"
 
 test("Unicorn honors both its feature gate and show-img's own nested options on the server", async () => {
   for (const feature of [false, true]) {
@@ -27,6 +28,37 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
       expect(tools).toBe(0)
       expect(rpc).toBe(0)
     }
+  }
+})
+
+test("Unicorn exposes sensitive encryption only through its opt-in feature and nested key settings", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-sensitive-"))
+  const secret = path.join(directory, "secret.txt")
+  await writeFile(secret, "SECRET_MARKER", { mode: 0o600 })
+  let registered: Info | undefined
+  const context = {
+    options: {
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: false, sensitiveEncrypt: true },
+      sensitiveEncrypt: { enabled: true, keyDirectory: path.join(directory, "keys") },
+    },
+    tool: {
+      transform: async (callback: (editor: ToolEditor) => void) => {
+        callback({ add: (tool: Info) => { registered = tool } } as ToolEditor)
+        return { dispose: async () => {} }
+      },
+    },
+  } as unknown as Context
+  const cleanup = await unicorn.setup(context)
+  try {
+    expect(registered?.name).toBe("encrypt_sensitive")
+    const literal = `$TMPDIR/${path.relative(os.tmpdir(), secret).split(path.sep).join("/")}`
+    const result = await registered!.execute({ file: literal }, { sessionID: "synthetic" } as unknown as ToolContext) as any
+    expect(result.content).toStartWith("ocsec1:")
+    expect(JSON.stringify(result)).not.toContain("SECRET_MARKER")
+    expect(decryptEnvelope(result.content, await readFile(path.join(directory, "keys/private.pem"))).toString()).toBe("SECRET_MARKER")
+  } finally {
+    if (cleanup) await cleanup()
+    await rm(directory, { recursive: true, force: true })
   }
 })
 

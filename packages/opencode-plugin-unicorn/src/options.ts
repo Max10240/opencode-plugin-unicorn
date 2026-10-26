@@ -4,6 +4,7 @@ export interface UnicornOptions {
   readonly imageGen?: Readonly<Record<string, unknown>>
   readonly showImg?: Readonly<Record<string, unknown>>
   readonly promptSearch?: Readonly<Record<string, unknown>>
+  readonly sensitiveEncrypt?: Readonly<Record<string, unknown>>
   readonly sessionSearch?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
@@ -11,6 +12,7 @@ export interface UnicornOptions {
     readonly imageGen?: boolean
     readonly showImg?: boolean
     readonly promptSearch?: boolean
+    readonly sensitiveEncrypt?: boolean
     readonly sessionSearch?: boolean
   }
 }
@@ -41,6 +43,12 @@ export function imageGenFeatureEnabled(options: Readonly<Record<string, unknown>
 export function promptSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.promptSearch !== false
+}
+
+// This tool can expose local files, so it is opt-in even when a public key exists.
+export function sensitiveEncryptFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return isRecord(features) && features.sensitiveEncrypt === true
 }
 
 export function sessionSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

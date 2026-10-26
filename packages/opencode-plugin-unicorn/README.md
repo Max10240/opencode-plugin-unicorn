@@ -52,6 +52,9 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 旧 `globalConfig` 开关已移除，Luna 上下文限制和 `share` 不再自动修改。
 推荐配置插件会将源 inline 和 Markdown 命令补充到缺失的 inline commands；已有同名用户命令保持原样。
 
+`features.sensitiveEncrypt` 默认关闭。显式开启后，`sensitiveEncrypt` 子配置用于 `encrypt_sensitive`：
+公钥默认取全局配置目录 `sensitive-encrypt/public.pem`，缺失时自动生成公私钥；加密只读取 `$TMPDIR` 下的文件。
+
 图像模型默认 `openai/gpt-image-2.5-sunburst`。`options.imageGen.model` 可覆盖默认值，单次 `image_gen` 的 `model` 参数
 优先级最高。生成/编辑成功后，`show_img` 可用时自动准备 UI 预览；缺失或失败不影响生图，不向模型返回图片内容。
 

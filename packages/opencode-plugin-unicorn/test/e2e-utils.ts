@@ -84,7 +84,7 @@ export async function createOpenCodeE2E(
   options: {
     readonly featureEnabled?: boolean
     readonly imageGenEnabled?: boolean
-    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "session-search" | "send-message" | "show-img" | "recommended-config"
+    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "session-search" | "send-message" | "show-img" | "recommended-config" | "sensitive-encrypt"
     readonly pluginPackage?: string
     readonly pluginOptions?: Record<string, unknown>
     readonly share?: string
@@ -116,7 +116,9 @@ export async function createOpenCodeE2E(
         package:
           options.pluginPackage ?? (options.plugin === "image-gen"
             ? path.resolve(import.meta.dir, "../../opencode-plugin-image-gen")
-            : path.resolve(import.meta.dir, "..")),
+            : options.plugin === "sensitive-encrypt"
+              ? path.resolve(import.meta.dir, "../../opencode-plugin-sensitive-encrypt")
+              : path.resolve(import.meta.dir, "..")),
         ...(Object.keys(pluginOptions).length === 0 ? {} : { options: pluginOptions }),
       },
     ],

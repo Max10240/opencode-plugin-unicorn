@@ -31,6 +31,7 @@
   "dependencies": {
     "@max10240/opencode-plugin-image-gen": "1.0.10",
     "@max10240/opencode-plugin-prompt-search": "1.0.10",
+    "@max10240/opencode-plugin-sensitive-encrypt": "1.0.10",
     "@max10240/opencode-plugin-session-search": "1.0.10",
     "@max10240/opencode-plugin-send-message-across-sessions": "1.0.10",
     "@max10240/opencode-plugin-show-img": "1.0.10",

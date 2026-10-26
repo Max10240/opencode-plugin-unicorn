@@ -22,6 +22,7 @@ const packages = [
   { directory: "opencode-plugin-prompt-search", id: "max10240.prompt-search", kind: "prompt-search" },
   { directory: "opencode-plugin-session-search", id: "max10240.session-search", kind: "session-search" },
   { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
+  { directory: "opencode-plugin-sensitive-encrypt", id: "max10240.sensitive-encrypt", kind: "sensitive-encrypt" },
   { directory: "opencode-plugin-recomended-opencode-config", id: "max10240.recomended-opencode-config", kind: "recommended-config" },
   { directory: "opencode-plugin-unicorn", id: "max10240.unicorn", kind: "unicorn" },
 ] as const
