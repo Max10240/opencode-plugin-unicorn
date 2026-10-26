@@ -16,15 +16,16 @@
 }
 ```
 
-Unicorn 默认关闭，需显式开启：
+Unicorn 默认开启，只需配置可选的 `sensitiveEncrypt` 参数；设置 `features.sensitiveEncrypt: false` 可关闭：
 
 ```jsonc
 {
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": { "sensitiveEncrypt": true },
-      "sensitiveEncrypt": { "enabled": true }
+      "sensitiveEncrypt": {
+        "publicKeyFile": "sensitive-encrypt/public.pem"
+      }
     }
   }]
 }

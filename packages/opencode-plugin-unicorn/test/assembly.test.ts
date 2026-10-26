@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import unicorn from "../src/index.js"
@@ -14,7 +14,7 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
       let rpc = 0
       const context = {
         options: {
-          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: feature },
+          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: feature, sensitiveEncrypt: false },
           showImg: { features: { showImg: nested } },
         },
         storage: {},
@@ -31,14 +31,14 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
   }
 })
 
-test("Unicorn exposes sensitive encryption only through its opt-in feature and nested key settings", async () => {
+test("Unicorn exposes sensitive encryption by default and passes through nested key settings", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-sensitive-"))
   const secret = path.join(directory, "secret.txt")
   await writeFile(secret, "SECRET_MARKER", { mode: 0o600 })
   let registered: Info | undefined
   const context = {
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: false, sensitiveEncrypt: true },
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: false },
       sensitiveEncrypt: { enabled: true, keyDirectory: path.join(directory, "keys") },
     },
     tool: {
@@ -62,6 +62,38 @@ test("Unicorn exposes sensitive encryption only through its opt-in feature and n
   }
 })
 
+test("features.sensitiveEncrypt false disables the tool without creating keys", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-sensitive-disabled-"))
+  const keyDirectory = path.join(directory, "keys")
+  let registered: Info | undefined
+  const context = {
+    options: {
+      features: {
+        recommendedOpencodeConfig: false,
+        sendMessageAcrossSessions: false,
+        imageGen: false,
+        showImg: false,
+        sensitiveEncrypt: false,
+      },
+      sensitiveEncrypt: { keyDirectory },
+    },
+    tool: {
+      transform: async (callback: (editor: ToolEditor) => void) => {
+        callback({ add: (tool: Info) => { registered = tool } } as ToolEditor)
+        return { dispose: async () => {} }
+      },
+    },
+  } as unknown as Context
+  const cleanup = await unicorn.setup(context)
+  try {
+    expect(registered).toBeUndefined()
+    await expect(access(keyDirectory)).rejects.toThrow()
+  } finally {
+    if (cleanup) await cleanup()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("the assembled image tool uses nested model, URL and credentials without leaking flat or sibling options", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-options-"))
   let requests = 0
@@ -77,7 +109,7 @@ test("the assembled image tool uses nested model, URL and credentials without le
   const imageGen = Object.freeze({ model: "nested-provider/nested-model", baseURL: `${server.url.origin}/nested`, integrationID: "nested-auth" })
   const context = Object.freeze({
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, showImg: false }, imageGen,
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, showImg: false, sensitiveEncrypt: false }, imageGen,
       model: "flat/model", baseURL: `${server.url.origin}/flat`, integrationID: "flat-auth", promptSearch: { model: "sibling/model" },
     },
     session: { get: async () => ({ model: { providerID: "chat-provider", id: "chat-model" }, location: { directory } }) },

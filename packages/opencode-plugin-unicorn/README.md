@@ -20,7 +20,8 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
       },
       "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
       "sendMessageAcrossSessions": {},
-      "showImg": {}
+      "showImg": {},
+      "sensitiveEncrypt": { "publicKeyFile": "sensitive-encrypt/public.pem" }
     }
   }]
 }
@@ -41,6 +42,7 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 | `sendMessageAcrossSessions` | 跨 session 消息 | `opencode.json(c)` |
 | `imageGen` | 生图，如 `model`、`baseURL`、`integrationID` | `opencode.json(c)` |
 | `showImg` | 图片预览 | server 和 client 分别配置 |
+| `sensitiveEncrypt` | 敏感文件加密，如 `publicKeyFile`、`keyDirectory`、`maxBytes` | `opencode.json(c)` |
 | `promptSearch` | prompt 检索，如 `keybind`、`maxPrompts` | `cli.json` |
 | `sessionSearch` | 当前对话检索，如 `keybind` | `cli.json` |
 
@@ -52,8 +54,9 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 旧 `globalConfig` 开关已移除，Luna 上下文限制和 `share` 不再自动修改。
 推荐配置插件会将源 inline 和 Markdown 命令补充到缺失的 inline commands；已有同名用户命令保持原样。
 
-`features.sensitiveEncrypt` 默认关闭。显式开启后，`sensitiveEncrypt` 子配置用于 `encrypt_sensitive`：
+`features.sensitiveEncrypt` 默认开启，设为 `false` 可关闭。`sensitiveEncrypt` 子配置用于 `encrypt_sensitive`：
 公钥默认取全局配置目录 `sensitive-encrypt/public.pem`，缺失时自动生成公私钥；加密只读取 `$TMPDIR` 下的文件。
+私钥只保存在本地，丢失后已有密文无法恢复。
 
 图像模型默认 `openai/gpt-image-2.5-sunburst`。`options.imageGen.model` 可覆盖默认值，单次 `image_gen` 的 `model` 参数
 优先级最高。生成/编辑成功后，`show_img` 可用时自动准备 UI 预览；缺失或失败不影响生图，不向模型返回图片内容。

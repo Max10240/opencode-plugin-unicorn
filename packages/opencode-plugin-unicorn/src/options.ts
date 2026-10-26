@@ -45,10 +45,10 @@ export function promptSearchFeatureEnabled(options: Readonly<Record<string, unkn
   return !isRecord(features) || features.promptSearch !== false
 }
 
-// This tool can expose local files, so it is opt-in even when a public key exists.
+// Enabled by default; set features.sensitiveEncrypt to false to disable it.
 export function sensitiveEncryptFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
-  return isRecord(features) && features.sensitiveEncrypt === true
+  return !isRecord(features) || features.sensitiveEncrypt !== false
 }
 
 export function sessionSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

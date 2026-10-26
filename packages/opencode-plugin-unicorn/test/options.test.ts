@@ -16,11 +16,11 @@ test("session search is independently enabled and never disables prompt search o
   expect(showImgFeatureEnabled({ features: { sessionSearch: false } })).toBe(true)
 })
 
-test("sensitive encryption is opt-in and never enables from a nested key alone", () => {
-  expect(sensitiveEncryptFeatureEnabled({})).toBe(false)
-  expect(sensitiveEncryptFeatureEnabled({ sensitiveEncrypt: { publicKey: "PEM" } })).toBe(false)
+test("sensitive encryption is enabled by default and can be disabled independently", () => {
+  expect(sensitiveEncryptFeatureEnabled({})).toBe(true)
+  expect(sensitiveEncryptFeatureEnabled({ sensitiveEncrypt: { publicKey: "PEM" } })).toBe(true)
   expect(sensitiveEncryptFeatureEnabled({ features: { sensitiveEncrypt: true } })).toBe(true)
-  expect(sensitiveEncryptFeatureEnabled({ features: { sensitiveEncrypt: "true" } })).toBe(false)
+  expect(sensitiveEncryptFeatureEnabled({ features: { sensitiveEncrypt: "true" } })).toBe(true)
   expect(sensitiveEncryptFeatureEnabled({ features: { sensitiveEncrypt: false } })).toBe(false)
 })
 
@@ -84,7 +84,7 @@ test("feature gates win over child options and remain independent", () => {
     expect(enabled({})).toBe(true)
   }
   expect(sensitiveEncryptFeatureEnabled(options)).toBe(false)
-  expect(sensitiveEncryptFeatureEnabled({})).toBe(false)
+  expect(sensitiveEncryptFeatureEnabled({})).toBe(true)
 })
 
 test("show_img can be enabled and disabled independently of image generation and prompt search", () => {
