@@ -6,10 +6,13 @@ const SEND_TOOL = "send_message_across_sessions"
 const LIST_TOOL = "list_online_sessions"
 
 export const MESSAGE_PREFIX = "来自"
+export const SEND_TOOL_DESCRIPTION =
+  "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents."
 
 type SendMessageInput = {
   readonly target_session_id?: string
   readonly message: string
+  readonly delivery?: "steer" | "queue"
 }
 
 type PluginContext = Pick<Context, "event" | "session" | "storage" | "tool">
@@ -22,7 +25,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
       editor.add({
         name: SEND_TOOL,
         options: { codemode: false },
-        description: "Send a user message to another OpenCode session.",
+        description: SEND_TOOL_DESCRIPTION,
         input: {
           type: "object",
           properties: {
@@ -34,6 +37,12 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
               type: "string",
               description: "Message to send.",
               minLength: 1,
+            },
+            delivery: {
+              type: "string",
+              enum: ["steer", "queue"],
+              description:
+                '"steer" (default) delivers the message after the target\'s next tool call; "queue" waits until the target\'s next turn.',
             },
           },
           required: ["message"],
@@ -50,11 +59,12 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
           const target = available.find((session) => session.id === input.target_session_id)
 
           const text = `${MESSAGE_PREFIX}<${tool.sessionID}>的消息: ${input.message}`
+          const delivery = input.delivery === "queue" ? "queue" : "steer"
           try {
             await context.session.prompt({
               sessionID: input.target_session_id as SessionPromptInput["sessionID"],
               text,
-              delivery: "queue",
+              delivery,
             })
           } catch (error) {
             return {
@@ -64,7 +74,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
           }
           return {
             content: `消息已发送到 ${input.target_session_id}${target?.title ? `（${target.title}）` : ""}。`,
-            metadata: { sent: true, target_session_id: input.target_session_id, text },
+            metadata: { sent: true, target_session_id: input.target_session_id, delivery, text },
           }
         },
       })

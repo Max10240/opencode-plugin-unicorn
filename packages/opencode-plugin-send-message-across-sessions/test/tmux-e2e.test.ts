@@ -13,7 +13,7 @@ type Mode = "standalone" | "unicorn" | "unicorn-disabled"
 const hasTmux = Bun.spawnSync(["tmux", "-V"]).exitCode === 0
 const tmux = createTmux()
 
-setDefaultTimeout(120_000)
+setDefaultTimeout(180_000)
 
 test("sends a user-style message across different cwd sessions through tmux", async () => {
   if (!hasTmux) throw new Error("tmux is required for this E2E test")
@@ -115,8 +115,9 @@ async function runScenario(mode: Mode, archives: Archive[]) {
 
     const target = await createSession(serverURL, password, workspaceB)
     const sender = await createSession(serverURL, password, workspaceA)
-    const message = "hello-from-tmux-across-cwd"
-    proxy.configure(target.id, message)
+    const steerMessage = "steer-marker-across-cwd"
+    const queueMessage = "queue-marker-across-cwd"
+    proxy.configure(target.id, steerMessage, queueMessage)
 
     if (mode === "unicorn-disabled") {
       await api(serverURL, password, `/api/session/${sender.id}/prompt`, {
@@ -132,6 +133,9 @@ async function runScenario(mode: Mode, archives: Archive[]) {
       expect(toolNames).not.toContain("send_message_across_sessions")
       return
     }
+
+    const steerSender = await createSession(serverURL, password, workspaceA)
+    const queueSender = await createSession(serverURL, password, workspaceA)
 
     // Start commands directly, without racing the user's interactive shell startup.
     tmux(["set-option", "-g", "remain-on-exit", "on"])
@@ -178,53 +182,100 @@ async function runScenario(mode: Mode, archives: Archive[]) {
     expect(listedSessions?.map((session) => session.id)).toContain(target.id)
     expect(listedSessions?.find((session) => session.id === target.id)?.directory).toBe(workspaceB)
 
-    tmux([
-      "respawn-pane",
-      "-k",
-      "-t",
-      `${tmuxName}:sender`,
-      envCommand(workspaceA, [
-        "run",
-        "--server",
-        serverURL,
-        "--format",
-        "json",
-        "--model",
-        "test/test-model",
-        "--session",
-        sender.id,
-        `E2E_SEND_MESSAGE target=${target.id} message=${message}`,
-      ]),
-    ])
-    await waitForPane(`${tmuxName}:sender`, "SEND_DONE", "send_message_across_sessions did not complete")
+    // Keep the target busy so both messages remain pending and their delivery modes are observable.
+    await api(serverURL, password, `/api/session/${target.id}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ text: "E2E_TARGET_BUSY", delivery: "queue" }),
+    })
+    await waitFor(
+      async () => proxy.mock.getRequests().some((entry) => JSON.stringify(entry.body).includes("E2E_TARGET_BUSY")),
+      "target session did not start its busy turn",
+    )
 
-    const expected = `来自<${sender.id}>的消息: ${message}`
-    let delivered: Record<string, any>
+    const sendFromSender = async (sessionID: string, prompt: string, done: string) => {
+      tmux([
+        "respawn-pane",
+        "-k",
+        "-t",
+        `${tmuxName}:sender`,
+        envCommand(workspaceA, [
+          "run",
+          "--server",
+          serverURL,
+          "--format",
+          "json",
+          "--model",
+          "test/test-model",
+          "--session",
+          sessionID,
+          prompt,
+        ]),
+      ])
+      await waitForPane(`${tmuxName}:sender`, done, `${prompt} did not complete`)
+    }
+
+    await sendFromSender(steerSender.id, `E2E_SEND_STEER target=${target.id} message=${steerMessage}`, "SEND_STEER_DONE")
+    await sendFromSender(queueSender.id, `E2E_SEND_QUEUE target=${target.id} message=${queueMessage}`, "SEND_QUEUE_DONE")
+
+    const pending = await waitFor(async () => {
+      const inbox = await api<{ data: Array<{ type: string; delivery: string }> }>(
+        serverURL,
+        password,
+        `/api/session/${target.id}/inbox`,
+      )
+      const userItems = inbox.data.filter((item) => item.type === "user")
+      const deliveries = userItems.map((item) => item.delivery)
+      return deliveries.includes("steer") && deliveries.includes("queue") ? userItems : false
+    }, "target inbox did not keep both delivery modes pending")
+    expect(pending.map((item) => item.delivery).sort()).toEqual(["queue", "steer"])
+
+    // Release the target's tool call only after both delivery modes are queued.
+    await writeFile(path.join(workspaceB, "target-busy.marker"), "ready")
+
+    const expectedSteer = `来自<${steerSender.id}>的消息: ${steerMessage}`
+    const expectedQueue = `来自<${queueSender.id}>的消息: ${queueMessage}`
     try {
-      delivered = await waitFor(async () => {
+      await waitFor(async () => {
         const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
           serverURL,
           password,
           `/api/experimental/session/${target.id}/export`,
         )
-        return exported.data.messages.find((item) => item.type === "user" && item.text === expected) ?? false
-      }, "target session did not receive the prefixed user message")
+        const texts = exported.data.messages.filter((item) => item.type === "user").map((item) => item.text)
+        return texts.includes(expectedSteer) && texts.includes(expectedQueue)
+      }, "target session did not receive both prefixed user messages", 60_000)
     } catch (error) {
       const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
         serverURL,
         password,
         `/api/experimental/session/${target.id}/export`,
       )
+      const inbox = await api<{ data: Array<Record<string, any>> }>(
+        serverURL,
+        password,
+        `/api/session/${target.id}/inbox`,
+      )
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\njournal=${JSON.stringify(proxy.mock.getRequests())}\ntarget=${JSON.stringify(exported.data.messages)}`,
+        `${error instanceof Error ? error.message : String(error)}\njournal=${JSON.stringify(proxy.mock.getRequests())}\ntarget=${JSON.stringify(exported.data.messages)}\ninbox=${JSON.stringify(inbox.data)}`,
       )
     }
 
-    expect(delivered).toMatchObject({ type: "user", text: expected })
-    const journal = proxy.mock.getRequests()
-    expect(journal.some((entry) => JSON.stringify(entry.body).includes("E2E_LIST_SESSIONS"))).toBe(true)
-    expect(journal.some((entry) => JSON.stringify(entry.body).includes("E2E_SEND_MESSAGE"))).toBe(true)
+    const bodies = proxy.mock.getRequests().map((entry) => JSON.stringify(entry.body))
+    const targetRequest = (marker: string) =>
+      bodies.findIndex(
+        (body) => !body.includes("E2E_SEND_") && !body.includes("E2E_LIST_SESSIONS") && body.includes(marker),
+      )
+    const initial = targetRequest("E2E_TARGET_BUSY")
+    const steered = targetRequest(steerMessage)
+    const queued = targetRequest(queueMessage)
+    // steer is promoted at the next step boundary, while queue waits for the turn to end.
+    expect(initial).toBeGreaterThanOrEqual(0)
+    expect(steered).toBeGreaterThan(initial)
+    expect(queued).toBeGreaterThan(steered)
+    expect(bodies[steered]).not.toContain(queueMessage)
+    expect(bodies[queued]).toContain(steerMessage)
   } finally {
+    await writeFile(path.join(workspaceB, "target-busy.marker"), "cleanup").catch(() => {})
     tmux(["kill-session", "-t", tmuxName], false)
     await proxy.close()
     await rm(root, { recursive: true, force: true })
@@ -333,7 +384,7 @@ async function startProxy() {
   return {
     baseURL: `${mock.url}/v1`,
     mock,
-    configure(targetID: string, message: string) {
+    configure(targetID: string, steerMessage: string, queueMessage: string) {
       mock.on(
         { toolCallId: "call_list_sessions" },
         { content: "LIST_DONE" },
@@ -342,18 +393,42 @@ async function startProxy() {
         { userMessage: "E2E_LIST_SESSIONS" },
         { toolCalls: [{ id: "call_list_sessions", name: "list_online_sessions", arguments: {} }] },
       )
+      mock.on({ toolCallId: "call_send_steer" }, { content: "SEND_STEER_DONE" })
       mock.on(
-        { toolCallId: "call_send_message" },
-        { content: "SEND_DONE" },
-      )
-      mock.on(
-        { userMessage: "E2E_SEND_MESSAGE" },
+        { userMessage: "E2E_SEND_STEER" },
         {
           toolCalls: [
             {
-              id: "call_send_message",
+              id: "call_send_steer",
               name: "send_message_across_sessions",
-              arguments: { target_session_id: targetID, message },
+              arguments: { target_session_id: targetID, message: steerMessage },
+            },
+          ],
+        },
+      )
+      mock.on({ toolCallId: "call_send_queue" }, { content: "SEND_QUEUE_DONE" })
+      mock.on(
+        { userMessage: "E2E_SEND_QUEUE" },
+        {
+          toolCalls: [
+            {
+              id: "call_send_queue",
+              name: "send_message_across_sessions",
+              arguments: { target_session_id: targetID, message: queueMessage, delivery: "queue" },
+            },
+          ],
+        },
+      )
+      mock.on(
+        { userMessage: "E2E_TARGET_BUSY", sequenceIndex: 0 },
+        {
+          toolCalls: [
+            {
+              id: "call_target_wait",
+              name: "shell",
+              arguments: {
+                command: "for i in {1..300}; do [ -f target-busy.marker ] && break; sleep 0.1; done",
+              },
             },
           ],
         },

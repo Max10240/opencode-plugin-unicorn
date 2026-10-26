@@ -5,10 +5,15 @@
 ## Tools
 
 - `list_online_sessions`：列出插件已观察到的在线 session，包含 session ID、标题、cwd 和状态；
-- `send_message_across_sessions`：向目标 session 发送消息。消息会以以下固定格式注入目标 session：
+- `send_message_across_sessions`：向另一个在线 OpenCode session 发送用户风格的消息，仅用于跨 session 通信，不可用于主 Agent 与其子 Agent 之间。消息会以以下固定格式注入目标 session：
   ```text
   来自<from_session_id>的消息: <message>
   ```
+
+`delivery` 参数控制投递时机：
+
+- `steer`：默认。目标 session 正在工作时，在下一个 tool 调用结束后立即注入，属于当前 turn；目标空闲时立即开始新的 turn。
+- `queue`：等待目标 session 当前 turn 结束后，在下一个 turn 处理。
 
 如果未提供 `target_session_id`，发送工具会返回可选 session 列表，模型应先让用户选择，再重新调用发送工具。
 

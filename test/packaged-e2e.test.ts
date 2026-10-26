@@ -30,7 +30,8 @@ const packages = [
 const toolDescriptions = {
   image_gen: "Generate or edit one image and save it to a file without overwriting existing files.",
   show_img: "Show a server-side image to the user without adding it to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB.",
-  send_message_across_sessions: "Send a user message to another OpenCode session.",
+  send_message_across_sessions:
+    "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents.",
   list_online_sessions: "List other online OpenCode sessions across working directories.",
 }
 
