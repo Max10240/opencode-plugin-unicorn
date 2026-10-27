@@ -23,6 +23,9 @@
 
 ## 发布
 
-- 发布由 GitHub Actions 的 OIDC trusted publishing 完成，不在仓库或 Secrets 中保存 npm token。
-- 本地完成测试后，在 commit message 中加入 `[release]` 并推送到 `main`；workflow 会自动升版、构建、逐包发布，并提交版本变更。
-- 不要手动执行 `npm publish`，不要提交 `~/.npmrc` 或任何 npm token。
+- 版本由本地控制：先 `npm version <version> --workspaces ...`，再运行 `node scripts/sync-plugin-dependencies.mjs`。
+- 本地发布用 `npm run release`；staged 发布用 `npm run release:stage`，然后在 npm 网站 Approve。
+- CI 发布：commit message 包含 `[release]`（直接发布）或 `[release:stage]`（staged），推送到 `main`。
+- 发布脚本只构建和发布，不 bump 版本。目标版本必须高于每个包的 registry latest。
+- 本地发布成功后提交版本变更并推送；CI 发布不会回写 `main`。
+- 不要直接调用 `npm publish`，不要提交 `~/.npmrc` 或任何 npm token。

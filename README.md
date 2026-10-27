@@ -72,12 +72,37 @@ workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 
 
 ### 发布
 
-发布由 GitHub Actions 使用 OIDC trusted publishing 完成，**不在 GitHub 保存任何 npm token**。
+版本由本地控制。先统一升版并同步内部依赖：
 
-- 本地完成测试后，在 commit message 中加入 `[release]` 并推送到 `main`。
-- workflow 会自动 patch 升版、构建、逐包发布，并把版本变更提交回 `main`。
-- 每个包在 npm 上配置 trusted publisher，绑定仓库、`publish.yml` 和 `npm-publish` environment。
-- 发布顺序为先 7 个插件、最后 `@max10240/opencode-plugin-unicorn`；已存在的版本会跳过。
-- GitHub 只保存仓库代码。OIDC 每次发布换取短期凭证，不能导出或复用。
+```sh
+npm version 1.0.12 --workspaces --allow-same-version --ignore-scripts \
+  --git-tag-version=false --workspaces-update=false --include-workspace-root=false
+node scripts/sync-plugin-dependencies.mjs
+```
 
-`publish:all` 等本地脚本仅作应急用途；常规发布不要手动执行 `npm publish`，也不要把 npm token 存进 GitHub Secrets。
+然后选择本地或 CI 发布。
+
+**本地直接发布**（浏览器 security key 2FA）：
+
+```sh
+npm run release
+```
+
+**本地 staged 发布**（在 npm 网站逐个 Approve）：
+
+```sh
+npm run release:stage
+```
+
+**CI 发布**：commit message 加 `[release]` 后推送 `main`；需要 staged 时用 `[release:stage]`：
+
+```sh
+git commit -m "release: v1.0.12 [release]"
+git push
+```
+
+发布脚本只构建和发布，不 bump 版本。目标版本必须高于每个包的 registry latest，否则立即失败。已存在的包会校验 integrity：一致则跳过，不一致则失败并要求 bump 新版本。发布顺序为先 7 个插件、最后 `@max10240/opencode-plugin-unicorn`。
+
+本地发布成功后提交版本变更并推送；CI 发布不会回写 `main`。
+
+CI 使用 OIDC，不在 GitHub 保存 npm token。新包首次发布仍受 npm 限制（OIDC 不能创建新包），需要用本地 `npm run release` 或 `npm run release:stage`。
