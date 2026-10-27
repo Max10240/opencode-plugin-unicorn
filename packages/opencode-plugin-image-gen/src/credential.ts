@@ -1,6 +1,6 @@
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { ResolvedCredential } from "./types.js"
-import { mergeOverlay } from "./overlay.js"
+import { mergeOverlay, record } from "./overlay.js"
 
 type CredentialContext = Pick<Context, "integration">
 
@@ -17,7 +17,6 @@ export async function resolveCredential(
         value: credential.key,
         source: connection.type === "env" ? "environment" : "key",
         metadata: credential.metadata,
-        configuration: credential.configuration,
       }
     }
   }
@@ -28,8 +27,10 @@ export async function resolveCredential(
 export function credentialSettings(settings: Readonly<Record<string, unknown>>, body: Readonly<Record<string, unknown>>, credential?: ResolvedCredential) {
   const prepared = { ...settings }
   if (prepared.apiKey === "") delete prepared.apiKey
+  const metadata = credential?.metadata ?? {}
+  const bodyMetadata = Object.fromEntries(Object.entries(metadata).filter(([, value]) => record(value)))
   return {
-    settings: { ...prepared, ...(credential?.metadata ?? {}), ...(credential?.configuration ?? {}) },
-    body: credential && credential.source !== "oauth" ? mergeOverlay(body, credential.metadata) : { ...body },
+    settings: { ...prepared, ...metadata },
+    body: credential && credential.source !== "oauth" ? mergeOverlay(body, bodyMetadata) : { ...body },
   }
 }

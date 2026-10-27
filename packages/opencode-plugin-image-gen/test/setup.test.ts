@@ -17,7 +17,7 @@ async function fixture(directory: string, baseURL: string, options = {}, oauth =
     integration: { connection: {
       active: async (id: string) => { expect(id).toBe("fixture-auth"); return { type: "credential", id: "fixture" } },
       resolve: async () => oauth ? { type: "oauth", access: "synthetic-oauth", metadata: { accountID: "synthetic-account" } }
-        : { type: "key", key: "synthetic-selected-key", metadata: { nested: { connection: true } }, configuration: { baseURL: `${baseURL}/connection`, organization: "synthetic-org" } },
+        : { type: "key", key: "synthetic-selected-key", metadata: { nested: { connection: true }, baseURL: `${baseURL}/connection`, organization: "synthetic-org" } },
     } },
     tool: { list: async () => [], transform: async (callback: (editor: ToolEditor) => void) => {
       callback({ add: (tool: Info) => { registered = tool } } as ToolEditor)

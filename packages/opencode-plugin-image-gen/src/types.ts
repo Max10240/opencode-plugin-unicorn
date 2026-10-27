@@ -41,7 +41,6 @@ export type ResolvedCredential = {
   readonly value: string
   readonly source: "oauth" | "key" | "environment"
   readonly metadata?: Readonly<Record<string, unknown>>
-  readonly configuration?: Readonly<Record<string, string | number | boolean | readonly string[]>>
 }
 
 export type ImageFile = {

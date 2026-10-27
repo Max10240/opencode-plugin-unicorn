@@ -22,7 +22,7 @@ test("active key, environment, and OAuth connections are resolved by the same Co
         expect(selected).toBe(connection)
         calls++
         return kind === "oauth" ? { type: "oauth", access: "fresh-oauth", metadata: { accountID: "fixture" } }
-          : { type: "key", key: "resolved-key", configuration: { region: "test" } }
+          : { type: "key", key: "resolved-key", metadata: { region: "test" } }
       },
     } } } as unknown as Pick<Context, "integration">
     const result = await resolveCredential(context, "integration")
@@ -43,7 +43,7 @@ test("credential resolution and refresh failures propagate without a weaker auth
 test("key metadata overlays body while OAuth metadata stays out of the payload", () => {
   const settings = { apiKey: "", baseURL: "original" }
   const body = { nested: { original: true }, keep: "user" }
-  const key = credentialSettings(settings, body, { value: "key", source: "key", metadata: { nested: { account: true } }, configuration: { baseURL: "connection" } })
+  const key = credentialSettings(settings, body, { value: "key", source: "key", metadata: { nested: { account: true }, baseURL: "connection" } })
   expect(key.settings.baseURL).toBe("connection")
   expect(key.settings).not.toHaveProperty("apiKey")
   expect(key.body).toEqual({ nested: { original: true, account: true }, keep: "user" })
