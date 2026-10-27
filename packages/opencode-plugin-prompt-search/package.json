@@ -45,5 +45,10 @@
     "@types/node": "^22.0.0",
     "solid-js": "^1.9.15",
     "typescript": "^5.8.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Max10240/opencode-plugin-unicorn.git",
+    "directory": "packages/opencode-plugin-prompt-search"
   }
 }

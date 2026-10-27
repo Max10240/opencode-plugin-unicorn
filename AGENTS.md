@@ -20,3 +20,9 @@
 
 - 本仓库所有插件包的版本号必须保持一致，统一升级和发布。
 - 新增插件也必须使用其他插件当前的统一版本号，不单独从 `1.0.0` 开始。
+
+## 发布
+
+- 发布由 GitHub Actions 的 OIDC trusted publishing 完成，不在仓库或 Secrets 中保存 npm token。
+- 本地完成测试后，在 commit message 中加入 `[release]` 并推送到 `main`；workflow 会自动升版、构建、逐包发布，并提交版本变更。
+- 不要手动执行 `npm publish`，不要提交 `~/.npmrc` 或任何 npm token。

@@ -70,14 +70,14 @@ workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 
 
 发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。完整检查会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用独立 tmux socket 检查交互、响应式过滤和跨文件系统图片预览。发布脚本会在改版本号、上传前执行 `check:fresh`。
 
-### 发布与 dry run
+### 发布
 
-```sh
-npm run publish:all -- --dry-run
-npm run publish:all:prerelease -- --dry-run
-```
+发布由 GitHub Actions 使用 OIDC trusted publishing 完成，**不在 GitHub 保存任何 npm token**。
 
-dry run 执行完整 fresh 检查，只在临时 workspace 模拟下一版本；不修改实际包版本、不登录、不创建 Git commit/tag、不上传 npm。
-移除 `--dry-run` 才会实际发布。已有 npm 认证时跳过登录；网络认证错误直接失败，不反复打开登录流程。
-实际发布保留每包 prepack 构建，不再额外做一轮 workspace 构建；显式禁用生命周期脚本时才保留该轮构建。
-升版后、进入 npm 发布前会校验源码、现有产物和包配置，仅允许预期的版本及内部依赖变更；随后按上述方式构建。不覆盖或回退用户改动。
+- 本地完成测试后，在 commit message 中加入 `[release]` 并推送到 `main`。
+- workflow 会自动 patch 升版、构建、逐包发布，并把版本变更提交回 `main`。
+- 每个包在 npm 上配置 trusted publisher，绑定仓库、`publish.yml` 和 `npm-publish` environment。
+- 发布顺序为先 7 个插件、最后 `@max10240/opencode-plugin-unicorn`；已存在的版本会跳过。
+- GitHub 只保存仓库代码。OIDC 每次发布换取短期凭证，不能导出或复用。
+
+`publish:all` 等本地脚本仅作应急用途；常规发布不要手动执行 `npm publish`，也不要把 npm token 存进 GitHub Secrets。

@@ -38,5 +38,10 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Max10240/opencode-plugin-unicorn.git",
+    "directory": "packages/opencode-plugin-session-search"
   }
 }

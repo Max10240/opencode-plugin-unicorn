@@ -17,6 +17,10 @@
   "hurry-and-forget": {
     "template": "Do beblow things first, then forget them and continue all things you are working for: \n\n $ARGUMENTS"
   },
+  "investigate-first": {
+    "template": "Complete all research and verification for the task below first, then confirm the findings with me. Do not implement anything until I explicitly agree.---\n\n$ARGUMENTS",
+    "description": "Research and verify first; implement only after explicit approval"
+  },
   "answer-with-evidence-or-test": {
     "template": "# 要求\n\n- 所有回答必须以事实为依据。\n- 对于可验证的内容，必须先验证，再回答。\n- 尽可能收集充分的已验证事实；任何未经验证的内容都必须明确标注。\n- 不得推测或猜测。\n- 能够进行端到端（e2e）验证的结论，必须进行端到端验证。\n- 如果无法进行端到端验证，应通过其他方式验证，例如源码、测试、日志或文档，并说明验证方式与局限。\n- 无法完成验证时，必须如实说明，不得将其表述为已验证事实。\n\n# 回答格式\n\n严格按照以下模板回答，替换占位内容：\n\n```\n# 已验证的内容：\n1. ...\n2. ...\n\n# 未验证的内容（可验证的事项应在回答前完成验证）：\n<列出尚未验证的内容；若无则填写 null>\n\n# 无法完成验证的内容（如实说明）：\n<列出无法验证的内容及原因；若无则填写 null>\n\n# 额外补充／证据／运行的测试：\n<列出证据、验证方法及测试结果；若无则填写 null>\n```\n\n# 本次问题\n\n$ARGUMENTS",
     "description": "Answer using verified evidence. Verify before answering, using end-to-end verification when possible. Do not speculate, and explicitly state verification status and limitations.",
