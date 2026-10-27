@@ -94,6 +94,9 @@ npm run release
 npm run release:stage
 ```
 
+审核入口是 `https://www.npmjs.com/settings/~/staged-packages`，也可以用
+`npm stage list` 查看 stage ID，再用 `npm stage approve <stage-id>` 批准。
+
 **CI 发布**：commit message 加 `[release]` 后推送 `main`；需要 staged 时用 `[release:stage]`：
 
 ```sh
