@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test"
 import { mergeRules, parseRules, RULES_HEADING } from "../src/rules.js"
 
+test("excludes the recommended rules container from parsed rules", () => {
+  expect(parseRules(`## ${RULES_HEADING}\n\n### Rule\n\nBody\n`)).toEqual([{ title: "Rule", description: "Body" }])
+})
+
 test("parses level-free titles and preserves Markdown descriptions without treating code as headings", () => {
   expect(parseRules("### **First** ###\n\n- one\n\n```sh\n# not a title\n```\n\nSecond\n------\n\nBody\n")).toEqual([
     { title: "First", description: "- one\n\n```sh\n# not a title\n```" },

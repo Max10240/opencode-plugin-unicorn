@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { applyEdits, modify } from "jsonc-parser"
 import { assertPluginVersions, checkPluginVersions } from "./check-versions.mjs"
 import { runCommand } from "./process.mjs"
 import { syncPluginDependencies } from "./sync-plugin-dependencies.mjs"
@@ -199,11 +200,15 @@ export async function assertCleanWorkspace({
   return lines
 }
 
-export async function bumpVersion({ root = repository, target, run = runCommand } = {}) {
-  await run([
-    "npm", "version", target, "--workspaces", "--allow-same-version", "--ignore-scripts",
-    "--git-tag-version=false", "--workspaces-update=false", "--include-workspace-root=false", "--update-notifier=false",
-  ], { cwd: root })
+export async function bumpVersion({ root = repository, target } = {}) {
+  if (!parseVersion(target)) throw new Error(`Invalid version: ${target}`)
+  const packages = (await workspacePackages(root)).filter((item) => item.manifest.private !== true)
+  for (const item of packages) {
+    const file = path.join(item.directory, "package.json")
+    const text = await readFile(file, "utf8")
+    const next = applyEdits(text, modify(text, ["version"], target, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
+    if (next !== text) await writeFile(file, next)
+  }
   await syncPluginDependencies(root)
   await checkPluginVersions(root)
 }
@@ -343,7 +348,7 @@ export async function release({
 
   await run(["npm", "run", "check"], { cwd: root })
   await assertCleanWorkspace({ root, run })
-  await bumpVersion({ root, target: resolved.target, run })
+  await bumpVersion({ root, target: resolved.target })
   await assertCleanWorkspace({ root, run, allowVersion: true })
 
   if (ci) {

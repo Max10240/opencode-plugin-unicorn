@@ -33,7 +33,7 @@ export function parseRules(markdown: string): RecommendedRule[] {
   return entries.map((heading, index) => {
     const description = text.slice(heading.end, entries[index + 1]?.start ?? text.length).trim()
     return { title: heading.title, ...(description ? { description } : {}) }
-  })
+  }).filter((rule) => rule.title !== RULES_HEADING)
 }
 
 export function mergeRules(markdown: string, rules: readonly RecommendedRule[]): string {

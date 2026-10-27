@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import {
   assertCleanWorkspace,
+  bumpVersion,
   compareVersions,
   parseReleaseArgs,
   parseVersion,
@@ -16,6 +17,7 @@ import {
   tarballIntegrity,
   triggerCi,
 } from "../scripts/release.mjs"
+import { workspacePackages } from "../scripts/workspace.mjs"
 
 const CHILD = "@max10240/opencode-plugin-show-img"
 const UNICORN = "@max10240/opencode-plugin-unicorn"
@@ -125,6 +127,16 @@ async function fixture({ latest = "1.0.10", version = "1.0.11" } = {}) {
     cleanup: () => rm(root, { recursive: true, force: true }),
   }
 }
+
+test("bump version updates every package and internal dependency", async () => {
+  const fx = await fixture()
+  try {
+    await bumpVersion({ root: fx.root, target: "1.2.3" })
+    const packages = await workspacePackages(fx.root)
+    expect(packages.map((item) => item.manifest.version)).toEqual(["1.2.3", "1.2.3"])
+    expect(packages.find((item) => item.manifest.name === UNICORN)?.manifest.dependencies[CHILD]).toBe("1.2.3")
+  } finally { await fx.cleanup() }
+})
 
 test("target version uses the larger of local and registry versions", async () => {
   const fx = await fixture({ latest: "1.0.10", version: "1.0.11" })
