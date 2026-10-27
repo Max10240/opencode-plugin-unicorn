@@ -23,9 +23,9 @@
 
 ## 发布
 
-- 版本由本地控制：先 `npm version <version> --workspaces ...`，再运行 `node scripts/sync-plugin-dependencies.mjs`。
-- 本地发布用 `npm run release`；staged 发布用 `npm run release:stage`，然后在 npm 网站 Approve。
-- CI 发布：commit message 包含 `[release]`（直接发布）或 `[release:stage]`（staged），推送到 `main`。
-- 发布脚本只构建和发布，不 bump 版本。目标版本必须高于每个包的 registry latest。
-- 本地发布成功后提交版本变更并推送；CI 发布不会回写 `main`。
+- 唯一入口：`npm run release -- --release-type=<type> [--version=<spec>]`。
+- `--release-type` 必须是 `local-publish`、`local-stage`、`ci-publish`、`ci-stage` 之一，不能省略。
+- `--version` 默认 `patch`，也可以是 `minor`、`major` 或具体版本。
+- 脚本会校验参数、要求工作区干净、跑完整 check、统一 bump 版本，然后发布或触发 CI。
+- 目标版本必须严格大于每个包的 registry latest。
 - 不要直接调用 `npm publish`，不要提交 `~/.npmrc` 或任何 npm token。

@@ -5,11 +5,17 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { assertPluginVersions, checkPluginVersions } from "./check-versions.mjs"
 import { runCommand } from "./process.mjs"
+import { syncPluginDependencies } from "./sync-plugin-dependencies.mjs"
 import { buildLevels, workspacePackages } from "./workspace.mjs"
 
 const repository = fileURLToPath(new URL("../", import.meta.url))
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org/"
 export const UNICORN_NAME = "@max10240/opencode-plugin-unicorn"
+export const RELEASE_TYPES = ["local-publish", "local-stage", "ci-publish", "ci-stage"]
+export const SYNC_PATHS = [
+  "packages/opencode-plugin-recomended-opencode-config/rules/AGENTS.md",
+  "packages/opencode-plugin-recomended-opencode-config/rules/commands.json",
+]
 
 export function parseVersion(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version ?? "")
@@ -55,21 +61,35 @@ export async function fetchRegistryLatest(registry, name, { fetchImpl = fetch } 
   return body.version ?? null
 }
 
-export function releaseOptions(args = []) {
-  const options = { stage: false, dryRun: false, build: true, tag: "latest", registry: DEFAULT_REGISTRY }
+export function parseReleaseArgs(args = []) {
+  const options = { releaseType: null, version: "patch", tag: "latest", registry: DEFAULT_REGISTRY, dryRun: false }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]
-    if (arg === "--stage") { options.stage = true; continue }
-    if (arg === "--dry-run") { options.dryRun = true; continue }
-    if (arg === "--no-build") { options.build = false; continue }
+    if (arg.startsWith("--release-type=")) { options.releaseType = arg.slice("--release-type=".length); continue }
+    if (arg === "--release-type") { options.releaseType = args[++index]; continue }
+    if (arg.startsWith("--version=")) { options.version = arg.slice("--version=".length); continue }
+    if (arg === "--version") { options.version = args[++index]; continue }
     if (arg.startsWith("--tag=")) { options.tag = arg.slice("--tag=".length); continue }
     if (arg === "--tag") { options.tag = args[++index]; continue }
     if (arg.startsWith("--registry=")) { options.registry = arg.slice("--registry=".length); continue }
     if (arg === "--registry") { options.registry = args[++index]; continue }
+    if (arg === "--dry-run") { options.dryRun = true; continue }
     throw new Error(`Unknown release option: ${arg}`)
   }
+
+  if (!options.releaseType) throw new Error(`Missing required --release-type. Use one of: ${RELEASE_TYPES.join(", ")}`)
+  if (!RELEASE_TYPES.includes(options.releaseType)) throw new Error(`Invalid --release-type: ${options.releaseType}. Use one of: ${RELEASE_TYPES.join(", ")}`)
+  if (!["patch", "minor", "major"].includes(options.version) && !parseVersion(options.version)) {
+    throw new Error(`Invalid --version: ${options.version}. Use patch, minor, major, or an explicit semver such as 1.2.0.`)
+  }
+  if (!options.tag) throw new Error("--tag must not be empty")
+  if (!options.registry) throw new Error("--registry requires a value")
   const url = new URL(options.registry)
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Release registry must be HTTP or HTTPS")
+
+  const ci = options.releaseType.startsWith("ci-")
+  if (ci && options.tag !== "latest") throw new Error("--tag is not supported for ci release types")
+  if (ci && url.href !== new URL(DEFAULT_REGISTRY).href) throw new Error("ci release types require the npmjs registry")
   return options
 }
 
@@ -114,6 +134,91 @@ export async function assertReleaseVersion({
     }
   }
   return { version, packages }
+}
+
+export async function resolveTargetVersion({
+  root = repository,
+  registry = DEFAULT_REGISTRY,
+  spec = "patch",
+  fetchImpl = fetch,
+} = {}) {
+  const packages = (await workspacePackages(root)).filter((item) => item.manifest.private !== true)
+  const { version: localVersion } = assertPluginVersions(packages.map((item) => item.manifest))
+  if (!parseVersion(localVersion)) throw new Error(`Invalid workspace version: ${localVersion}`)
+
+  const latest = []
+  for (const item of packages) {
+    latest.push({ name: item.manifest.name, version: await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl }) })
+  }
+  const registryMax = latest.map((item) => item.version).filter(Boolean).sort(compareVersions).at(-1) ?? null
+
+  if (["patch", "minor", "major"].includes(spec)) {
+    const base = registryMax && compareVersions(registryMax, localVersion) > 0 ? registryMax : localVersion
+    const parsed = parseVersion(base)
+    const target = spec === "patch"
+      ? `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`
+      : spec === "minor"
+        ? `${parsed.major}.${parsed.minor + 1}.0`
+        : `${parsed.major + 1}.0.0`
+    return { target, localVersion, registryMax, packages, latest }
+  }
+
+  const target = spec
+  if (!parseVersion(target)) throw new Error(`Invalid version: ${target}`)
+  if (registryMax && compareVersions(target, registryMax) <= 0) {
+    throw new Error(`Target ${target} must be greater than registry latest ${registryMax}`)
+  }
+  if (compareVersions(target, localVersion) < 0) {
+    throw new Error(`Target ${target} must not be lower than local version ${localVersion}`)
+  }
+  return { target, localVersion, registryMax, packages, latest }
+}
+
+function statusPath(line) {
+  let value = line.slice(3)
+  if (value.includes(" -> ")) value = value.split(" -> ").at(-1)
+  return value.replace(/^"|"$/g, "")
+}
+
+export async function assertCleanWorkspace({
+  root = repository,
+  run = runCommand,
+  allowVersion = false,
+} = {}) {
+  const output = await run(["git", "status", "--porcelain"], { cwd: root, capture: true })
+  const lines = output.split("\n").map((line) => line.trimEnd()).filter(Boolean)
+  const unexpected = lines.filter((line) => {
+    const file = statusPath(line)
+    if (SYNC_PATHS.includes(file)) return false
+    if (allowVersion && /^packages\/[^/]+\/package\.json$/.test(file)) return false
+    return true
+  })
+  if (unexpected.length) {
+    throw new Error(`Workspace is not clean: ${unexpected.join(", ")}`)
+  }
+  return lines
+}
+
+export async function bumpVersion({ root = repository, target, run = runCommand } = {}) {
+  await run([
+    "npm", "version", target, "--workspaces", "--allow-same-version", "--ignore-scripts",
+    "--git-tag-version=false", "--workspaces-update=false", "--include-workspace-root=false", "--update-notifier=false",
+  ], { cwd: root })
+  await syncPluginDependencies(root)
+  await checkPluginVersions(root)
+}
+
+export async function triggerCi({ root = repository, target, stage = false, run = runCommand } = {}) {
+  const branch = (await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, capture: true })).trim()
+  if (branch !== "main") throw new Error(`ci release requires main, current branch is ${branch}`)
+  await run(["git", "add", "packages"], { cwd: root })
+  const staged = (await run(["git", "diff", "--cached", "--name-only"], { cwd: root, capture: true })).trim()
+  const message = `release: v${target} ${stage ? "[release:stage]" : "[release]"}`
+  if (staged) await run(["git", "commit", "-m", message], { cwd: root })
+  else await run(["git", "commit", "--allow-empty", "-m", message], { cwd: root })
+  await run(["git", "push", "origin", "main"], { cwd: root })
+  const commit = (await run(["git", "rev-parse", "--short", "HEAD"], { cwd: root, capture: true })).trim()
+  return { commit, message }
 }
 
 export async function planRelease({
@@ -164,7 +269,6 @@ export async function releasePackages({
   pack,
   verify = true,
 } = {}) {
-  // Fail before paying for a cold build when the workspace version is stale.
   await assertReleaseVersion({ root, registry, fetchImpl })
 
   if (build) {
@@ -206,9 +310,59 @@ export async function releasePackages({
   }
 }
 
-export async function release({ root = repository, args = [], ...overrides } = {}) {
-  const options = releaseOptions(args)
-  return releasePackages({ root, ...options, ...overrides })
+export async function release({
+  root = repository,
+  args = [],
+  run = runCommand,
+  fetchImpl = fetch,
+  log = (...values) => console.error(...values),
+  ...overrides
+} = {}) {
+  const options = parseReleaseArgs(args)
+  const ci = options.releaseType.startsWith("ci-")
+  const stage = options.releaseType.endsWith("stage")
+
+  await assertCleanWorkspace({ root, run })
+  if (ci) {
+    const branch = (await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, capture: true })).trim()
+    if (branch !== "main") throw new Error(`ci release requires main, current branch is ${branch}`)
+  }
+
+  const resolved = await resolveTargetVersion({ root, registry: options.registry, spec: options.version, fetchImpl })
+  log(`[release] ${options.releaseType}: ${resolved.localVersion} -> ${resolved.target}`)
+
+  if (options.dryRun) {
+    return {
+      dryRun: true,
+      releaseType: options.releaseType,
+      from: resolved.localVersion,
+      to: resolved.target,
+      registryMax: resolved.registryMax,
+    }
+  }
+
+  await run(["npm", "run", "check"], { cwd: root })
+  await assertCleanWorkspace({ root, run })
+  await bumpVersion({ root, target: resolved.target, run })
+  await assertCleanWorkspace({ root, run, allowVersion: true })
+
+  if (ci) {
+    const result = await triggerCi({ root, target: resolved.target, stage, run })
+    return { releaseType: options.releaseType, version: resolved.target, ...result }
+  }
+
+  const result = await releasePackages({
+    root,
+    registry: options.registry,
+    tag: options.tag,
+    stage,
+    build: true,
+    run,
+    fetchImpl,
+    log,
+    ...overrides,
+  })
+  return { releaseType: options.releaseType, ...result }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -216,11 +370,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const argv = process.argv.slice(2)
     if (argv.includes("--help") || argv.includes("-h")) {
       console.log([
-        "npm run release                  Build and publish the current version",
-        "npm run release:stage            Build and stage the current version for npm approval",
-        "npm run release -- --dry-run     Build and validate without publishing",
-        "Version is controlled by package.json; this command never bumps it.",
-        "The target version must be newer than every package's registry latest.",
+        "npm run release -- --release-type=<type> [--version=<spec>] [--tag=latest] [--registry=...] [--dry-run]",
+        "",
+        "release-type: local-publish | local-stage | ci-publish | ci-stage",
+        "version:      patch (default) | minor | major | explicit semver",
+        "",
+        "The command validates arguments, requires a clean workspace, runs the full check,",
+        "bumps every package to the same target version, then publishes or triggers CI.",
       ].join("\n"))
     } else {
       const result = await release({ args: argv })

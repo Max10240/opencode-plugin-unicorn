@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$COMMIT_MESSAGE" == *"[release:stage]"* ]]; then
-            node scripts/release.mjs --stage
+            node scripts/release-execute.mjs --stage
           else
-            node scripts/release.mjs
+            node scripts/release-execute.mjs
           fi

@@ -17,10 +17,11 @@ test("all current plugin packages share the Unicorn version", async () => {
 test("publishing does not automatically create a commit", async () => {
   const workspace = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
   expect(workspace.scripts["postpublish:all"]).toBeUndefined()
-  expect(workspace.scripts["publish:all"]).toBe("node scripts/release.mjs")
-  expect(workspace.scripts["publish:all:dry-run"]).toBe("node scripts/release.mjs --dry-run")
   expect(workspace.scripts["release"]).toBe("node scripts/release.mjs")
-  expect(workspace.scripts["release:stage"]).toBe("node scripts/release.mjs --stage")
+  expect(workspace.scripts["publish:all"]).toBeUndefined()
+  expect(workspace.scripts["publish:all:dry-run"]).toBeUndefined()
+  expect(workspace.scripts["release:stage"]).toBeUndefined()
+  expect(workspace.scripts["release:dry-run"]).toBeUndefined()
 })
 
 test("runtime child dependencies must pin the exact shared version, not prefer an older latest tag", () => {

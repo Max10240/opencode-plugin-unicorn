@@ -72,40 +72,47 @@ workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 
 
 ### 发布
 
-版本由本地控制。先统一升版并同步内部依赖：
+只有一个发布入口，必须显式指定发布类型：
 
 ```sh
-npm version 1.0.12 --workspaces --allow-same-version --ignore-scripts \
-  --git-tag-version=false --workspaces-update=false --include-workspace-root=false
-node scripts/sync-plugin-dependencies.mjs
+npm run release -- --release-type=<type> [--version=<spec>]
 ```
 
-然后选择本地或 CI 发布。
+`--release-type` 取值：
 
-**本地直接发布**（浏览器 security key 2FA）：
+| 类型 | 行为 | 2FA |
+|---|---|---|
+| `local-publish` | 本机构建并直接发布 | 浏览器 security key |
+| `local-stage` | 本机构建并 stage，之后在 npm 网站 Approve | Approve 时 2FA |
+| `ci-publish` | 本地 commit + push，GitHub Actions 构建并发布 | OIDC |
+| `ci-stage` | 本地 commit + push，GitHub Actions 构建并 stage | Approve 时 2FA |
+
+`--version` 默认 `patch`，也可以是 `minor`、`major` 或具体版本 `1.2.3`。目标版本必须严格大于每个包的 registry latest，并且不能低于本地版本。
+
+脚本会依次：
+
+1. 校验全部参数
+2. 要求工作区干净（只允许 `rules/` 同步文件未提交）
+3. 跑完整 `npm run check`
+4. 统一 bump 到目标版本并同步内部依赖
+5. 按 release-type 发布或触发 CI
+
+本地发布：
 
 ```sh
-npm run release
+npm run release -- --release-type=local-publish
+npm run release -- --release-type=local-stage --version=minor
 ```
 
-**本地 staged 发布**（在 npm 网站逐个 Approve）：
+CI 发布：
 
 ```sh
-npm run release:stage
+npm run release -- --release-type=ci-publish
+npm run release -- --release-type=ci-stage --version=1.2.0
 ```
 
-审核入口是 `https://www.npmjs.com/settings/~/staged-packages`，也可以用
-`npm stage list` 查看 stage ID，再用 `npm stage approve <stage-id>` 批准。
+`ci-*` 模式会提交版本变更并推送 `main`，commit message 包含 `[release]` 或 `[release:stage]`。CI 不再 bump 版本。
 
-**CI 发布**：commit message 加 `[release]` 后推送 `main`；需要 staged 时用 `[release:stage]`：
+staged 审核入口是 `https://www.npmjs.com/settings/~/staged-packages`，也可以用 `npm stage list` 和 `npm stage approve <stage-id>`。
 
-```sh
-git commit -m "release: v1.0.12 [release]"
-git push
-```
-
-发布脚本只构建和发布，不 bump 版本。目标版本必须高于每个包的 registry latest，否则立即失败。已存在的包会校验 integrity：一致则跳过，不一致则失败并要求 bump 新版本。发布顺序为先 7 个插件、最后 `@max10240/opencode-plugin-unicorn`。
-
-本地发布成功后提交版本变更并推送；CI 发布不会回写 `main`。
-
-CI 使用 OIDC，不在 GitHub 保存 npm token。新包首次发布仍受 npm 限制（OIDC 不能创建新包），需要用本地 `npm run release` 或 `npm run release:stage`。
+本地发布成功后，提交版本变更和同步文件；`ci-*` 会自动提交并推送。新包首次发布不能用 OIDC，请使用 `local-publish` 或 `local-stage`。

@@ -27,12 +27,7 @@
     "check:full": "node scripts/workflow.mjs check",
     "check:fresh": "node scripts/workflow.mjs check --fresh",
     "check": "node scripts/workflow.mjs check",
-    "release": "node scripts/release.mjs",
-    "release:stage": "node scripts/release.mjs --stage",
-    "release:dry-run": "node scripts/release.mjs --dry-run",
-    "publish:all": "node scripts/release.mjs",
-    "publish:all:dry-run": "node scripts/release.mjs --dry-run",
-    "publish:all:prerelease": "npm run publish:all -- --tag=prerelease"
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": { "jsonc-parser": "^3.3.1", "yaml": "^2.8.1" }
 }

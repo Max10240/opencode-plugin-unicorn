@@ -3,14 +3,18 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
+  assertCleanWorkspace,
   compareVersions,
+  parseReleaseArgs,
   parseVersion,
   planRelease,
   registryPackagePath,
   registryVersionUrl,
-  releaseOptions,
+  release,
   releasePackages,
+  resolveTargetVersion,
   tarballIntegrity,
+  triggerCi,
 } from "../scripts/release.mjs"
 
 const CHILD = "@max10240/opencode-plugin-show-img"
@@ -30,11 +34,47 @@ test("registry URLs encode scoped package names once", () => {
   )
 })
 
-test("release options separate direct publish, stage and dry run", () => {
-  expect(releaseOptions([])).toMatchObject({ stage: false, dryRun: false, tag: "latest" })
-  expect(releaseOptions(["--stage", "--dry-run"])).toMatchObject({ stage: true, dryRun: true })
-  expect(releaseOptions(["--tag=next", "--registry=https://example.test/"])).toMatchObject({ tag: "next", registry: "https://example.test/" })
-  expect(() => releaseOptions(["--unknown"])).toThrow("Unknown release option")
+test("release arguments require an explicit release type and default to patch", () => {
+  expect(parseReleaseArgs(["--release-type=local-publish"])).toMatchObject({ releaseType: "local-publish", version: "patch", dryRun: false })
+  expect(parseReleaseArgs(["--release-type=ci-stage", "--version=minor", "--dry-run"])).toMatchObject({ releaseType: "ci-stage", version: "minor", dryRun: true })
+  expect(parseReleaseArgs(["--release-type=local-publish", "--version=1.2.3"])).toMatchObject({ version: "1.2.3" })
+  expect(() => parseReleaseArgs([])).toThrow("Missing required --release-type")
+  expect(() => parseReleaseArgs(["--release-type=nope"])).toThrow("Invalid --release-type")
+  expect(() => parseReleaseArgs(["--release-type=local-publish", "--version=latest"])).toThrow("Invalid --version")
+  expect(() => parseReleaseArgs(["--release-type=ci-publish", "--tag=next"])).toThrow("--tag is not supported")
+  expect(() => parseReleaseArgs(["--release-type=local-publish", "--unknown"])).toThrow("Unknown release option")
+})
+
+test("workspace checks allow only sync files and optionally version files", async () => {
+  const sync = async () => " M packages/opencode-plugin-recomended-opencode-config/rules/AGENTS.md\n"
+  await expect(assertCleanWorkspace({ root: "/tmp", run: sync })).resolves.toBeDefined()
+  const dirty = async () => " M src/foo.ts\n"
+  await expect(assertCleanWorkspace({ root: "/tmp", run: dirty })).rejects.toThrow("not clean")
+  const version = async () => " M packages/foo/package.json\n"
+  await expect(assertCleanWorkspace({ root: "/tmp", run: version })).rejects.toThrow("not clean")
+  await expect(assertCleanWorkspace({ root: "/tmp", run: version, allowVersion: true })).resolves.toBeDefined()
+})
+
+test("CI release creates a release commit and pushes main", async () => {
+  const calls: string[][] = []
+  const run = async (args: string[]) => {
+    calls.push([...args])
+    const key = args.join(" ")
+    if (key === "git rev-parse --abbrev-ref HEAD") return "main\n"
+    if (key === "git diff --cached --name-only") return "packages/foo/package.json\n"
+    if (key === "git rev-parse --short HEAD") return "abc123\n"
+    return ""
+  }
+  const result = await triggerCi({ root: "/tmp", target: "1.2.0", stage: false, run })
+  expect(result).toEqual({ commit: "abc123", message: "release: v1.2.0 [release]" })
+  expect(calls.some((args) => args.join(" ") === "git commit -m release: v1.2.0 [release]")).toBe(true)
+  expect(calls.some((args) => args.join(" ") === "git push origin main")).toBe(true)
+  await expect(triggerCi({
+    root: "/tmp",
+    target: "1.2.0",
+    stage: false,
+    run: async (args: string[]) => args.join(" ") === "git rev-parse --abbrev-ref HEAD" ? "feature\n" : "",
+  })).rejects.toThrow("requires main")
 })
 
 test("tarball integrity uses sha512 base64", () => {
@@ -85,6 +125,40 @@ async function fixture({ latest = "1.0.10", version = "1.0.11" } = {}) {
     cleanup: () => rm(root, { recursive: true, force: true }),
   }
 }
+
+test("target version uses the larger of local and registry versions", async () => {
+  const fx = await fixture({ latest: "1.0.10", version: "1.0.11" })
+  try {
+    expect((await resolveTargetVersion({ root: fx.root, fetchImpl: fx.fetchImpl, spec: "patch" })).target).toBe("1.0.12")
+    fx.latestVersions.set(CHILD, "1.0.20")
+    fx.latestVersions.set(UNICORN, "1.0.20")
+    expect((await resolveTargetVersion({ root: fx.root, fetchImpl: fx.fetchImpl, spec: "patch" })).target).toBe("1.0.21")
+    expect((await resolveTargetVersion({ root: fx.root, fetchImpl: fx.fetchImpl, spec: "minor" })).target).toBe("1.1.0")
+  } finally { await fx.cleanup() }
+})
+
+test("explicit target must be strictly newer than latest and not lower than local", async () => {
+  const fx = await fixture({ latest: "1.0.11", version: "1.0.11" })
+  try {
+    await expect(resolveTargetVersion({ root: fx.root, fetchImpl: fx.fetchImpl, spec: "1.0.11" })).rejects.toThrow("greater than registry latest")
+    expect((await resolveTargetVersion({ root: fx.root, fetchImpl: fx.fetchImpl, spec: "1.0.12" })).target).toBe("1.0.12")
+  } finally { await fx.cleanup() }
+
+  const lower = await fixture({ latest: "1.0.10", version: "1.0.15" })
+  try {
+    await expect(resolveTargetVersion({ root: lower.root, fetchImpl: lower.fetchImpl, spec: "1.0.11" })).rejects.toThrow("lower than local")
+  } finally { await lower.cleanup() }
+})
+
+test("release dry run does not check, bump or publish", async () => {
+  const fx = await fixture()
+  try {
+    const run = async (args: string[]) => { fx.calls.push([...args]); return "" }
+    const result = await release({ root: fx.root, args: ["--release-type=local-publish", "--dry-run"], run, fetchImpl: fx.fetchImpl, log: () => {} })
+    expect(result).toMatchObject({ dryRun: true, releaseType: "local-publish", from: "1.0.11", to: "1.0.12" })
+    expect(fx.calls.some((args) => args.join(" ") === "npm run check")).toBe(false)
+  } finally { await fx.cleanup() }
+})
 
 test("plan rejects a version that is not newer than registry latest", async () => {
   const fx = await fixture({ version: "1.0.10" })
