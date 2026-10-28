@@ -256,6 +256,20 @@ async function readPrivateKeyFile(file: string) {
   }
 }
 
+export async function existingDecryptPrivateKeyFiles(options: ResolvedSensitiveEncryptOptions): Promise<string[]> {
+  const candidates = new Set<string>()
+  if (options.privateKeyFile !== undefined) candidates.add(options.privateKeyFile)
+  candidates.add(path.join(options.keyDirectory, DECRYPT_PRIVATE_KEY))
+
+  const files: string[] = []
+  for (const candidate of candidates) {
+    const info = await lstat(candidate).catch(() => undefined)
+    if (!info?.isFile()) continue
+    files.push(candidate)
+  }
+  return files
+}
+
 export async function ensureDecryptKey(options: ResolvedSensitiveEncryptOptions): Promise<DecryptKey | undefined> {
   if (!options.decrypt) return undefined
   if (options.privateKeyFile !== undefined) {

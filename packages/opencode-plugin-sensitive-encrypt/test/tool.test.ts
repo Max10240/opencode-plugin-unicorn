@@ -52,12 +52,16 @@ async function fixture(run: (value: {
       options: {
         publicKeyFileForEncrypt: encryptPublic,
         privateKeyFileForDecrypt: decryptPrivate,
+        keyDirectory: directory,
       },
     })
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
-async function setup(options: Record<string, unknown>) {
+async function setup(
+  options: Record<string, unknown>,
+  prepare?: (registered: Map<string, Info>) => void,
+) {
   const registered = new Map<string, Info>()
   let disposed = false
   let rpc: any
@@ -77,8 +81,22 @@ async function setup(options: Record<string, unknown>) {
       },
     },
   } as unknown as Pick<Context, "options" | "tool" | "rpc">
+  prepare?.(registered)
   const cleanup = await setupSensitiveEncrypt(context)
   return { registered, cleanup, disposed: () => disposed, rpc: () => rpc }
+}
+
+function fakeRegisterTool(calls: Array<Record<string, unknown>>) {
+  return {
+    id: "register_sensitive_file",
+    name: "register_sensitive_file",
+    description: "fake",
+    input: { type: "object", properties: {}, required: [], additionalProperties: false },
+    execute: async (input: unknown) => {
+      calls.push(input as Record<string, unknown>)
+      return { content: "ok", metadata: {} }
+    },
+  } as Info
 }
 
 function execute(tool: Info, input: Record<string, unknown>) {
@@ -226,28 +244,70 @@ test("exposes the TUI encryption RPC without exposing plaintext", async () => {
 
 test("notifies protection after decryption with the plaintext output path", async () => {
   await fixture(async ({ directory, options, decrypt }) => {
-    const { registered, cleanup } = await setup(options)
     const calls: Array<Record<string, unknown>> = []
+    const { registered, cleanup } = await setup(options, (tools) => {
+      tools.set("register_sensitive_file", fakeRegisterTool(calls))
+    })
     try {
-      registered.set("register_sensitive_file", {
-        id: "register_sensitive_file",
-        name: "register_sensitive_file",
-        description: "fake",
-        input: { type: "object", properties: {}, required: [], additionalProperties: false },
-        execute: async (input: unknown) => {
-          calls.push(input as Record<string, unknown>)
-          return { content: "ok", metadata: {} }
-        },
-      } as Info)
       const envelope = encryptEnvelope(parsePublicKey(decrypt.publicKey), Buffer.from("SECRET_MARKER"))
       await writeFile(path.join(directory, "incoming.ocsec"), envelope, { mode: 0o600 })
       await execute(registered.get(DECRYPT_TOOL_NAME)!, {
         file: literal(directory, "incoming.ocsec"),
         out: literal(directory, "plain.txt"),
       })
+      expect(calls.map((call) => call.role)).toEqual(["manual", "decrypt-output"])
+      expect(calls[1]?.file).toBe(await (await import("../src/paths.js")).resolveTempInput(literal(directory, "plain.txt")))
+    } finally { await cleanup() }
+  })
+})
+
+test("registers the configured decrypt private key for protection by default", async () => {
+  await fixture(async ({ directory, options, decrypt }) => {
+    const calls: Array<Record<string, unknown>> = []
+    const { cleanup } = await setup(options, (registered) => {
+      registered.set("register_sensitive_file", fakeRegisterTool(calls))
+    })
+    try {
       expect(calls).toHaveLength(1)
-      expect(calls[0]?.role).toBe("decrypt-output")
-      expect(calls[0]?.file).toBe(await (await import("../src/paths.js")).resolveTempInput(literal(directory, "plain.txt")))
+      expect(calls[0]?.role).toBe("manual")
+      expect(calls[0]?.label).toBe("decrypt private key")
+      expect(calls[0]?.file).toBe(path.resolve(directory, "decrypt-private.pem"))
+      expect(calls[0]?.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(JSON.stringify(calls)).not.toContain(decrypt.privateKey)
+    } finally { await cleanup() }
+  })
+})
+
+test("registers a generated default decrypt private key for protection", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-protect-"))
+  const calls: Array<Record<string, unknown>> = []
+  const { cleanup } = await setup(
+    { encrypt: false, decrypt: true, keyDirectory: path.join(directory, "keys") },
+    (registered) => { registered.set("register_sensitive_file", fakeRegisterTool(calls)) },
+  )
+  try {
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.role).toBe("manual")
+    expect(calls[0]?.file).toBe(path.resolve(directory, "keys", "decrypt-private.pem"))
+  } finally {
+    await cleanup()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("retries private key protection on decryption when protection loads later", async () => {
+  await fixture(async ({ directory, options, decrypt }) => {
+    const { registered, cleanup } = await setup(options)
+    const calls: Array<Record<string, unknown>> = []
+    try {
+      registered.set("register_sensitive_file", fakeRegisterTool(calls))
+      const envelope = encryptEnvelope(parsePublicKey(decrypt.publicKey), Buffer.from("SECRET_MARKER"))
+      await writeFile(path.join(directory, "incoming.ocsec"), envelope, { mode: 0o600 })
+      await execute(registered.get(DECRYPT_TOOL_NAME)!, {
+        file: literal(directory, "incoming.ocsec"),
+        out: literal(directory, "plain.txt"),
+      })
+      expect(calls.map((call) => call.role)).toEqual(["manual", "decrypt-output"])
     } finally { await cleanup() }
   })
 })

@@ -6,6 +6,7 @@ import { MAX_INLINE_CIPHERTEXT_BYTES, parseOptions, type ResolvedSensitiveEncryp
 import {
   ensureDecryptKey,
   ensureEncryptPublicKey,
+  existingDecryptPrivateKeyFiles,
   readCiphertextFile,
   readDecryptKey,
   readSecretFile,
@@ -30,6 +31,7 @@ type RegisterInput = {
   readonly file: string
   readonly role: "encrypt-input" | "decrypt-output" | "manual"
   readonly keyID?: string
+  readonly label?: string
   readonly sessionID?: string
   readonly toolCallID?: string
 }
@@ -42,11 +44,36 @@ function warn(role: string, error: unknown) {
 async function notifyProtection(context: PluginContext, tool: ToolContext, input: RegisterInput) {
   try {
     const register = (await context.tool.list()).find((entry) => entry.id === "register_sensitive_file" || entry.name === "register_sensitive_file")
-    if (!register) return
+    if (!register) return false
     await register.execute(input, tool)
+    return true
   } catch {
     // Protection is optional; registration failures must not affect encryption or decryption.
+    return false
   }
+}
+
+async function protectDecryptPrivateKeys(
+  context: PluginContext,
+  options: ResolvedSensitiveEncryptOptions,
+  decryptKey: DecryptKey | undefined,
+  tool: ToolContext,
+) {
+  const files = await existingDecryptPrivateKeyFiles(options)
+  if (files.length === 0) return true
+  let registered = true
+  for (const file of files) {
+    const ok = await notifyProtection(context, tool, {
+      file,
+      role: "manual",
+      label: "decrypt private key",
+      ...(decryptKey !== undefined && file === decryptKey.path ? { keyID: decryptKey.keyID } : {}),
+      sessionID: tool.sessionID,
+      toolCallID: tool.id,
+    })
+    if (!ok) registered = false
+  }
+  return registered
 }
 
 function syntheticToolContext(): ToolContext {
@@ -130,7 +157,12 @@ function createEncryptTool(context: PluginContext, options: ResolvedSensitiveEnc
   }
 }
 
-function createDecryptTool(context: PluginContext, options: ResolvedSensitiveEncryptOptions, key: DecryptKey) {
+function createDecryptTool(
+  context: PluginContext,
+  options: ResolvedSensitiveEncryptOptions,
+  key: DecryptKey,
+  ensurePrivateKeyProtection: (tool: ToolContext) => Promise<boolean>,
+) {
   return {
     name: DECRYPT_TOOL_NAME,
     options: { codemode: false as const },
@@ -156,6 +188,7 @@ function createDecryptTool(context: PluginContext, options: ResolvedSensitiveEnc
         throw new Error(`decrypted file exceeds the ${options.maxBytes} byte limit`)
       }
       const out = await writePlaintext(input.out, plaintext, source.path)
+      await ensurePrivateKeyProtection(tool)
       const metadata = {
         algorithm: ENVELOPE_ALGORITHM,
         keyID: current.keyID,
@@ -246,13 +279,24 @@ export async function setupSensitiveEncrypt(context: PluginContext) {
     }
   }
 
+  let privateKeyProtection: Promise<boolean> | undefined
+  const ensurePrivateKeyProtection = (tool: ToolContext) => {
+    if (privateKeyProtection) return privateKeyProtection
+    privateKeyProtection = protectDecryptPrivateKeys(context, options, decryptKey, tool).then((ok) => {
+      if (!ok) privateKeyProtection = undefined
+      return ok
+    })
+    return privateKeyProtection
+  }
+  await ensurePrivateKeyProtection(syntheticToolContext())
+
   if (!publicKey && !decryptKey) return async () => {}
 
   const cleanups: Array<() => Promise<void> | void> = []
   try {
     const registration = await context.tool.transform((editor) => {
       if (publicKey) editor.add(createEncryptTool(context, options, publicKey) as never)
-      if (decryptKey) editor.add(createDecryptTool(context, options, decryptKey) as never)
+      if (decryptKey) editor.add(createDecryptTool(context, options, decryptKey, ensurePrivateKeyProtection) as never)
       editor.add(createKeyInfoTool(publicKey, decryptKey) as never)
     })
     cleanups.push(() => registration.dispose())

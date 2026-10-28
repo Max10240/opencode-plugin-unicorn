@@ -95,6 +95,41 @@ test("encrypts and decrypts independent temp files in real OpenCode", async () =
   }
 })
 
+test("Unicorn protects the decrypt private key from read by default", async () => {
+  const e2e = await createOpenCodeE2E({
+    plugin: "unicorn",
+    pluginPackage: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
+    pluginOptions: {
+      features: {
+        recommendedOpencodeConfig: false,
+        sendMessageAcrossSessions: false,
+        imageGen: false,
+        showImg: false,
+        promptSearch: false,
+        sessionSearch: false,
+        sensitiveProtection: true,
+      },
+      sensitiveEncrypt: {},
+    },
+  })
+  const privateKey = path.join(e2e.configDirectory, "sensitive-encrypt", "decrypt-private.pem")
+  try {
+    await e2e.waitForModelContext(200_000)
+    await waitFor(async () => {
+      await access(privateKey)
+      return true
+    }, "The decrypt private key was not initialized")
+
+    const part = await callTool(e2e, "READ_PRIVATE_KEY", "read", { path: privateKey })
+    expect(part?.state.status).toBe("error")
+    expect(JSON.stringify(part)).toContain("Blocked: this file is protected")
+    expect(JSON.stringify(part)).not.toContain("PRIVATE KEY")
+    expect(JSON.stringify(e2e.proxy.requests)).not.toContain("PRIVATE KEY")
+  } finally {
+    await e2e.close()
+  }
+})
+
 test("Unicorn loads local encryption with the configured encrypt public key", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-unicorn-e2e-"))
   const secret = path.join(root, "secret.txt")

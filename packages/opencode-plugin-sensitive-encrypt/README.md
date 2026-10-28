@@ -42,9 +42,11 @@
 
 ## 保护插件联动
 
-加密/解密成功后，通过运行时发现 `register_sensitive_file` tool，自动登记：
+启动时及解密过程中，通过运行时发现 `register_sensitive_file` tool，自动登记：
 
+- 解密私钥：`privateKeyFileForDecrypt`，或默认的 `<keyDirectory>/decrypt-private.pem`（存在时）；
 - 加密输入文件；
 - 解密输出文件。
 
+登记后 `read` 私钥会被保护插件阻断，命中私钥内容的输出和上下文会替换为 `[REDACTED:PROTECTED]`；加解密自身直接读取私钥不受影响。
 保护插件不存在时静默跳过，不影响加解密。
