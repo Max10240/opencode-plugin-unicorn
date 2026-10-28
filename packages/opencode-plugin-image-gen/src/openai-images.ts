@@ -118,7 +118,7 @@ function imageOptions(
   }
   if (packageName === "@opencode/ai/providers/xai") {
     const aspect = size?.aspectRatio ?? (size?.dimensions ? sizeToAspectRatio(size.dimensions) : undefined)
-    const resolution = size?.dimensions ? sizeToResolution(size.dimensions) : aspect ? "1K" : undefined
+    const resolution = size?.dimensions ? sizeToResolution(size.dimensions) : size ? "1K" : undefined
     return {
       n: 1,
       ...(aspect ? { aspect } : {}),

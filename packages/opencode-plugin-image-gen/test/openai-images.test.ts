@@ -438,3 +438,45 @@ test("uses the latest image API for OpenAI and native providers", async () => {
   expect([...dataUrlResult.data]).toEqual([80, 78, 71])
   expect(dataUrlResult.mediaType).toBe("image/png")
 })
+
+test("passes raw size hints through to native providers", async () => {
+  const imageData = Buffer.from("PNG").toString("base64")
+  const bodies: Record<string, Record<string, any>> = {}
+  let mode = "google"
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    bodies[mode] = (await request.json()) as Record<string, any>
+    if (mode === "google") {
+      return Response.json({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: imageData } }] }, finishReason: "STOP" }],
+      })
+    }
+    return Response.json({ data: [{ b64_json: imageData, mime_type: "image/png" }] })
+  }) as unknown as typeof fetch
+
+  for (const input of [
+    { mode: "google", providerID: "google", packageName: "@opencode/ai/providers/google", model: "gemini-image" },
+    { mode: "xai", providerID: "xai", packageName: "@opencode/ai/providers/xai", model: "grok-image" },
+  ]) {
+    mode = input.mode
+    const result = await generateImage({
+      baseURL: "https://api.example.test/v1",
+      token: "token",
+      prompt: "raw size hint",
+      size: "auto",
+      ...input,
+    })
+    expect(result.mediaType).toBe("image/png")
+  }
+
+  expect(bodies.google?.generationConfig).toEqual({
+    responseModalities: ["IMAGE"],
+    imageConfig: { aspectRatio: "auto" },
+  })
+  expect(bodies.xai).toMatchObject({
+    n: 1,
+    aspect_ratio: "auto",
+    resolution: "1k",
+    response_format: "b64_json",
+  })
+})
