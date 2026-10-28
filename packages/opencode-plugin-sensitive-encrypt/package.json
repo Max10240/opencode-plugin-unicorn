@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-sensitive-encrypt",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Encrypt sensitive temporary files with a configured RSA public key",
   "type": "module",
   "exports": {
