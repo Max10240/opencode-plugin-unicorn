@@ -1,4 +1,4 @@
-import { Media } from "@opencode/ai"
+import { Media } from "@opencode/ai/effect"
 import { Option, Result, Schema } from "effect"
 import { Base64 } from "effect/encoding"
 

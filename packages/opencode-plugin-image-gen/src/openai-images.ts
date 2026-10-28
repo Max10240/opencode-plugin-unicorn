@@ -1,6 +1,5 @@
-import { Media } from "@opencode/ai"
-import { make as makeAIClient } from "@opencode/ai/promise"
-import { fetchLayer } from "@opencode/ai/route/executor"
+import { make as makeAIClient } from "@opencode/ai"
+import { Media } from "@opencode/ai/effect"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import type { GeneratedImage, ImageFile, ImageQuality } from "./types.js"
@@ -31,9 +30,8 @@ export type ImageRequest = {
 
 type ImageGenerationOptions = {
   readonly n?: number
-  readonly size?: `${number}x${number}`
-  readonly aspectRatio?: `${number}:${number}`
-  readonly format?: string
+  readonly aspect?: `${number}:${number}`
+  readonly resolution?: string
   readonly providerOptions?: Readonly<Record<string, unknown>>
 }
 
@@ -71,7 +69,7 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
   request.signal?.throwIfAborted()
   const { model, family } = await prepareImageModel(request)
   const size = request.size === undefined ? undefined : parseImageSize(request.size)
-  const imageClient = makeAIClient({ layer: fetchLayer })
+  const imageClient = makeAIClient()
   try {
     const response = await imageClient.image.generate({
       model,
@@ -90,7 +88,11 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
     const materialized = dataUrl ?? (await imageClient.run(image.materialize(), { signal: request.signal }))
     const data = await imageClient.run(materialized.bytes(), { signal: request.signal })
     if (data.byteLength === 0) throw new Error(`Image provider ${request.providerID} returned empty image data.`)
-    return { data, mediaType: materialized.mediaType }
+    // Compatible hosts may omit the response format; our request always asks for PNG output.
+    const mediaType = materialized.mediaType === "application/octet-stream"
+      ? Media.detectMediaType(data) ?? "image/png"
+      : materialized.mediaType
+    return { data, mediaType }
   } finally {
     await imageClient.dispose()
   }
@@ -103,34 +105,33 @@ function imageOptions(
 ): ImageGenerationOptions {
   if (packageName === "@opencode/ai/providers/google") {
     const dimensions = size?.dimensions ? googleSize(size.dimensions) : undefined
-    const aspectRatio = size?.aspectRatio ?? dimensions?.aspectRatio
+    const aspect = size?.aspectRatio ?? dimensions?.aspectRatio
+    const resolution = dimensions?.imageSize
     return {
-      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(aspect ? { aspect } : {}),
+      ...(resolution ? { resolution } : {}),
       providerOptions: {
         ...(size?.raw !== undefined ? { imageConfig: { aspectRatio: size.raw } } : {}),
-        ...(dimensions?.imageSize ? { imageSize: dimensions.imageSize } : {}),
         ...(quality ? { thinkingLevel: quality.toUpperCase() } : {}),
       },
     }
   }
   if (packageName === "@opencode/ai/providers/xai") {
-    const aspectRatio = size?.aspectRatio ?? (size?.dimensions ? sizeToAspectRatio(size.dimensions) : undefined)
+    const aspect = size?.aspectRatio ?? (size?.dimensions ? sizeToAspectRatio(size.dimensions) : undefined)
+    const resolution = size?.dimensions ? sizeToResolution(size.dimensions) : aspect ? "1K" : undefined
     return {
       n: 1,
-      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(aspect ? { aspect } : {}),
+      ...(resolution ? { resolution } : {}),
       providerOptions: {
         responseFormat: "b64_json",
         ...(size?.raw !== undefined ? { aspect_ratio: size.raw } : {}),
-        ...(size
-          ? { resolution: size.dimensions ? sizeToResolution(size.dimensions) : "1k" }
-          : {}),
       },
     }
   }
   if (packageName === "@opencode/ai/providers/zai") {
-    const providerSize = size?.aspectRatio ?? size?.raw
+    const providerSize = size?.aspectRatio ?? size?.dimensions ?? size?.raw
     return {
-      ...(size?.dimensions ? { size: size.dimensions } : {}),
       providerOptions: {
         ...(providerSize !== undefined ? { size: providerSize } : {}),
         ...(quality ? { quality: quality === "high" ? "hd" : "standard" } : {}),
@@ -138,23 +139,21 @@ function imageOptions(
     }
   }
   if (packageName === "@opencode/ai/providers/meta") {
-    const providerSize = size?.aspectRatio ?? size?.raw
+    const providerSize = size?.aspectRatio ?? size?.dimensions ?? size?.raw
     return {
       n: 1,
-      format: "png",
-      ...(size?.dimensions ? { size: size.dimensions } : {}),
       providerOptions: {
+        outputFormat: "png",
         responseFormat: "b64_json",
         ...(providerSize !== undefined ? { size: providerSize } : {}),
       },
     }
   }
-  const providerSize = size?.aspectRatio ?? size?.raw
+  const providerSize = size?.dimensions ?? size?.aspectRatio ?? size?.raw
   return {
     n: 1,
-    format: "png",
-    ...(size?.dimensions ? { size: size.dimensions } : {}),
     providerOptions: {
+      outputFormat: "png",
       ...(providerSize !== undefined ? { size: providerSize } : {}),
       ...(quality ? { quality } : {}),
     },

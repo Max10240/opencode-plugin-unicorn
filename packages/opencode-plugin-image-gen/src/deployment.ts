@@ -1,4 +1,4 @@
-import type { ImageModel, LanguageModel } from "@opencode/ai"
+import type { ImageModel, LanguageModel } from "@opencode/ai/effect"
 import { Auth } from "@opencode/ai/route"
 import { Google, Meta, OpenAI, OpenAICompatible, OpenAICompatibleResponses, XAI, ZAI } from "@opencode/ai/providers"
 import type { ImageRequest } from "./openai-images.js"

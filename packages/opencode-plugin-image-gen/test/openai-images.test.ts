@@ -109,7 +109,7 @@ test("malformed and empty image results never become successful empty files or r
     { data: [{ b64_json: "UE5H" }], usage: "invalid" },
     { data: [{ b64_json: "UE5H" }], size: null, usage: { input_tokens: "invalid" } },
     { data: [{ url: "https://images.example.test/result.png" }], size: 42 },
-    { data: [{ url: "https://images.example.test/result.png", mime_type: 42 }] },
+    { data: [{ url: "https://images.example.test/result.png" }], background: 42 },
   ]
   for (const response of invalid) {
     let calls = 0

@@ -295,15 +295,14 @@ test("configured auth is not overwritten by an undefined credential or ambient O
 
 test("SDK feasibility: reuse a provider model's prepared HTTP/auth context for an image route", async () => {
   const { OpenAI } = await import(Bun.resolveSync("@opencode/ai/providers", packageRoot))
-  const { make } = await import(Bun.resolveSync("@opencode/ai/promise", packageRoot))
-  const { fetchLayer } = await import(Bun.resolveSync("@opencode/ai/route/executor", packageRoot))
+  const { make } = await import(Bun.resolveSync("@opencode/ai", packageRoot))
   const requests: Captured[] = []
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const raw = await request.text()
     requests.push({ url: request.url, headers: Object.fromEntries(request.headers), raw, body: JSON.parse(raw) })
     return Response.json({ data: [{ b64_json: png }] })
   } })
-  const client = make({ layer: fetchLayer })
+  const client = make()
   try {
     const prepared = OpenAI.model("chat-model", {
       apiKey: "synthetic-inline-key", baseURL: `${server.url.origin}/v1`,
@@ -331,8 +330,7 @@ test("SDK feasibility: reuse a provider model's prepared HTTP/auth context for a
 test("SDK feasibility: transferring Auth.Definition signs the image's new URL and body instead of replaying chat headers", async () => {
   const { OpenAI } = await import(Bun.resolveSync("@opencode/ai/providers", packageRoot))
   const { Auth } = await import(Bun.resolveSync("@opencode/ai/route", packageRoot))
-  const { make } = await import(Bun.resolveSync("@opencode/ai/promise", packageRoot))
-  const { fetchLayer } = await import(Bun.resolveSync("@opencode/ai/route/executor", packageRoot))
+  const { make } = await import(Bun.resolveSync("@opencode/ai", packageRoot))
   const { Effect } = await import(Bun.resolveSync("effect", packageRoot))
   let valid = false
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -341,7 +339,7 @@ test("SDK feasibility: transferring Auth.Definition signs the image's new URL an
     valid = request.headers.get("x-research-signature") === expected
     return valid ? Response.json({ data: [{ b64_json: png }] }) : new Response("Bad signature", { status: 401 })
   } })
-  const client = make({ layer: fetchLayer })
+  const client = make()
   try {
     const dynamicAuth = Auth.custom((input: { method: string; url: string; body: string; headers: Record<string, string> }) => Effect.succeed({
       ...input.headers,
@@ -355,8 +353,7 @@ test("SDK feasibility: transferring Auth.Definition signs the image's new URL an
 })
 
 test("the production deployment path preserves a native provider factory's dynamic image signature", async () => {
-  const { make } = await import(Bun.resolveSync("@opencode/ai/promise", packageRoot))
-  const { fetchLayer } = await import(Bun.resolveSync("@opencode/ai/route/executor", packageRoot))
+  const { make } = await import(Bun.resolveSync("@opencode/ai", packageRoot))
   const directory = await mkdtemp(path.join(os.tmpdir(), "image-gen-native-auth-"))
   let valid = false
   let query: Record<string, string> | undefined
@@ -366,7 +363,7 @@ test("the production deployment path preserves a native provider factory's dynam
     valid = request.headers.get("x-signature") === createHmac("sha256", signingKey).update(`${request.method}\n${request.url}\n${raw}`).digest("hex")
     return valid ? Response.json({ data: [{ b64_json: png }] }) : new Response("Invalid signature", { status: 401 })
   } })
-  const client = make({ layer: fetchLayer })
+  const client = make()
   try {
     const native = path.join(directory, "provider.mjs")
     await writeFile(native, `
