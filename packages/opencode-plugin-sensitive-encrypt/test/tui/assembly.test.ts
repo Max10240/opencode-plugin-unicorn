@@ -2,19 +2,21 @@ import { expect, test } from "bun:test"
 import { setupSensitiveEncryptTui } from "../../src/tui.js"
 
 function setup(options: Record<string, unknown>) {
-  let commands: any[] = []
+  let layer: any
   const context = {
     options,
     keymap: {
-      layer: (factory: () => any) => { commands = factory().commands ?? [] },
+      layer: (factory: () => any) => { layer = factory() },
     },
   } as any
   setupSensitiveEncryptTui(context)
-  return commands
+  return layer
 }
 
 test("registers a persistent one-shot encryption command", () => {
-  const commands = setup({})
+  const layer = setup({})
+  const commands = layer.commands
+  expect(layer.mode).toBe("global")
   expect(commands).toHaveLength(1)
   expect(commands[0]).toMatchObject({
     id: "sensitive-encrypt.encrypt",
@@ -25,6 +27,6 @@ test("registers a persistent one-shot encryption command", () => {
 })
 
 test("does not register when encryption is disabled", () => {
-  expect(setup({ encrypt: false })).toHaveLength(0)
-  expect(setup({ enabled: false })).toHaveLength(0)
+  expect(setup({ encrypt: false })).toBeUndefined()
+  expect(setup({ enabled: false })).toBeUndefined()
 })

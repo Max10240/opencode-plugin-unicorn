@@ -2,17 +2,19 @@ import { expect, test } from "bun:test"
 import { setupSensitiveProtectionTui } from "../../src/tui.js"
 
 function setup(options: Record<string, unknown>) {
-  let commands: any[] = []
+  let layer: any
   const context = {
     options,
-    keymap: { layer: (factory: () => any) => { commands = factory().commands ?? [] } },
+    keymap: { layer: (factory: () => any) => { layer = factory() } },
   } as any
   setupSensitiveProtectionTui(context)
-  return commands
+  return layer
 }
 
 test("registers a keymap command for protecting a file", () => {
-  const commands = setup({})
+  const layer = setup({})
+  const commands = layer.commands
+  expect(layer.mode).toBe("global")
   expect(commands).toHaveLength(1)
   expect(commands[0]).toMatchObject({
     id: "sensitive-protection.register",
@@ -23,5 +25,5 @@ test("registers a keymap command for protecting a file", () => {
 })
 
 test("does not register when protection is disabled", () => {
-  expect(setup({ enabled: false })).toHaveLength(0)
+  expect(setup({ enabled: false })).toBeUndefined()
 })

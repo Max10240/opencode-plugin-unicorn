@@ -9,6 +9,7 @@ export default Plugin.define({
 export function setupSensitiveProtectionTui(context: Context) {
   if (context.options.enabled === false) return
   context.keymap.layer(() => ({
+    mode: "global",
     commands: [{
       id: "sensitive-protection.register",
       title: "Protect sensitive file",

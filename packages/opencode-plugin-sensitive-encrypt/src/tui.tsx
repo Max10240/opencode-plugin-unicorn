@@ -20,6 +20,7 @@ export function setupSensitiveEncryptTui(context: Context) {
   const options = context.options
   if (options.enabled === false || options.encrypt === false || options.encrypt === null) return
   context.keymap.layer(() => ({
+    mode: "global",
     commands: [{
       id: "sensitive-encrypt.encrypt",
       title: "Encrypt sensitive file",
