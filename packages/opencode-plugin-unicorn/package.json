@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-unicorn",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Personal OpenCode plugin features",
   "type": "module",
   "exports": {
@@ -29,14 +29,14 @@
     "access": "public"
   },
   "dependencies": {
-    "@max10240/opencode-plugin-image-gen": "1.0.14",
-    "@max10240/opencode-plugin-prompt-search": "1.0.14",
-    "@max10240/opencode-plugin-recomended-opencode-config": "1.0.14",
-    "@max10240/opencode-plugin-send-message-across-sessions": "1.0.14",
-    "@max10240/opencode-plugin-sensitive-encrypt": "1.0.14",
-    "@max10240/opencode-plugin-sensitive-protection": "1.0.14",
-    "@max10240/opencode-plugin-session-search": "1.0.14",
-    "@max10240/opencode-plugin-show-img": "1.0.14",
+    "@max10240/opencode-plugin-image-gen": "1.0.15",
+    "@max10240/opencode-plugin-prompt-search": "1.0.15",
+    "@max10240/opencode-plugin-recomended-opencode-config": "1.0.15",
+    "@max10240/opencode-plugin-send-message-across-sessions": "1.0.15",
+    "@max10240/opencode-plugin-sensitive-encrypt": "1.0.15",
+    "@max10240/opencode-plugin-sensitive-protection": "1.0.15",
+    "@max10240/opencode-plugin-session-search": "1.0.15",
+    "@max10240/opencode-plugin-show-img": "1.0.15",
     "@opencode/plugin": "^2.0.9"
   },
   "peerDependencies": {
