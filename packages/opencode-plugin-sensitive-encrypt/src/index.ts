@@ -56,7 +56,8 @@ function syntheticToolContext(): ToolContext {
     messageID: "" as ToolContext["messageID"],
     id: "" as ToolContext["id"],
     progress: async () => {},
-  }
+    signal: new AbortController().signal,
+  } as unknown as ToolContext
 }
 
 function decryptEnvelopeLimit(maxBytes: number) {
