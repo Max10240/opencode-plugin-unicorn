@@ -90,7 +90,7 @@ node research/run-image-gen-auth-parity.mjs
 测试使用本地 mock，不调用收费模型。覆盖认证抓包、variant、生成/编辑、错误不降级、自定义工厂签名、可选预览，
 以及真实 npm 安装包和 Unicorn 集成。调研证据与修复状态见
 [`research/image-gen-auth-parity.md`](../../research/image-gen-auth-parity.md)。
-当前使用 `@opencode/ai >=2.1.1`，已在 OpenCode `v2.0.21` 和 `v2.1.0` 完成完整回归。
+当前使用 `@opencode/ai >=2.2.0`，已在 OpenCode `v2.0.21` 和 `v2.1.0` 完成完整回归。
 
 模型发现数据可参考 [models.dev](https://models.dev/api.json)、[OpenAI models API](https://developers.openai.com/api/reference/resources/models/methods/list)
 和 [OpenRouter](https://openrouter.ai/api/v1/models)。列表可能滞后，或只描述第三方路由；不能单纯按日期排序自动换默认模型，

@@ -40,10 +40,18 @@
 `bun run check` 在 `v2.1.0`、隔离安装的 `v2.0.21` 上分别通过 **238 项、0 失败**（保留原 211 项，新增 27 项测试优化回归），含六包类型检查、
 真实 npm tarball 安装及 TUI/Unicorn 回归。另有 3 项隔离/清理测试；认证抓包入口也在两版重新运行。
 
+2026-10-28 复审补充：
+
+- `@opencode/ai` 升至 `2.2.0`：Promise 客户端改为主入口 `make()`，`Media`/`ImageModel`/`LanguageModel` 改从 `@opencode/ai/effect` 导入；
+  图片请求改用 `aspect`/`resolution`/`providerOptions`。
+- 2.2.0 不再读取响应项的 `mime_type`；兼容响应缺少 `output_format` 时先按字节识别，再回落到请求的 PNG 格式。
+  `openai-image-result.ts` 继续处理 null 元数据和 URL/data URL 结果。
+- `npm run check` 通过，含图片插件 119 项测试与 packaged E2E。
+
 ## 验证范围
 
 - 原始抓包服务：`opencode v2.0.21`；复审同时验证 `v2.1.0`。
-- 原始抓包依赖：`@opencode/plugin 2.0.10`、`@opencode/ai 2.0.15`；当前图片 SDK 为 `2.1.1`，直接声明 `effect ^4.0.1` 用于兼容响应的 Schema 验证。
+- 原始抓包依赖：`@opencode/plugin 2.0.10`、`@opencode/ai 2.0.15`；当前图片 SDK 为 `2.2.0`，直接声明 `effect ^4.0.1` 用于兼容响应的 Schema 验证。
 - OpenCode 参考源码：`~/daily/opencode`，commit `07501ee86740ae1cef97f1c43819f3b98d783fd6`；引用的源码文件没有工作区改动。
 - 参考源码与已安装 binary 不是同一版本：下表“实测”只承诺上述 binary/SDK；上游实现另以源码和上游单测验证。
 - 所有抓包只发生在隔离 HOME/config/database 和 localhost 服务之间。key、Basic header、HMAC secret 全部为合成测试数据。
