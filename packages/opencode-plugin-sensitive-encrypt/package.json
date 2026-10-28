@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-sensitive-encrypt",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Encrypt and decrypt sensitive temporary files with RSA and AES-GCM",
   "type": "module",
   "exports": {

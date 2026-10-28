@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-sensitive-protection",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Register protected files and redact their contents before they enter model context",
   "type": "module",
   "exports": {
