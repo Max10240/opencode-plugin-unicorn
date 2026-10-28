@@ -84,7 +84,7 @@ export async function createOpenCodeE2E(
   options: {
     readonly featureEnabled?: boolean
     readonly imageGenEnabled?: boolean
-    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "session-search" | "send-message" | "show-img" | "recommended-config" | "sensitive-encrypt"
+    readonly plugin?: "unicorn" | "image-gen" | "prompt-search" | "session-search" | "send-message" | "show-img" | "recommended-config" | "sensitive-encrypt" | "sensitive-protection"
     readonly pluginPackage?: string
     readonly pluginOptions?: Record<string, unknown>
     readonly share?: string

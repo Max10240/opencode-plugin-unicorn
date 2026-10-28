@@ -291,6 +291,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     sessionSearch: path.resolve(import.meta.dir, "../../opencode-plugin-session-search"),
     showImg: path.resolve(import.meta.dir, "../../opencode-plugin-show-img"),
     sensitiveEncrypt: path.resolve(import.meta.dir, "../../opencode-plugin-sensitive-encrypt"),
+    sensitiveProtection: path.resolve(import.meta.dir, "../../opencode-plugin-sensitive-protection"),
     recommendedConfig: path.resolve(import.meta.dir, "../../opencode-plugin-recomended-opencode-config"),
   }
   const nodeModules = path.join(root, "node_modules")
@@ -321,6 +322,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     imageGen: string
     promptSearch: string
     sensitiveEncrypt: string
+    sensitiveProtection: string
   }
 }
 

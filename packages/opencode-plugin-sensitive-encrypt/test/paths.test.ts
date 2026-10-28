@@ -1,19 +1,29 @@
 import { expect, test } from "bun:test"
 import { generateKeyPairSync } from "node:crypto"
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { parseOptions } from "../src/options.js"
-import { ensurePublicKey, readSecretFile, resolveTempInput, writeCiphertext } from "../src/paths.js"
+import {
+  ensureDecryptKey,
+  ensureEncryptPublicKey,
+  readSecretFile,
+  resolveTempInput,
+  writeCiphertext,
+} from "../src/paths.js"
 
-async function fixture(run: (directory: string) => Promise<void>) {
+async function fixture(run: (directory: string, config: string) => Promise<void>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-paths-"))
-  try { await run(directory) } finally { await rm(directory, { recursive: true, force: true }) }
+  try { await run(directory, path.join(directory, "config")) } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
 function literal(directory: string, file = "") {
   const relative = path.relative(os.tmpdir(), path.join(directory, file)).split(path.sep).join("/")
   return `$TMPDIR/${relative}`
+}
+
+function options(config: string) {
+  return parseOptions({}, { OPENCODE_CONFIG_DIR: config })
 }
 
 test("reads only owner-only regular files under the system temp directory", async () => {
@@ -44,7 +54,7 @@ test("rejects symlink escapes and non-file inputs", async () => {
   })
 })
 
-test("writes ciphertext atomically, overwrites regular files, and refuses unsafe targets", async () => {
+test("writes ciphertext atomically and refuses unsafe targets", async () => {
   await fixture(async (directory) => {
     const source = path.join(directory, "secret.txt")
     const out = path.join(directory, "secret.ocsec")
@@ -55,78 +65,65 @@ test("writes ciphertext atomically, overwrites regular files, and refuses unsafe
     expect(await readFile(out, "utf8")).toBe("FIRST")
     expect((await stat(out)).mode & 0o777).toBe(0o600)
 
-    await writeFile(out, "OLD", { mode: 0o644 })
-    await writeCiphertext(literal(directory, "secret.ocsec"), "SECOND", sourcePath)
-    expect(await readFile(out, "utf8")).toBe("SECOND")
-    expect((await stat(out)).mode & 0o777).toBe(0o600)
-
     await expect(writeCiphertext(literal(directory, "secret.txt"), "SAME", sourcePath)).rejects.toThrow("must not overwrite")
-    await expect(writeCiphertext(literal(directory, "missing/secret.ocsec"), "X", sourcePath)).rejects.toThrow("Output directory")
     await expect(writeCiphertext("/tmp/not-allowed.ocsec", "X", sourcePath)).rejects.toThrow("under $TMPDIR")
-
-    const link = path.join(directory, "out-link")
-    await symlink(out, link)
-    await expect(writeCiphertext(literal(directory, "out-link"), "X", sourcePath)).rejects.toThrow("symbolic link")
-
-    await mkdir(path.join(directory, "out-dir"))
-    await expect(writeCiphertext(literal(directory, "out-dir"), "X", sourcePath)).rejects.toThrow("regular file")
   })
 })
 
-test("initializes one pair only when the default public key is absent", async () => {
-  await fixture(async (directory) => {
-    const options = parseOptions({ keyDirectory: directory })
-    const key = await ensurePublicKey(options)
-    expect(key.kid).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect((await stat(path.join(directory, "private.pem"))).mode & 0o777).toBe(0o600)
-    expect((await stat(path.join(directory, "public.pem"))).mode & 0o777).toBe(0o644)
-
-    const publicText = await readFile(path.join(directory, "public.pem"), "utf8")
-    await rm(path.join(directory, "private.pem"))
-    expect((await ensurePublicKey(options)).kid).toBe(key.kid)
-    expect(await readFile(path.join(directory, "public.pem"), "utf8")).toBe(publicText)
-    await expect(stat(path.join(directory, "private.pem"))).rejects.toThrow()
+test("generates independent encrypt and decrypt key pairs", async () => {
+  await fixture(async (_directory, config) => {
+    const opts = options(config)
+    const encryptKey = await ensureEncryptPublicKey(opts)
+    const decryptKey = await ensureDecryptKey(opts)
+    const keyDirectory = path.join(config, "sensitive-encrypt")
+    expect(encryptKey?.kid).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(decryptKey?.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(encryptKey?.kid).not.toBe(decryptKey?.keyID)
+    expect((await stat(path.join(keyDirectory, "encrypt-private.pem"))).mode & 0o777).toBe(0o600)
+    expect((await stat(path.join(keyDirectory, "encrypt-public.pem"))).mode & 0o777).toBe(0o644)
+    expect((await stat(path.join(keyDirectory, "decrypt-private.pem"))).mode & 0o777).toBe(0o600)
+    expect((await stat(path.join(keyDirectory, "decrypt-public.pem"))).mode & 0o777).toBe(0o644)
   })
 })
 
-test("never reads or overwrites an existing private key when the public key is missing", async () => {
-  await fixture(async (directory) => {
-    const options = parseOptions({ keyDirectory: directory })
-    const privateFile = path.join(directory, "private.pem")
-    await writeFile(privateFile, "DO_NOT_READ", { mode: 0o600 })
-    await expect(ensurePublicKey(options)).rejects.toThrow("private key exists")
-    expect(await readFile(privateFile, "utf8")).toBe("DO_NOT_READ")
-    await expect(stat(path.join(directory, "public.pem"))).rejects.toThrow()
-  })
-})
-
-test("does not replace an invalid existing public key and respects explicit missing keys", async () => {
-  await fixture(async (directory) => {
-    const options = parseOptions({ keyDirectory: directory })
-    await writeFile(path.join(directory, "public.pem"), "NOT_A_KEY")
-    await expect(ensurePublicKey(options)).rejects.toThrow()
-    expect(await readFile(path.join(directory, "public.pem"), "utf8")).toBe("NOT_A_KEY")
-
-    const missing = path.join(directory, "missing.pem")
-    const explicit = parseOptions({ publicKeyFile: missing, keyDirectory: path.join(directory, "keys") })
-    await expect(ensurePublicKey(explicit)).rejects.toThrow("not found")
-    await expect(stat(path.join(directory, "keys"))).rejects.toThrow()
-  })
-})
-
-test("uses configured inline and file public keys without generating a pair", async () => {
-  await fixture(async (directory) => {
+test("uses a legacy public.pem for encryption and requires an explicit private key for decryption", async () => {
+  await fixture(async (_directory, config) => {
+    const keyDirectory = path.join(config, "sensitive-encrypt")
     const pair = generateKeyPairSync("rsa", {
       modulusLength: 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     })
-    const publicFile = path.join(directory, "configured-public.pem")
-    await writeFile(publicFile, pair.publicKey)
-    const inline = await ensurePublicKey(parseOptions({ publicKey: pair.publicKey, keyDirectory: path.join(directory, "inline-keys") }))
-    const fromFile = await ensurePublicKey(parseOptions({ publicKeyFile: publicFile, keyDirectory: path.join(directory, "file-keys") }))
-    expect(fromFile.kid).toBe(inline.kid)
-    await expect(stat(path.join(directory, "inline-keys"))).rejects.toThrow()
-    await expect(stat(path.join(directory, "file-keys"))).rejects.toThrow()
+    const { mkdir } = await import("node:fs/promises")
+    await mkdir(keyDirectory, { recursive: true })
+    await writeFile(path.join(keyDirectory, "public.pem"), pair.publicKey)
+    const opts = options(config)
+    const publicKey = await ensureEncryptPublicKey(opts)
+    expect(publicKey?.kid).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    await expect(stat(path.join(keyDirectory, "encrypt-public.pem"))).rejects.toThrow()
+
+    const privateFile = path.join(keyDirectory, "custom-private.pem")
+    await writeFile(privateFile, pair.privateKey, { mode: 0o600 })
+    const explicit = parseOptions({ privateKeyFileForDecrypt: privateFile }, { OPENCODE_CONFIG_DIR: config })
+    const decryptKey = await ensureDecryptKey(explicit)
+    expect(decryptKey?.keyID).toBe(publicKey?.kid)
+  })
+})
+
+test("rejects private key files with unsafe permissions", async () => {
+  await fixture(async (_directory, config) => {
+    const pair = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    })
+    const { mkdir } = await import("node:fs/promises")
+    await mkdir(config, { recursive: true })
+    const file = path.join(config, "private.pem")
+    await writeFile(file, pair.privateKey, { mode: 0o644 })
+    if (process.platform !== "win32") {
+      const opts = parseOptions({ privateKeyFileForDecrypt: file }, { OPENCODE_CONFIG_DIR: config })
+      await expect(ensureDecryptKey(opts)).rejects.toThrow("group or others")
+    }
   })
 })

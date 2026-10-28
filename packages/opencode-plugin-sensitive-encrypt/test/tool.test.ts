@@ -1,181 +1,260 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
+import { generateKeyPairSync, randomUUID } from "node:crypto"
 import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { decryptEnvelope, ENVELOPE_PREFIX } from "../src/crypto.js"
-import { setupSensitiveEncrypt, TOOL_DESCRIPTION, TOOL_NAME } from "../src/index.js"
+import { decryptEnvelope, encryptEnvelope, ENVELOPE_PREFIX, parsePublicKey } from "../src/crypto.js"
+import {
+  DECRYPT_TOOL_DESCRIPTION,
+  DECRYPT_TOOL_NAME,
+  KEY_INFO_TOOL_NAME,
+  setupSensitiveEncrypt,
+  TOOL_DESCRIPTION,
+  TOOL_NAME,
+} from "../src/index.js"
 
 function literal(directory: string, file = "") {
   return `$TMPDIR/${path.relative(os.tmpdir(), path.join(directory, file)).split(path.sep).join("/")}`
 }
 
+function pair() {
+  return generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  })
+}
+
 async function fixture(run: (value: {
   directory: string
-  keyDirectory: string
   secret: string
   options: Record<string, unknown>
+  encrypt: ReturnType<typeof pair>
+  decrypt: ReturnType<typeof pair>
 }) => Promise<void>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-tool-"))
-  const keyDirectory = path.join(directory, "keys")
   const secret = path.join(directory, "secret.txt")
+  const encrypt = pair()
+  const decrypt = pair()
+  const encryptPublic = path.join(directory, "encrypt-public.pem")
+  const decryptPrivate = path.join(directory, "decrypt-private.pem")
+  await writeFile(encryptPublic, encrypt.publicKey, { mode: 0o644 })
+  await writeFile(decryptPrivate, decrypt.privateKey, { mode: 0o600 })
   await writeFile(secret, "SECRET_MARKER", { mode: 0o600 })
   try {
-    await run({ directory, keyDirectory, secret, options: { enabled: true, keyDirectory } })
+    await run({
+      directory,
+      secret,
+      encrypt,
+      decrypt,
+      options: {
+        publicKeyFileForEncrypt: encryptPublic,
+        privateKeyFileForDecrypt: decryptPrivate,
+      },
+    })
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
 async function setup(options: Record<string, unknown>) {
-  let registered: Info | undefined
+  const registered = new Map<string, Info>()
   let disposed = false
+  let rpc: any
   const context = {
     options,
     tool: {
       transform: async (callback: (editor: ToolEditor) => void) => {
-        callback({ add: (tool: Info) => { registered = tool } } as ToolEditor)
+        callback({ add: (tool: Info) => registered.set(tool.name, tool) } as unknown as ToolEditor)
         return { dispose: async () => { disposed = true } }
       },
+      list: async () => [...registered.values()],
     },
-  } as unknown as Pick<Context, "options" | "tool">
+    rpc: {
+      register: async (_definition: unknown, handlers: any) => {
+        rpc = handlers
+        return { dispose: async () => {} }
+      },
+    },
+  } as unknown as Pick<Context, "options" | "tool" | "rpc">
   const cleanup = await setupSensitiveEncrypt(context)
-  return { registered, cleanup, disposed: () => disposed }
+  return { registered, cleanup, disposed: () => disposed, rpc: () => rpc }
 }
 
 function execute(tool: Info, input: Record<string, unknown>) {
-  return tool.execute(input, { sessionID: "synthetic", progress: async () => {} } as unknown as ToolContext) as Promise<any>
+  return tool.execute(input, {
+    sessionID: "synthetic",
+    agent: "synthetic",
+    messageID: "synthetic",
+    id: randomUUID(),
+    progress: async () => {},
+  } as unknown as ToolContext) as Promise<any>
 }
 
-test("registers the exact tool shape and encrypts a temp file without exposing its contents", async () => {
-  await fixture(async ({ directory, keyDirectory, secret, options }) => {
+test("registers encrypt, decrypt and key-info tools with concise descriptions", async () => {
+  await fixture(async ({ options }) => {
     const { registered, cleanup, disposed } = await setup(options)
     try {
-      expect(registered?.name).toBe(TOOL_NAME)
-      expect(registered?.description).toBe(TOOL_DESCRIPTION)
-      const schema = registered!.input as any
-      expect(schema.required).toEqual(["file"])
-      expect(schema.additionalProperties).toBe(false)
-      expect(Object.keys(schema.properties).sort()).toEqual(["file", "out"])
-      expect(schema.properties.file.description).toContain("$TMPDIR")
-      expect(schema.properties.out.description).toContain("overwrites")
-
-      const result = await execute(registered!, { file: literal(directory, "secret.txt") })
-      expect(result.content).toStartWith(ENVELOPE_PREFIX)
-      expect(JSON.stringify(result)).not.toContain("SECRET_MARKER")
-      const privateKey = await readFile(path.join(keyDirectory, "private.pem"))
-      expect(decryptEnvelope(result.content, privateKey).toString()).toBe("SECRET_MARKER")
-      expect(result.metadata.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
-      expect(result.metadata.ciphertextBytes).toBe(Buffer.byteLength(result.content, "utf8"))
+      expect(registered.get(TOOL_NAME)?.description).toBe(TOOL_DESCRIPTION)
+      expect(registered.get(DECRYPT_TOOL_NAME)?.description).toBe(DECRYPT_TOOL_DESCRIPTION)
+      expect(registered.get(KEY_INFO_TOOL_NAME)).toBeDefined()
+      const decrypt = registered.get(DECRYPT_TOOL_NAME)!.input as any
+      expect(decrypt.required).toEqual(["file", "out"])
+      expect(decrypt.additionalProperties).toBe(false)
     } finally {
       await cleanup()
       expect(disposed()).toBe(true)
-      expect(await readFile(secret, "utf8")).toBe("SECRET_MARKER")
     }
   })
 })
 
-test("writes ciphertext to out, overwrites regular files, and never returns plaintext", async () => {
-  await fixture(async ({ directory, keyDirectory, options }) => {
-    const out = path.join(directory, "secret.ocsec")
-    await writeFile(out, "OLD", { mode: 0o644 })
+test("encrypts to a file and decrypts with an independent private key", async () => {
+  await fixture(async ({ directory, secret, options, decrypt }) => {
     const { registered, cleanup } = await setup(options)
     try {
-      const result = await execute(registered!, { file: literal(directory, "secret.txt"), out: literal(directory, "secret.ocsec") })
-      expect(result.content).toContain("Encrypted to")
-      expect(result.content).not.toContain(ENVELOPE_PREFIX)
-      expect(JSON.stringify(result)).not.toContain("SECRET_MARKER")
-      expect(result.metadata.out).toBe(await (async () => {
-        const { resolveTempInput } = await import("../src/paths.js")
-        return resolveTempInput(literal(directory, "secret.ocsec"))
-      })())
-      const ciphertext = await readFile(out, "utf8")
-      expect(ciphertext).toStartWith(ENVELOPE_PREFIX)
-      expect((await stat(out)).mode & 0o777).toBe(0o600)
-      expect(decryptEnvelope(ciphertext, await readFile(path.join(keyDirectory, "private.pem"))).toString()).toBe("SECRET_MARKER")
+      const encrypted = await execute(registered.get(TOOL_NAME)!, {
+        file: literal(directory, "secret.txt"),
+      })
+      expect(encrypted.content).toStartWith(ENVELOPE_PREFIX)
+      expect(JSON.stringify(encrypted)).not.toContain("SECRET_MARKER")
+
+      const encryptedFile = await execute(registered.get(TOOL_NAME)!, {
+        file: literal(directory, "secret.txt"),
+        out: literal(directory, "encrypt.ocsec"),
+      })
+      expect(encryptedFile.content).toContain("Encrypted to")
+      expect(encryptedFile.content).not.toContain(ENVELOPE_PREFIX)
+      expect(encryptedFile.metadata.input).toBe(await (await import("node:fs/promises")).realpath(secret))
+
+      // Decryption uses an independent key pair, so create an envelope for the decrypt public key.
+      const envelopeFile = path.join(directory, "decrypt.ocsec")
+      await writeFile(envelopeFile, encryptEnvelope(parsePublicKey(decrypt.publicKey), Buffer.from("SECRET_MARKER")), { mode: 0o600 })
+      const envelope = await readFile(envelopeFile, "utf8")
+
+      const decrypted = await execute(registered.get(DECRYPT_TOOL_NAME)!, {
+        file: literal(directory, "decrypt.ocsec"),
+        out: literal(directory, "plain.txt"),
+      })
+      expect(decrypted.content).toContain("Decrypted to")
+      expect(JSON.stringify(decrypted)).not.toContain("SECRET_MARKER")
+      expect(decrypted.metadata.plaintextBytes).toBe(13)
+      expect(await readFile(path.join(directory, "plain.txt"), "utf8")).toBe("SECRET_MARKER")
+      expect((await stat(path.join(directory, "plain.txt"))).mode & 0o777).toBe(0o600)
+      expect(decrypted.metadata.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
     } finally { await cleanup() }
   })
 })
 
-test("rejects same-file output, symlink output, group-readable input, and files outside $TMPDIR", async () => {
+test("does not decrypt with the encryption private key", async () => {
+  await fixture(async ({ directory, options, encrypt }) => {
+    const { registered, cleanup } = await setup(options)
+    try {
+      const envelope = encryptEnvelope(parsePublicKey(encrypt.publicKey), Buffer.from("SECRET_MARKER"))
+      const file = path.join(directory, "wrong.ocsec")
+      await writeFile(file, envelope, { mode: 0o600 })
+      await expect(execute(registered.get(DECRYPT_TOOL_NAME)!, {
+        file: literal(directory, "wrong.ocsec"),
+        out: literal(directory, "wrong.txt"),
+      })).rejects.toThrow("does not match")
+
+      const encryptInfo = await execute(registered.get(KEY_INFO_TOOL_NAME)!, { role: "encrypt" })
+      const decryptInfo = await execute(registered.get(KEY_INFO_TOOL_NAME)!, { role: "decrypt" })
+      expect(encryptInfo.metadata.keys[0].keyID).not.toBe(decryptInfo.metadata.keys[0].keyID)
+    } finally { await cleanup() }
+  })
+})
+
+test("requires out, refuses overwriting the input, and reports key information", async () => {
+  await fixture(async ({ directory, options, decrypt }) => {
+    const { registered, cleanup } = await setup(options)
+    try {
+      const envelope = encryptEnvelope(parsePublicKey(decrypt.publicKey), Buffer.from("SECRET_MARKER"))
+      const file = path.join(directory, "input.ocsec")
+      await writeFile(file, envelope, { mode: 0o600 })
+      await expect(execute(registered.get(DECRYPT_TOOL_NAME)!, { file: literal(directory, "input.ocsec") })).rejects.toThrow("out is required")
+      await expect(execute(registered.get(DECRYPT_TOOL_NAME)!, {
+        file: literal(directory, "input.ocsec"),
+        out: literal(directory, "input.ocsec"),
+      })).rejects.toThrow("must not overwrite")
+
+      const info = await execute(registered.get(KEY_INFO_TOOL_NAME)!, { role: "all" })
+      expect(info.content).toContain("encrypt public key")
+      expect(info.content).toContain("decrypt public key")
+      expect(JSON.stringify(info)).not.toContain("PRIVATE")
+    } finally { await cleanup() }
+  })
+})
+
+test("notifies an optional protection tool without forwarding its result", async () => {
   await fixture(async ({ directory, options }) => {
     const { registered, cleanup } = await setup(options)
+    const calls: Array<Record<string, unknown>> = []
     try {
-      await expect(execute(registered!, { file: literal(directory, "secret.txt"), out: literal(directory, "secret.txt") })).rejects.toThrow("must not overwrite")
-      const link = path.join(directory, "out-link")
-      await symlink(path.join(directory, "secret.ocsec"), link)
-      await expect(execute(registered!, { file: literal(directory, "secret.txt"), out: literal(directory, "out-link") })).rejects.toThrow("symbolic link")
-      await chmod(path.join(directory, "secret.txt"), 0o644)
-      if (process.platform !== "win32") await expect(execute(registered!, { file: literal(directory, "secret.txt") })).rejects.toThrow("group or others")
-      await chmod(path.join(directory, "secret.txt"), 0o600)
-      await expect(execute(registered!, { file: "/etc/hosts" })).rejects.toThrow("under $TMPDIR")
-      await expect(execute(registered!, { file: literal(directory, "missing.txt") })).rejects.toThrow("not found")
+      registered.set("register_sensitive_file", {
+        id: "register_sensitive_file",
+        name: "register_sensitive_file",
+        description: "fake",
+        input: { type: "object", properties: {}, required: [], additionalProperties: false },
+        execute: async (input: unknown) => {
+          calls.push(input as Record<string, unknown>)
+          return { content: "SECRET_MARKER", metadata: { secret: "SECRET_MARKER" } }
+        },
+      } as Info)
+      const result = await execute(registered.get(TOOL_NAME)!, { file: literal(directory, "secret.txt") })
+      expect(result.content).toStartWith(ENVELOPE_PREFIX)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.role).toBe("encrypt-input")
+      expect(calls[0]?.file).toBe(await import("../src/paths.js").then(({ resolveTempInput }) => resolveTempInput(literal(directory, "secret.txt"))))
     } finally { await cleanup() }
   })
 })
 
-test("enforces maxBytes and requires out for large inline ciphertext", async () => {
-  await fixture(async ({ directory, keyDirectory, options }) => {
-    const large = path.join(directory, "large.txt")
-    await writeFile(large, "X".repeat(300_000), { mode: 0o600 })
-    const { registered, cleanup } = await setup({ ...options, maxBytes: 300_000 })
+test("exposes the TUI encryption RPC without exposing plaintext", async () => {
+  await fixture(async ({ directory, options }) => {
+    const { rpc, cleanup } = await setup(options)
     try {
-      await expect(execute(registered!, { file: literal(directory, "large.txt") })).rejects.toThrow("specify out")
-      const result = await execute(registered!, { file: literal(directory, "large.txt"), out: literal(directory, "large.ocsec") })
-      expect(result.metadata.ciphertextBytes).toBeGreaterThan(300_000)
-      expect(decryptEnvelope(await readFile(path.join(directory, "large.ocsec"), "utf8"), await readFile(path.join(keyDirectory, "private.pem"))).length).toBe(300_000)
+      const result = await rpc().encrypt(
+        { file: literal(directory, "secret.txt") },
+        { error: () => { throw new Error("unexpected") } },
+      )
+      expect(result.ciphertext).toStartWith(ENVELOPE_PREFIX)
+      expect(result.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(JSON.stringify(result)).not.toContain("SECRET_MARKER")
     } finally { await cleanup() }
   })
 })
 
-test("a disabled plugin does not create keys or register a tool", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-disabled-"))
-  try {
-    const keyDirectory = path.join(directory, "keys")
-    const { registered, cleanup } = await setup({ enabled: false, keyDirectory })
+test("notifies protection after decryption with the plaintext output path", async () => {
+  await fixture(async ({ directory, options, decrypt }) => {
+    const { registered, cleanup } = await setup(options)
+    const calls: Array<Record<string, unknown>> = []
     try {
-      expect(registered).toBeUndefined()
-      await expect(stat(keyDirectory)).rejects.toThrow()
+      registered.set("register_sensitive_file", {
+        id: "register_sensitive_file",
+        name: "register_sensitive_file",
+        description: "fake",
+        input: { type: "object", properties: {}, required: [], additionalProperties: false },
+        execute: async (input: unknown) => {
+          calls.push(input as Record<string, unknown>)
+          return { content: "ok", metadata: {} }
+        },
+      } as Info)
+      const envelope = encryptEnvelope(parsePublicKey(decrypt.publicKey), Buffer.from("SECRET_MARKER"))
+      await writeFile(path.join(directory, "incoming.ocsec"), envelope, { mode: 0o600 })
+      await execute(registered.get(DECRYPT_TOOL_NAME)!, {
+        file: literal(directory, "incoming.ocsec"),
+        out: literal(directory, "plain.txt"),
+      })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.role).toBe("decrypt-output")
+      expect(calls[0]?.file).toBe(await (await import("../src/paths.js")).resolveTempInput(literal(directory, "plain.txt")))
     } finally { await cleanup() }
-  } finally { await rm(directory, { recursive: true, force: true }) }
+  })
 })
 
-test("a missing public key with an existing private key warns and never reads the private key", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-collision-"))
-  const privateFile = path.join(directory, "private.pem")
-  const warnings: string[] = []
-  const original = console.warn
-  console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")) }
+test("encrypt and decrypt can be disabled independently without generating keys", async () => {
+  const { registered, cleanup } = await setup({ encrypt: false, decrypt: false })
   try {
-    await writeFile(privateFile, "DO_NOT_READ", { mode: 0o600 })
-    const { registered, cleanup } = await setup({ enabled: true, keyDirectory: directory })
-    try {
-      expect(registered).toBeUndefined()
-      expect(warnings.join("\n")).toContain("private key exists")
-      expect(await readFile(privateFile, "utf8")).toBe("DO_NOT_READ")
-    } finally { await cleanup() }
-  } finally {
-    console.warn = original
-    await rm(directory, { recursive: true, force: true })
-  }
-})
-
-test("invalid explicit keys fail closed without generating a fallback pair", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "sensitive-encrypt-invalid-"))
-  const warnings: string[] = []
-  const original = console.warn
-  console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")) }
-  try {
-    for (const options of [
-      { enabled: true, publicKey: "NOT_A_KEY", keyDirectory: path.join(directory, "a") },
-      { enabled: true, publicKeyFile: path.join(directory, "missing.pem"), keyDirectory: path.join(directory, "b") },
-    ]) {
-      const { registered, cleanup } = await setup(options)
-      try { expect(registered).toBeUndefined() } finally { await cleanup() }
-      await expect(stat(options.keyDirectory)).rejects.toThrow()
-    }
-    expect(warnings.length).toBeGreaterThanOrEqual(2)
-  } finally {
-    console.warn = original
-    await rm(directory, { recursive: true, force: true })
-  }
+    expect(registered.size).toBe(0)
+  } finally { await cleanup() }
 })

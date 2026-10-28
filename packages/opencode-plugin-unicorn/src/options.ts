@@ -5,6 +5,7 @@ export interface UnicornOptions {
   readonly showImg?: Readonly<Record<string, unknown>>
   readonly promptSearch?: Readonly<Record<string, unknown>>
   readonly sensitiveEncrypt?: Readonly<Record<string, unknown>>
+  readonly sensitiveProtection?: Readonly<Record<string, unknown>>
   readonly sessionSearch?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
@@ -13,6 +14,7 @@ export interface UnicornOptions {
     readonly showImg?: boolean
     readonly promptSearch?: boolean
     readonly sensitiveEncrypt?: boolean
+    readonly sensitiveProtection?: boolean
     readonly sessionSearch?: boolean
   }
 }
@@ -49,6 +51,11 @@ export function promptSearchFeatureEnabled(options: Readonly<Record<string, unkn
 export function sensitiveEncryptFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.sensitiveEncrypt !== false
+}
+
+export function sensitiveProtectionFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return isRecord(features) && features.sensitiveProtection === true
 }
 
 export function sessionSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

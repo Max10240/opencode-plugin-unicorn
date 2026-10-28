@@ -23,6 +23,7 @@ const packages = [
   { directory: "opencode-plugin-session-search", id: "max10240.session-search", kind: "session-search" },
   { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
   { directory: "opencode-plugin-sensitive-encrypt", id: "max10240.sensitive-encrypt", kind: "sensitive-encrypt" },
+  { directory: "opencode-plugin-sensitive-protection", id: "max10240.sensitive-protection", kind: "sensitive-protection" },
   { directory: "opencode-plugin-recomended-opencode-config", id: "max10240.recomended-opencode-config", kind: "recommended-config" },
   { directory: "opencode-plugin-unicorn", id: "max10240.unicorn", kind: "unicorn" },
 ] as const
@@ -32,6 +33,9 @@ const toolDescriptions = {
   show_img: "Show a server-side image to the user without adding it to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB.",
   send_message_across_sessions:
     "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents.",
+  decrypt_sensitive:
+    "Decrypt a single ocsec1 file under $TMPDIR into a new file with the configured private key only when the user explicitly requests it. Never output plaintext or key material; always write the result to out and report only its path. Keep out under $TMPDIR.",
+  sensitive_key_info: "Show the configured public key and fingerprint without exposing private key material.",
   list_online_sessions: "List other online OpenCode sessions across working directories.",
 }
 
@@ -52,7 +56,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(files.every((file) => file === "package.json" || file === "README.md" || file.endsWith(".js"))).toBe(true)
       expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
       if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection") {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
@@ -81,7 +85,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         expect(JSON.parse(output).rules.every((rule: Record<string, unknown>) => typeof rule.title === "string" && !("depth" in rule))).toBe(true)
         expect(JSON.parse(output).commands).toEqual(recommendedCommands)
       }
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection") {
         expect(importWithNode(`@max10240/${entry.directory}/tui`, install)).toBe(`${entry.id}.tui`)
       }
       if (entry.kind === "send-message") {

@@ -12,11 +12,27 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises"
-import { randomUUID, generateKeyPairSync } from "node:crypto"
+import { randomUUID, createPrivateKey, createPublicKey, generateKeyPairSync } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
-import { parsePublicKey, type ParsedPublicKey } from "./crypto.js"
+import { parsePublicKey, publicKeyFingerprint, type ParsedPublicKey } from "./crypto.js"
 import type { ResolvedSensitiveEncryptOptions } from "./options.js"
+
+export const LEGACY_PUBLIC_KEY = "public.pem"
+export const LEGACY_PRIVATE_KEY = "private.pem"
+export const ENCRYPT_PUBLIC_KEY = "encrypt-public.pem"
+export const ENCRYPT_PRIVATE_KEY = "encrypt-private.pem"
+export const DECRYPT_PUBLIC_KEY = "decrypt-public.pem"
+export const DECRYPT_PRIVATE_KEY = "decrypt-private.pem"
+export const MAX_PRIVATE_KEY_BYTES = 32 * 1024
+
+export type DecryptKey = {
+  readonly privateKey: string
+  readonly path: string
+  readonly keyID: string
+  readonly publicKey?: string
+  readonly publicKeyPath?: string
+}
 
 function expandTempLiteral(value: string) {
   const root = path.resolve(os.tmpdir())
@@ -76,7 +92,15 @@ export async function readSecretFile(value: string, maxBytes: number) {
   return { data: await readFile(resolved), path: resolved }
 }
 
-export async function writeCiphertext(value: string, ciphertext: string, sourcePath: string) {
+export async function readCiphertextFile(value: string, maxBytes: number) {
+  const resolved = await resolveTempInput(value)
+  const info = await stat(resolved)
+  if (!info.isFile()) throw new Error("file must be a regular file")
+  if (info.size > maxBytes) throw new Error(`ciphertext file exceeds the ${maxBytes} byte limit`)
+  return { data: await readFile(resolved), path: resolved }
+}
+
+async function writeSensitiveFile(value: string, data: string | Buffer, sourcePath: string) {
   const target = await resolveTempOutput(value)
   if (target === sourcePath) throw new Error("out must not overwrite the input file")
   const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
@@ -89,7 +113,7 @@ export async function writeCiphertext(value: string, ciphertext: string, sourceP
   const directory = path.dirname(target)
   const temporary = path.join(directory, `.${path.basename(target)}.${randomUUID()}.tmp`)
   try {
-    await writeFile(temporary, ciphertext, { flag: "wx", mode: 0o600 })
+    await writeFile(temporary, data, { flag: "wx", mode: 0o600 })
     await chmod(temporary, 0o600)
     await rename(temporary, target)
     return target
@@ -98,6 +122,14 @@ export async function writeCiphertext(value: string, ciphertext: string, sourceP
       if (error.code !== "ENOENT") throw error
     })
   }
+}
+
+export function writeCiphertext(value: string, ciphertext: string, sourcePath: string) {
+  return writeSensitiveFile(value, ciphertext, sourcePath)
+}
+
+export function writePlaintext(value: string, plaintext: Buffer, sourcePath: string) {
+  return writeSensitiveFile(value, plaintext, sourcePath)
 }
 
 async function writeTemp(directory: string, content: string, mode: number) {
@@ -120,9 +152,28 @@ async function publishExclusive(temporary: string, target: string) {
   }
 }
 
-async function initializeKeyPair(directory: string): Promise<ParsedPublicKey> {
+async function ensureDirectory(directory: string) {
   await mkdir(directory, { recursive: true, mode: 0o700 })
   if (!(await stat(directory)).isDirectory()) throw new Error("Key directory is not a directory")
+}
+
+async function readIfExists(file: string) {
+  return readFile(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+}
+
+async function initializePair(directory: string, privateName: string, publicName: string) {
+  await ensureDirectory(directory)
+  const privatePath = path.join(directory, privateName)
+  const publicPath = path.join(directory, publicName)
+
+  const existingPublic = await readIfExists(publicPath)
+  if (existingPublic) return { publicKey: existingPublic.toString("utf8"), privatePath, publicPath }
+
+  const existingPrivate = await readIfExists(privatePath)
+  if (existingPrivate) throw new Error(`A private key exists but ${publicName} is missing; refusing to overwrite it`)
 
   const pair = generateKeyPairSync("rsa", {
     modulusLength: 3072,
@@ -130,17 +181,10 @@ async function initializeKeyPair(directory: string): Promise<ParsedPublicKey> {
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   })
-  const privatePath = path.join(directory, "private.pem")
-  const publicPath = path.join(directory, "public.pem")
 
   const privateTemp = await writeTemp(directory, pair.privateKey, 0o600)
   try {
     await publishExclusive(privateTemp, privatePath)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error("A private key exists but public.pem is missing; restore public.pem or move the private key")
-    }
-    throw error
   } finally {
     await unlink(privateTemp).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error
@@ -151,9 +195,8 @@ async function initializeKeyPair(directory: string): Promise<ParsedPublicKey> {
   try {
     await publishExclusive(publicTemp, publicPath)
   } catch (error) {
-    await unlink(privatePath).catch(() => {})
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      return parsePublicKey(await readFile(publicPath, "utf8"))
+      return { publicKey: (await readFile(publicPath)).toString("utf8"), privatePath, publicPath }
     }
     throw error
   } finally {
@@ -162,27 +205,78 @@ async function initializeKeyPair(directory: string): Promise<ParsedPublicKey> {
     })
   }
 
+  return { publicKey: pair.publicKey, privatePath, publicPath }
+}
+
+export async function ensureEncryptPublicKey(options: ResolvedSensitiveEncryptOptions): Promise<ParsedPublicKey | undefined> {
+  if (!options.encrypt) return undefined
+  if (options.publicKey !== undefined) return parsePublicKey(options.publicKey)
+  if (options.publicKeyFile !== undefined) {
+    const text = await readIfExists(options.publicKeyFile)
+    if (text === undefined) throw new Error(`Public key file not found: ${options.publicKeyFile}`)
+    return parsePublicKey(text.toString("utf8"))
+  }
+
+  const legacy = path.join(options.keyDirectory, LEGACY_PUBLIC_KEY)
+  const legacyText = await readIfExists(legacy)
+  if (legacyText) return parsePublicKey(legacyText.toString("utf8"))
+  const legacyPrivate = await readIfExists(path.join(options.keyDirectory, LEGACY_PRIVATE_KEY))
+  if (legacyPrivate) throw new Error("A private key exists but public.pem is missing; refusing to generate a new key pair")
+
+  const pair = await initializePair(options.keyDirectory, ENCRYPT_PRIVATE_KEY, ENCRYPT_PUBLIC_KEY)
   return parsePublicKey(pair.publicKey)
 }
 
-export async function ensurePublicKey(options: ResolvedSensitiveEncryptOptions): Promise<ParsedPublicKey> {
-  if (options.publicKey !== undefined) return parsePublicKey(options.publicKey)
-  if (options.publicKeyFile !== undefined) {
-    try {
-      return parsePublicKey(await readFile(options.publicKeyFile, "utf8"))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new Error(`Public key file not found: ${options.publicKeyFile}`)
-      }
-      throw error
-    }
+async function readPrivateKeyFile(file: string) {
+  const info = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new Error(`Private key file not found: ${file}`)
+    throw error
+  })
+  if (info.isSymbolicLink()) throw new Error("Private key file must not be a symbolic link")
+  if (!info.isFile()) throw new Error("Private key file must be a regular file")
+  if (info.size > MAX_PRIVATE_KEY_BYTES) throw new Error("Private key file is too large")
+  if (process.platform !== "win32" && (info.mode & 0o077) !== 0) {
+    throw new Error("Private key file must not be readable by group or others; use chmod 600")
+  }
+  const value = await readFile(file)
+  let key
+  try {
+    key = createPrivateKey(value)
+  } catch {
+    throw new Error("Private key file is not a valid PEM or DER private key")
+  }
+  if (key.asymmetricKeyType !== "rsa") throw new Error("Private key must be RSA")
+  const bits = key.asymmetricKeyDetails?.modulusLength ?? 0
+  if (bits < 2048 || bits > 8192) throw new Error("RSA private key must be between 2048 and 8192 bits")
+  const publicKey = createPublicKey(key).export({ type: "spki", format: "pem" }).toString()
+  return {
+    privateKey: value.toString("utf8"),
+    keyID: publicKeyFingerprint(createPublicKey(key)),
+    publicKey,
+  }
+}
+
+export async function ensureDecryptKey(options: ResolvedSensitiveEncryptOptions): Promise<DecryptKey | undefined> {
+  if (!options.decrypt) return undefined
+  if (options.privateKeyFile !== undefined) {
+    const loaded = await readPrivateKeyFile(options.privateKeyFile)
+    return { ...loaded, path: options.privateKeyFile }
   }
 
-  const publicPath = path.join(options.keyDirectory, "public.pem")
-  try {
-    return parsePublicKey(await readFile(publicPath, "utf8"))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  const privatePath = path.join(options.keyDirectory, DECRYPT_PRIVATE_KEY)
+  const publicPath = path.join(options.keyDirectory, DECRYPT_PUBLIC_KEY)
+  const existing = await readIfExists(privatePath)
+  if (existing) {
+    const loaded = await readPrivateKeyFile(privatePath)
+    return { ...loaded, path: privatePath, publicKeyPath: publicPath }
   }
-  return initializeKeyPair(options.keyDirectory)
+
+  const pair = await initializePair(options.keyDirectory, DECRYPT_PRIVATE_KEY, DECRYPT_PUBLIC_KEY)
+  const loaded = await readPrivateKeyFile(pair.privatePath)
+  return { ...loaded, path: pair.privatePath, publicKeyPath: pair.publicPath }
+}
+
+export async function readDecryptKey(file: string): Promise<DecryptKey> {
+  const loaded = await readPrivateKeyFile(file)
+  return { ...loaded, path: file }
 }

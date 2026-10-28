@@ -14,6 +14,7 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
           showImg: { features: { showImg: nested } },
         },
         ui: { slot: () => { slots++; return () => { slots-- } } },
+        keymap: { layer: () => {} },
       } as unknown as Context
       const cleanup = await unicorn.setup(context)
       expect(slots).toBe(Number(feature && nested))
