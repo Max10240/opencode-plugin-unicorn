@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@max10240/opencode-plugin-image-gen": "1.0.17",
+    "@max10240/opencode-plugin-notepad": "1.0.17",
     "@max10240/opencode-plugin-prompt-search": "1.0.17",
     "@max10240/opencode-plugin-recomended-opencode-config": "1.0.17",
     "@max10240/opencode-plugin-send-message-across-sessions": "1.0.17",

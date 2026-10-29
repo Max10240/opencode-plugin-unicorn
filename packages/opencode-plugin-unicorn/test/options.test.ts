@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, imageGenFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, imageGenFeatureEnabled, notepadFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -14,6 +14,9 @@ test("session search is independently enabled and never disables prompt search o
   expect(sessionSearchFeatureEnabled({ features: { promptSearch: false, imageGen: false } })).toBe(true)
   expect(promptSearchFeatureEnabled({ features: { sessionSearch: false } })).toBe(true)
   expect(showImgFeatureEnabled({ features: { sessionSearch: false } })).toBe(true)
+  expect(notepadFeatureEnabled({})).toBe(true)
+  expect(notepadFeatureEnabled({ features: { notepad: false } })).toBe(false)
+  expect(notepadFeatureEnabled({ features: { notepad: true } })).toBe(true)
 })
 
 test("sensitive encryption is enabled by default and can be disabled independently", () => {
@@ -41,7 +44,7 @@ test("recommended config's feature gate does not rewrite its nested enabled opti
 })
 
 test("every child receives exactly its own options, including unknown nested fields", () => {
-  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "showImg", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch"]
+  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch"]
   const options = Object.freeze({
     features: Object.freeze({ imageGen: false }), model: "legacy-model", keybind: "legacy-key", maxPrompts: 99, sessionSearchKeybind: "legacy-search-key",
     ...Object.fromEntries(names.map((name) => [name, Object.freeze({ marker: name, future: { values: [1, 2] } })])),
@@ -82,11 +85,11 @@ test("scoping options preserves live host getters and does not change sibling co
 
 test("feature gates win over child options and remain independent", () => {
   const options = {
-    features: { imageGen: false, showImg: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false },
+    features: { imageGen: false, showImg: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false, notepad: false },
     recommendedOpencodeConfig: { enabled: true }, imageGen: { enabled: true }, sessionSearch: { keybind: "f11" },
   }
   expect(recommendedConfigFeatureOption(options)).toBe(false)
-  for (const enabled of [imageGenFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled]) {
+  for (const enabled of [imageGenFeatureEnabled, notepadFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled]) {
     expect(enabled(options)).toBe(false)
     expect(enabled({})).toBe(true)
   }

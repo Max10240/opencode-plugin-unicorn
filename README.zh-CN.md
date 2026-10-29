@@ -11,6 +11,7 @@
 - [`@max10240/opencode-plugin-prompt-search`](./packages/opencode-plugin-prompt-search/README.zh-CN.md)：TUI 跨 session prompt reverse-search 插件。
 - [`@max10240/opencode-plugin-session-search`](./packages/opencode-plugin-session-search/README.zh-CN.md)：搜索当前 session 的用户/agent 对话，回车自动滚动定位，包含已保存的压缩前历史。
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen/README.zh-CN.md)：通过标准 `/images/*` endpoint 生成或编辑图片。
+- [`@max10240/opencode-plugin-notepad`](./packages/opencode-plugin-notepad/README.zh-CN.md)：不打断当前对话，按文件夹或全局记录和管理笔记。
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img/README.zh-CN.md)：通过 ID 和 UI 专用 RPC 预览 server 图片，不将图片内容加入模型上下文。
 - [`@max10240/opencode-plugin-sensitive-encrypt`](./packages/opencode-plugin-sensitive-encrypt/README.zh-CN.md)：用配置的公钥加密、私钥解密 `$TMPDIR` 下的敏感文件。
 - [`@max10240/opencode-plugin-sensitive-protection`](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md)：登记保护文件，并在读取或工具输出进入模型上下文前阻断或脱敏。

@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import { setupSendMessageAcrossSessions } from "@max10240/opencode-plugin-send-message-across-sessions/setup"
 import { setupImageGen } from "@max10240/opencode-plugin-image-gen"
+import { setupNotepad } from "@max10240/opencode-plugin-notepad"
 import { setupShowImg } from "@max10240/opencode-plugin-show-img"
 import { setupSensitiveEncrypt } from "@max10240/opencode-plugin-sensitive-encrypt"
 import { setupSensitiveProtection } from "@max10240/opencode-plugin-sensitive-protection"
@@ -10,6 +11,7 @@ import {
   childContext,
   recommendedConfigFeatureOption,
   imageGenFeatureEnabled,
+  notepadFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
   sensitiveEncryptFeatureEnabled,
   sensitiveProtectionFeatureEnabled,
@@ -25,6 +27,7 @@ export default Plugin.define({
     if (sendMessageAcrossSessionsFeatureEnabled(ctx.options))
       cleanups.push(await setupSendMessageAcrossSessions(childContext(ctx, "sendMessageAcrossSessions")))
     if (imageGenFeatureEnabled(ctx.options)) cleanups.push(await setupImageGen(childContext(ctx, "imageGen")))
+    if (notepadFeatureEnabled(ctx.options)) cleanups.push(await setupNotepad(childContext(ctx, "notepad")))
     if (showImgFeatureEnabled(ctx.options)) cleanups.push(await setupShowImg(childContext(ctx, "showImg")))
     if (sensitiveProtectionFeatureEnabled(ctx.options))
       cleanups.push(await setupSensitiveProtection(childContext(ctx, "sensitiveProtection")))
@@ -39,6 +42,7 @@ export default Plugin.define({
 export {
   recommendedConfigFeatureOption,
   imageGenFeatureEnabled,
+  notepadFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
   sensitiveEncryptFeatureEnabled,
   sensitiveProtectionFeatureEnabled,

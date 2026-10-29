@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@max10240/opencode-plugin-notepad",
+  "version": "1.0.17",
+  "description": "Capture and manage folder-scoped or global notes in OpenCode",
+  "type": "module",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./tui": "./dist/src/tui.js"
+  },
+  "scripts": {
+    "test": "bun test test/*.test.ts && bun test --conditions=browser --preload @opentui/solid/preload test/tui",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && bun build.mjs",
+    "prepack": "node ../../scripts/sync-recommended-rules.mjs && npm run build"
+  },
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "notepad",
+    "notes"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@opencode/plugin": "^2.0.9"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.2",
+    "@opentui/core": "^0.5.10",
+    "@opentui/solid": "^0.5.10",
+    "solid-js": "^1.9.15"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.10",
+    "@opentui/solid": ">=0.5.10",
+    "solid-js": ">=1.9.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Max10240/opencode-plugin-unicorn.git",
+    "directory": "packages/opencode-plugin-notepad"
+  }
+}

@@ -15,6 +15,7 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
       "features": {
         "sendMessageAcrossSessions": true,
         "imageGen": true,
+        "notepad": true,
         "showImg": true,
         "promptSearch": true,
         "sessionSearch": true,
@@ -46,6 +47,7 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 | `recommendedOpencodeConfig` | 推荐规则与命令，如 `enabled` | `opencode.json(c)` |
 | `sendMessageAcrossSessions` | 跨 session 消息 | `opencode.json(c)` |
 | `imageGen` | 生图，如 `model`、`baseURL`、`integrationID` | `opencode.json(c)` |
+| `notepad` | 按文件夹或全局记录笔记，如 `keybind` | `opencode.json(c)` 和 `cli.json` |
 | `showImg` | 图片预览 | server 和 client 分别配置 |
 | `sensitiveEncrypt` | 敏感文件加密/解密，如 `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` | `opencode.json(c)` |
 | `sensitiveProtection` | 文件保护/脱敏，如 `blockReads`、`maxContentBytes` | `opencode.json(c)` |
@@ -63,6 +65,8 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 `features.sensitiveEncrypt` 默认开启，设为 `false` 可关闭。`sensitiveEncrypt` 提供 `encrypt_sensitive`、`decrypt_sensitive` 和 `sensitive_key_info`；加密、解密各用独立密钥，默认按角色生成密钥对。
 `encrypt` / `decrypt` 可设为 `false` 或 `null` 单独关闭。TUI 可用 `/encrypt-sensitive` 或 keybind 打开一次性加密弹窗，结果不会进入模型上下文。
 `features.sensitiveProtection` 默认关闭；开启后自动登记加解密文件，阻止直接 `read` 保护文件，并把工具输出中的敏感内容替换为 `[REDACTED:PROTECTED]`。
+
+记事本默认开启。按 `ctrl+shift+n`、在命令面板搜索 **Open notepad**，或输入 `/notepad` 打开。新笔记默认归入当前文件夹；按 `g` 可在当前文件夹和全局之间切换。数据存储在同一 server 上，所有 session 共享。
 
 图像模型默认 `openai/gpt-image-2.5-sunburst`。`options.imageGen.model` 可覆盖默认值，单次 `image_gen` 的 `model` 参数
 优先级最高。生成/编辑成功后，`show_img` 可用时自动准备 UI 预览；缺失或失败不影响生图，不向模型返回图片内容。

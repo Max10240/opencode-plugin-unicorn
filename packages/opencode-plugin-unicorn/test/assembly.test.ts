@@ -15,7 +15,7 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
       let rpc = 0
       const context = {
         options: {
-          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: feature, sensitiveEncrypt: false },
+          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: feature, sensitiveEncrypt: false },
           showImg: { features: { showImg: nested } },
         },
         storage: {},
@@ -46,7 +46,7 @@ test("Unicorn exposes sensitive encryption by default and passes through nested 
   const registered = new Map<string, Info>()
   const context = {
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, showImg: false },
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: false },
       sensitiveEncrypt: { publicKeyFileForEncrypt: publicFile, decrypt: false },
     },
     tool: {
@@ -82,6 +82,7 @@ test("features.sensitiveEncrypt false disables the tool without creating keys", 
         recommendedOpencodeConfig: false,
         sendMessageAcrossSessions: false,
         imageGen: false,
+        notepad: false,
         showImg: false,
         sensitiveEncrypt: false,
       },
@@ -119,7 +120,7 @@ test("the assembled image tool uses nested model, URL and credentials without le
   const imageGen = Object.freeze({ model: "nested-provider/nested-model", baseURL: `${server.url.origin}/nested`, integrationID: "nested-auth" })
   const context = Object.freeze({
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, showImg: false, sensitiveEncrypt: false }, imageGen,
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, notepad: false, showImg: false, sensitiveEncrypt: false }, imageGen,
       model: "flat/model", baseURL: `${server.url.origin}/flat`, integrationID: "flat-auth", promptSearch: { model: "sibling/model" },
     },
     session: { get: async () => ({ model: { providerID: "chat-provider", id: "chat-model" }, location: { directory } }) },

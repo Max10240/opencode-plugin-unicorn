@@ -2,6 +2,7 @@ export interface UnicornOptions {
   readonly recommendedOpencodeConfig?: Readonly<Record<string, unknown>>
   readonly sendMessageAcrossSessions?: Readonly<Record<string, unknown>>
   readonly imageGen?: Readonly<Record<string, unknown>>
+  readonly notepad?: Readonly<Record<string, unknown>>
   readonly showImg?: Readonly<Record<string, unknown>>
   readonly promptSearch?: Readonly<Record<string, unknown>>
   readonly sensitiveEncrypt?: Readonly<Record<string, unknown>>
@@ -11,6 +12,7 @@ export interface UnicornOptions {
     readonly recommendedOpencodeConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
     readonly imageGen?: boolean
+    readonly notepad?: boolean
     readonly showImg?: boolean
     readonly promptSearch?: boolean
     readonly sensitiveEncrypt?: boolean
@@ -40,6 +42,11 @@ export function sendMessageAcrossSessionsFeatureEnabled(options: Readonly<Record
 export function imageGenFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.imageGen !== false
+}
+
+export function notepadFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.notepad !== false
 }
 
 export function promptSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

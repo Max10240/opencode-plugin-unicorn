@@ -287,6 +287,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     sendMessageAcrossSessions: path.resolve(import.meta.dir, ".."),
     unicorn: path.resolve(import.meta.dir, "../../opencode-plugin-unicorn"),
     imageGen: path.resolve(import.meta.dir, "../../opencode-plugin-image-gen"),
+    notepad: path.resolve(import.meta.dir, "../../opencode-plugin-notepad"),
     promptSearch: path.resolve(import.meta.dir, "../../opencode-plugin-prompt-search"),
     sessionSearch: path.resolve(import.meta.dir, "../../opencode-plugin-session-search"),
     showImg: path.resolve(import.meta.dir, "../../opencode-plugin-show-img"),
@@ -320,6 +321,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     sendMessageAcrossSessions: string
     unicorn: string
     imageGen: string
+    notepad: string
     promptSearch: string
     sensitiveEncrypt: string
     sensitiveProtection: string

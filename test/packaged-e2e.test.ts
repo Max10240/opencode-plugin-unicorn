@@ -19,6 +19,7 @@ const repository = path.resolve(fileURLToPath(import.meta.url), "../..")
 const packages = [
   { directory: "opencode-plugin-send-message-across-sessions", id: "max10240.send-message-across-sessions", kind: "send-message" },
   { directory: "opencode-plugin-image-gen", id: "opencode.image-gen", kind: "image-gen" },
+  { directory: "opencode-plugin-notepad", id: "max10240.notepad", kind: "notepad" },
   { directory: "opencode-plugin-prompt-search", id: "max10240.prompt-search", kind: "prompt-search" },
   { directory: "opencode-plugin-session-search", id: "max10240.session-search", kind: "session-search" },
   { directory: "opencode-plugin-show-img", id: "max10240.show-img", kind: "show-img" },
@@ -58,7 +59,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(files.every((file) => file === "package.json" || file === "README.md" || file === "README.zh-CN.md" || file.endsWith(".js"))).toBe(true)
       expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
       if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection" || entry.kind === "notepad") {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
@@ -87,7 +88,7 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         expect(JSON.parse(output).rules.every((rule: Record<string, unknown>) => typeof rule.title === "string" && !("depth" in rule))).toBe(true)
         expect(JSON.parse(output).commands).toEqual(recommendedCommands)
       }
-      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection") {
+      if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection" || entry.kind === "notepad") {
         expect(importWithNode(`@max10240/${entry.directory}/tui`, install)).toBe(`${entry.id}.tui`)
       }
       if (entry.kind === "send-message") {
