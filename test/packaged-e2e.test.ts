@@ -51,9 +51,11 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
       expect(packed[0]!.version).toBe(version)
       const files = packed[0]!.files.map((item) => item.path)
       expect(files).toContain("dist/src/index.js")
+      expect(files).toContain("README.md")
+      expect(files).toContain("README.zh-CN.md")
       expect(files).toContain("dist/index.js")
       expect(files.some((file) => /\.(?:ts|tsx|jsx|map)$/.test(file))).toBe(false)
-      expect(files.every((file) => file === "package.json" || file === "README.md" || file.endsWith(".js"))).toBe(true)
+      expect(files.every((file) => file === "package.json" || file === "README.md" || file === "README.zh-CN.md" || file.endsWith(".js"))).toBe(true)
       expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
       if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
       if (entry.kind === "unicorn" || entry.kind === "prompt-search" || entry.kind === "show-img" || entry.kind === "session-search" || entry.kind === "sensitive-encrypt" || entry.kind === "sensitive-protection") {

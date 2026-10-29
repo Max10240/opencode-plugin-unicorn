@@ -1,14 +1,18 @@
 # @max10240/opencode-plugin-sensitive-encrypt
 
-用独立公钥加密、独立私钥解密 `$TMPDIR` 下的敏感文件。明文、私钥不会进入模型上下文。
+**English** | [简体中文](README.zh-CN.md)
+
+Encrypt sensitive files under `$TMPDIR` with an independent public key and decrypt them with a separate private key.
+Plaintext and private keys never enter model context.
 
 ## Tools
 
-- `encrypt_sensitive`：用 `publicKeyForEncrypt`/`publicKeyFileForEncrypt` 加密单个文件；
-- `decrypt_sensitive`：用 `privateKeyFileForDecrypt` 解密 `ocsec1` 信封，**必须写 out 文件**，不 inline 返回明文；
-- `sensitive_key_info`：显示加密/解密公钥和 `kid`，不返回私钥。
+- `encrypt_sensitive`: encrypt a single file with `publicKeyForEncrypt` / `publicKeyFileForEncrypt`.
+- `decrypt_sensitive`: decrypt an `ocsec1` envelope with `privateKeyFileForDecrypt`. **It must write to `out`** and
+  never returns plaintext inline.
+- `sensitive_key_info`: show the encryption/decryption public keys and `kid`; private keys are never returned.
 
-## 配置
+## Configuration
 
 ```jsonc
 {
@@ -23,30 +27,34 @@
 }
 ```
 
-- `encrypt` / `decrypt` 默认 `true`，可设为 `false` 或 `null` 关闭；
-- `maxBytes` 默认 1 MiB，硬上限 64 MiB；
-- 加密、解密密钥互不关联，不推导、不校验配对；
-- 默认目录为 `<global config>/sensitive-encrypt/`，按角色生成 `encrypt-*`、`decrypt-*` 两对密钥；
-- 旧 `publicKey` / `publicKeyFile` 仍静默兼容，等价于新的 encrypt 名称。
+- `encrypt` / `decrypt` default to `true`; set either to `false` or `null` to disable it.
+- `maxBytes` defaults to 1 MiB with a hard limit of 64 MiB.
+- Encryption and decryption keys are independent; they are not derived from each other or checked as a pair.
+- The default directory is `<global config>/sensitive-encrypt/`, with separate `encrypt-*` and `decrypt-*` key pairs.
+- Legacy `publicKey` / `publicKeyFile` remain silently compatible and are equivalent to the new encrypt names.
 
-## 密钥安全
+## Key security
 
-- 私钥文件必须是普通文件，权限 `0600`，不接受 symlink；
-- 每次解密重新读取私钥，不长期缓存；
-- 解密输出 `0600`，原子替换，拒绝 symlink 和覆盖输入；
-- 私钥丢失后已有密文无法恢复。
+- Private key files must be regular files with mode `0600`; symlinks are rejected.
+- The private key is re-read for every decryption and is not cached long-term.
+- Decrypted output is written with mode `0600`, atomically replaced, and never overwrites the input or follows
+  symlinks.
+- Losing the private key makes existing ciphertext unrecoverable.
 
 ## TUI
 
-`/encrypt-sensitive` 或配置 keybind 打开一次性加密弹窗。弹窗不会自动关闭，可复制密文或输出路径；结果不进入模型上下文。
+Run `/encrypt-sensitive` or a configured keybind to open a one-shot encryption dialog. The dialog does not close
+automatically and lets you copy the ciphertext or output path. Results never enter model context.
 
-## 保护插件联动
+## Protection plugin integration
 
-启动时及解密过程中，通过运行时发现 `register_sensitive_file` tool，自动登记：
+At startup and during decryption, the plugin discovers the `register_sensitive_file` tool at runtime and registers:
 
-- 解密私钥：`privateKeyFileForDecrypt`，或默认的 `<keyDirectory>/decrypt-private.pem`（存在时）；
-- 加密输入文件；
-- 解密输出文件。
+- the decryption private key: `privateKeyFileForDecrypt`, or the default
+  `<keyDirectory>/decrypt-private.pem` when it exists;
+- encryption input files;
+- decrypted output files.
 
-登记后 `read` 私钥会被保护插件阻断，命中私钥内容的输出和上下文会替换为 `[REDACTED:PROTECTED]`；加解密自身直接读取私钥不受影响。
-保护插件不存在时静默跳过，不影响加解密。
+Once registered, the protection plugin blocks `read` on the private key and replaces private-key content in tool
+output and context with `[REDACTED:PROTECTED]`. The encryption plugin's own direct file reads are unaffected. If the
+protection plugin is absent, registration is skipped without affecting encryption or decryption.

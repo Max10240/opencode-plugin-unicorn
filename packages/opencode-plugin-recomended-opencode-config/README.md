@@ -1,12 +1,16 @@
 # @max10240/opencode-plugin-recomended-opencode-config
 
-独立合并推荐的全局规则和命令，并在已有 OpenAI 配置时设置 `providers.openai.settings.store:false`。
-不修改模型限制或 `share`，不注册工具，也不依赖 Unicorn。
+**English** | [简体中文](README.zh-CN.md)
 
-## 启用
+Merge recommended global rules and commands into an existing OpenCode configuration, and set
+`providers.openai.settings.store:false` when OpenAI is already configured. It does not change model limits or
+`share`, register tools, or depend on Unicorn.
 
-显式 `enabled:true/false` 优先于环境变量；没有配置时，server 环境的 `IS_MAX_SELF` 必须非空，且不是 `0` 或
-`false` 才启用。比较前去掉两端空白，`false` 不区分大小写；其他情况默认关闭。
+## Enabling
+
+An explicit `enabled:true/false` takes priority over the environment variable. When no option is set, the server
+environment's `IS_MAX_SELF` must be non-empty and not `0` or `false`. Values are trimmed before comparison and
+`false` is case-insensitive; every other case disables the plugin.
 
 ```jsonc
 {
@@ -18,44 +22,58 @@
 }
 ```
 
-Unicorn 将 `options.recommendedOpencodeConfig` 原样透传，例如 `{ "enabled": true }`。
-`options.features.recommendedOpencodeConfig: false` 强制关闭；其余情况遵循上述 `enabled` / 环境变量规则。
-关闭后不撤销已写入的规则或设置。
+Unicorn passes `options.recommendedOpencodeConfig` through unchanged, for example `{ "enabled": true }`.
+`options.features.recommendedOpencodeConfig: false` forces the plugin off; otherwise the rules above apply. Disabling
+the plugin does not remove rules or settings that were already written.
 
-## 合并行为
+## Merge behavior
 
-- 使用 Marked 解析 Markdown，规则数据为 `{ title, description? }`，不保存标题等级。
-- 在用户 `AGENTS.md` 的最高标题等级新增或复用 `Addtional Recommended Rules`，推荐规则放在其下。
-- 标题相同即跳过，不比较标题等级，不覆盖已有正文；代码块中的 `#` 不算标题。
-- 没有标题时用一级容器。容器已是六级时使用列表承载规则，不生成无效的七级标题。
-- 同步维护者的 inline 和 Markdown 命令。同名用户定义（包括全局 Markdown command）不覆盖；缺失时
-  新增到用户的 inline `commands`，保留 `template`、描述、agent、model 等元数据和参数占位符。
-- 没有 OpenAI key 时不创建它。只有缺少 commands 且无配置文件时才创建 `opencode.jsonc`。
-- 保留 JSONC 注释和无关设置，重复运行不改文件时间。provider 设置不覆盖模型或 variant 的显式设置。
-- 更新失败只警告，不阻止其他 Unicorn 插件启动。
-- 未闭合的代码/HTML 块无法安全合并时跳过规则写入，不反复追加，也不阻止 commands 和 `store` 更新。
-  配置使用软链接时更新目标而保留软链接。
+- Markdown is parsed with Marked. Rule data is `{ title, description? }`; heading depth is not retained.
+- Recommended rules are added under `Addtional Recommended Rules`, created or reused at the highest heading level in
+  the user's `AGENTS.md`.
+- Equal titles are skipped without comparing depth or overwriting existing content; `#` inside code blocks is not a
+  heading.
+- With no headings, a level-one container is used. When the container is already level six, rules are represented as
+  a list instead of invalid level-seven headings.
+- Recommended inline and Markdown commands are synced. Same-name user commands (including global Markdown commands)
+  are not overwritten; missing commands are added to inline `commands` while preserving `template`, description,
+  agent, model, and argument placeholders.
+- No OpenAI key is created. `opencode.jsonc` is created only when commands are missing and no configuration file
+  exists.
+- JSONC comments and unrelated settings are preserved, and repeated runs do not change file timestamps. Provider
+  settings do not override explicit model or variant settings.
+- Update failures are warnings and do not prevent other Unicorn plugins from starting.
+- When an unclosed code or HTML block makes a safe merge impossible, rules are skipped without repeated appends;
+  commands and `store` updates continue. Symlinked configuration is updated at the target while preserving the link.
 
-全局目录遵循 `OPENCODE_CONFIG_DIR`，其次 `$XDG_CONFIG_HOME/opencode`，默认 `~/.config/opencode`。
+The global directory follows `OPENCODE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/opencode`, then `~/.config/opencode`.
 
-## 推荐模板与硬链接
+## Recommended template and hard link
 
-仓库的 `rules/AGENTS.md` 与维护者的 `~/.config/opencode/AGENTS.md` 保持硬链接。
-`bun run sync:rules`、Git pre-commit 和每个包的 prepack 都会重新建立链接，并将 `opencode.jsonc` 的顶层 `commands`
-和同目录 `.commands/`、`command/`、`commands/` 下的 `.md` 命令收集到 `rules/commands.json`，不保存完整配置。
-Markdown 正文作为模板，保留 description、agent、model、subagent 等 frontmatter；嵌套文件 `team/review.md`
-变成 `team/review`。同步时不执行模板中的 shell。源内同名命令按 inline → `.commands/` → `command/` → `commands/` 覆盖。
-Markdown 中的 `{env:...}`、`{file:...}` 保持字面文本；原有 inline 命令仍遵循 Core 的配置变量展开规则。
-可用 `RECOMMENDED_RULES_SOURCE` / `RECOMMENDED_COMMANDS_SOURCE` 指定同步源，`RECOMMENDED_COMMANDS_DIR` 指定单独的 Markdown 目录。
-所有同步源均不存在时使用已提交的模板；源存在时会移除源已删除的推荐，解析失败则保留原快照并报错。
+The repository `rules/AGENTS.md` is hard-linked to the global `~/.config/opencode/AGENTS.md` used for local
+maintenance. `bun run sync:rules`, the Git pre-commit hook, and each package's prepack re-create the link and collect
+top-level `commands` from `opencode.jsonc` plus Markdown commands under `.commands/`, `command/`, and `commands/` in
+the same directory into `rules/commands.json`. Full configuration is never stored. Markdown bodies become templates
+and preserve frontmatter such as description, agent, model, and subagent; nested files such as `team/review.md`
+become `team/review`. Shell commands in templates are not executed. Same-name commands are overridden in the order
+inline → `.commands/` → `command/` → `commands/`. `{env:...}` and `{file:...}` in Markdown remain literal; existing
+inline commands keep Core's configuration variable expansion.
 
-Git 保存文件内容而不是链接路径，clone 后需重新建立硬链接。发布包把推荐规则内容编入 JavaScript，不要求用户
-拥有维护者的目录，也不收录任何完整 `opencode.json[c]`。不要在规则或命令模板中放凭据。
+Set `RECOMMENDED_RULES_SOURCE` or `RECOMMENDED_COMMANDS_SOURCE` to change the sync source, and
+`RECOMMENDED_COMMANDS_DIR` for a separate Markdown directory. When every source is missing, the committed templates
+are used. When a source exists, recommendations removed from it are removed here; parse failures keep the previous
+snapshot and report an error.
 
-根目录 `bun install` 为新仓库安装 `.githooks`。已有本地/全局 hooksPath 或 pre-commit 时只提示，不覆盖、不阻止
-依赖安装；此时需把 `scripts/sync-recommended-rules.mjs` 接入已有 hook，或提交前手动执行 `bun run sync:rules`。
+Git stores file contents, not link paths, so a fresh clone must re-create the hard link. Published packages embed
+recommended rule content in JavaScript; users do not need the repository directory, and no complete
+`opencode.json[c]` is included. Never place credentials in rules or command templates.
 
-## 验证
+`bun install` installs `.githooks` for new clones. Existing local/global `hooksPath` or pre-commit hooks are reported
+but never overwritten or blocked; in that case wire `scripts/sync-recommended-rules.mjs` into the existing hook or run
+`bun run sync:rules` before committing.
 
-`bun run check` 包含 Markdown/JSONC 单测、硬链接和 prepack 测试、真实 OpenCode 的开关矩阵、配置热重载、
-重启幂等性、模型请求中的规则与 `store:false`，以及 npm tarball 安装。测试使用隔离目录和本地 mock。
+## Verification
+
+`bun run check` covers Markdown/JSONC unit tests, hard-link and prepack tests, real OpenCode enable/disable matrices,
+configuration hot reload, restart idempotency, rules and `store:false` in model requests, and npm tarball
+installation. Tests use isolated directories and local mocks.

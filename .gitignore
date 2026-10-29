@@ -4,3 +4,5 @@ coverage/
 .DS_Store
 *.tgz
 bun.lock
+__local_test/
+isolated/

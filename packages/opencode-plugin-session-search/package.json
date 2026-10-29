@@ -16,7 +16,8 @@
   },
   "files": [
     "dist/**/*.js",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "license": "MIT",
   "dependencies": {

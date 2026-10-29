@@ -76,7 +76,7 @@ test("npm prepack refreshes the hard link and embeds its current content in a No
     }
     const packed = JSON.parse(run(["npm", "pack", "--json", "--pack-destination", root]))[0]
     expect((await stat(source)).ino).toBe((await stat(path.join(packageRoot, "rules/AGENTS.md"))).ino)
-    expect(packed.files.every((file: { path: string }) => file.path === "package.json" || file.path === "README.md" || file.path.endsWith(".js"))).toBe(true)
+    expect(packed.files.every((file: { path: string }) => file.path === "package.json" || file.path === "README.md" || file.path === "README.zh-CN.md" || file.path.endsWith(".js"))).toBe(true)
     const unpack = path.join(root, "unpack")
     await mkdir(unpack)
     run(["tar", "-xzf", path.join(root, packed.filename), "-C", unpack], root)

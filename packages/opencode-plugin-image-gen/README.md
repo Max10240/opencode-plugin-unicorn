@@ -1,9 +1,12 @@
 # @max10240/opencode-plugin-image-gen
 
-使用目标 provider 的认证与部署配置生成或编辑一张图片，保存到文件；不覆盖已有文件，自动使用 `-v2` 等名称。
-插件可独立使用，不读取或猜测认证文件，也不把图片内容返回模型对话。
+**English** | [简体中文](README.zh-CN.md)
 
-## 使用
+Generate or edit one image with the target provider's authentication and deployment settings, then save it to a
+file. Existing files are never overwritten; names such as `-v2` are allocated automatically. The plugin works
+standalone, never reads or guesses credential files, and never returns image bytes to the model conversation.
+
+## Usage
 
 ```jsonc
 {
@@ -26,59 +29,76 @@
 { "prompt": "A red kite", "out": "kite.png" }
 ```
 
-有参考图时增加 `images`，路径相对当前 session 目录；无参考图生成，有参考图编辑。
-可选字段 `model`、`quality`、`size`、`images` 均接受 `null`，与未提供相同，调用图片 API 前会移除。
-必填字段 `prompt`、`out` 仍只接受字符串。
-OpenAI-compatible endpoint 必须支持 `/images/generations` / `/images/edits`，能对话不代表能生图。
-支持 base64、图片 URL 和 data URL 结果；URL 下载不携带生成请求的认证头，也不会重复发起生图。
-OpenAI-compatible 响应的可选元数据接受 `null`；兼容解析仍校验字段类型，并拒绝损坏的 base64、空内容和 HTTP 错误，不重新生图。
-并发保存同一路径时以独占创建方式分配版本名，避免互相覆盖。
+Add `images` to edit existing images; paths are relative to the current session directory. Without `images` the tool
+generates a new image. The optional `model`, `quality`, `size`, and `images` fields accept `null`, which behaves the
+same as omitting them and is removed before calling the image API. The required `prompt` and `out` fields still
+accept only strings.
 
-## 模型与配置
+An OpenAI-compatible endpoint must support `/images/generations` and `/images/edits`; chat support does not imply
+image support. Base64, image URLs, and data URLs are accepted. URL downloads do not reuse generation auth headers and
+do not trigger a second generation. Optional metadata fields in OpenAI-compatible responses may be `null`; parsing
+still validates field types and rejects corrupt base64, empty content, and HTTP errors without retrying generation.
+Concurrent saves to the same path allocate versioned names with exclusive creation.
 
-优先级：工具参数 `model` → 插件 `options.model` → `openai/gpt-image-2.5-sunburst`。
-默认 provider 仍为 OpenAI，不自动跟随会话。其他 provider 应填写完整的 `provider/model`。
+## Models and configuration
 
-- 可以使用不在语言模型 catalog 中的图像模型，继承目标 provider 的配置。
-- 支持 `provider/model#variant`。与当前 session 模型相同时，未指定 variant 会继承 session 的选择；
-  `#default` 使用基础配置。不存在的 variant 明确报错，不悄悄丢弃。
-- provider/model/variant 的 settings、headers、body 按 Core 的方式合并；header 名称不区分大小写。
-- 自定义 URL 推荐放在 provider settings；`options.baseURL` 是显式覆盖。`${NAME}` 未解析时拒绝请求。
-- 支持 GPT Image 2.5 Sunburst、Flare 及明确 snapshot。`quality` 可选 `low/medium/high/xhigh/max/auto`，
-  `xhigh/max` 需要目标模型支持。默认模型是维护时核对的值，不自动联网升级。
+Priority: tool `model` parameter → plugin `options.model` → `openai/gpt-image-2.5-sunburst`. The default provider is
+OpenAI and does not follow the session model automatically. Other providers should use a full `provider/model`.
 
-## 认证
+- Image models that are absent from the language-model catalog are supported and inherit the target provider's
+  configuration.
+- `provider/model#variant` is supported. When the provider matches the current session model, an omitted variant
+  inherits the session choice; `#default` uses the base configuration. Unknown variants fail explicitly.
+- Provider/model/variant settings, headers, and body are merged the same way Core merges them; header names are
+  case-insensitive.
+- Prefer provider settings for custom URLs; `options.baseURL` is an explicit override. Unresolved `${NAME}`
+  placeholders reject the request instead of being sent literally.
+- GPT Image 2.5 Sunburst, Flare, and explicit snapshots are supported. `quality` accepts
+  `low/medium/high/xhigh/max/auto`; `xhigh/max` require model support. The default model is verified at maintenance
+  time and is not upgraded over the network.
 
-- 使用 Core `integration.connection.active/resolve` 选择当前连接，包括 provider 声明的环境变量、保存的 key/OAuth
-  和刷新流程；凭据解析失败会传播错误，不降级换认证或换 endpoint。
-- 没有 active connection 时仍支持 `settings.apiKey`、配置认证 headers 和显式启用的匿名部署。
-- 已选凭据优先于配置 key。保留 key configuration；key metadata 可合入 body，OAuth metadata 不作为 body。
-- 先通过原生 provider 的 model 工厂准备认证和 HTTP 上下文，再用于图片协议；保留该工厂的 organization/project、
-  query 等映射，不把所有认证都重写为 Bearer，也不把自定义 provider 回退到环境中的 OpenAI key。
-- 支持原生 OpenAI、OpenAI-compatible、Google、xAI、Meta、ZAI 图片适配器，以及可加载并提供
-  `configure().image()` 的原生自定义工厂。常见已知 AISDK 名称可映射到原生实现；其他不支持的 package 明确报错，
-  不因存在 baseURL 就猜测 OpenAI 协议。自定义 package 必须能从插件加载，或使用 file URL。
+## Authentication
 
-### 明确限制
+- Uses Core `integration.connection.active/resolve` to select the active connection, including provider-declared
+  environment variables, stored keys/OAuth, and refresh flows. Credential failures propagate; the plugin does not
+  silently switch credentials or endpoints.
+- Without an active connection, `settings.apiKey`, configured auth headers, and explicitly enabled anonymous
+  deployments still work.
+- A selected credential takes priority over a configured key. Key configuration is preserved; key metadata may be
+  merged into the body, while OAuth metadata is not.
+- Authentication and HTTP context are prepared through the native provider model factory before the image protocol
+  is used. Organization/project and query mappings are preserved, not every credential is rewritten as a Bearer
+  token, and custom providers never fall back to an OpenAI key from the environment.
+- Native OpenAI, OpenAI-compatible, Google, xAI, Meta, and ZAI image adapters are supported, along with custom native
+  factories that expose `configure().image()`. Known AISDK package names map to native implementations; other
+  packages fail explicitly rather than guessing OpenAI from a base URL. Custom packages must be loadable by the
+  plugin or use a file URL.
 
-当前公开插件 API 不能触发其他插件的 session `model.request/http.request/http.response` hooks。
-**仅在这些 hooks 中提供的签名、路由或其他认证不会自动继承**；本次没有修改 Core，也不宣称此类部署已支持。
-原生 provider 工厂产生的 `Auth.Definition` 会用于图片的新 URL/body，合成动态签名已有测试覆盖。
+### Known limitations
 
-运行时提供工具 `signal` 时，取消会中止生成和图片下载；旧版 Promise 工具 API 未提供该信号时无法保证中止远端请求。
+The public plugin API cannot trigger other plugins' session `model.request`, `http.request`, or `http.response`
+hooks. **Signatures, routes, or other authentication provided only by those hooks are not inherited.** Core was not
+modified, and this plugin does not claim support for those deployments. `Auth.Definition` values produced by native
+provider factories are applied to new image URLs and bodies; synthetic dynamic signatures are covered by tests.
 
-未用真实云账号验证 ADC/AWS/Azure 等所有认证组合。目标 package 若没有图片适配器就拒绝调用，而不是套用
-不兼容协议。OpenAI 订阅路由沿用 Core 已解析的 provider URL 和 headers；账号的图像权限由服务端判断。
+When the runtime provides a tool `signal`, cancellation aborts generation and image download. Older Promise tool
+runtimes without a signal cannot guarantee remote cancellation.
 
-## 可选预览与 Unicorn
+ADC/AWS/Azure and other authentication combinations have not been validated with real cloud accounts. A package
+without an image adapter is rejected instead of using an incompatible protocol. OpenAI subscription routing reuses
+Core-resolved provider URLs and headers; image permission is decided by the service.
 
-`show_img` 可用时，保存后直接调用它准备用户预览，只在 metadata 中携带 ID/文件名；不要求模型额外发起调用。
-缺失、关闭或预览失败均不影响生图结果，不会重试生图或删除输出。只加载 image-gen 仍可正常保存图片。
+## Optional preview and Unicorn
 
-Unicorn 的 `features.imageGen` / `features.showImg` 分别控制生图和预览；生图参数放在 `options.imageGen`，
-例如 `options.imageGen.model`、`options.imageGen.baseURL`，对象原样透传给独立插件。
+When `show_img` is available, a saved image is passed to it for preview and only an ID/filename is stored in tool
+metadata; no extra model call is required. A missing, disabled, or failing preview never affects the generated image,
+retries generation, or deletes the output. The plugin still saves images when loaded alone.
 
-## 验证与证据
+Unicorn controls generation and preview with `features.imageGen` and `features.showImg`. Generation options live in
+`options.imageGen`, for example `options.imageGen.model` and `options.imageGen.baseURL`; the object is passed to the
+standalone plugin unchanged.
+
+## Verification
 
 ```sh
 bun run --cwd packages/opencode-plugin-image-gen build
@@ -87,11 +107,13 @@ bun run check
 node research/run-image-gen-auth-parity.mjs
 ```
 
-测试使用本地 mock，不调用收费模型。覆盖认证抓包、variant、生成/编辑、错误不降级、自定义工厂签名、可选预览，
-以及真实 npm 安装包和 Unicorn 集成。调研证据与修复状态见
-[`research/image-gen-auth-parity.md`](../../research/image-gen-auth-parity.md)。
-当前使用 `@opencode/ai >=2.2.0`，已在 OpenCode `v2.0.21` 和 `v2.1.0` 完成完整回归。
+Tests use local mocks and never call paid models. Coverage includes auth capture, variants, generation/editing,
+error propagation without fallback, custom factory signatures, optional previews, real npm installation, and Unicorn
+integration. Evidence and status are documented in
+[`research/image-gen-auth-parity.md`](../../research/image-gen-auth-parity.md).
+The plugin currently uses `@opencode/ai >=2.2.0` and has been fully regressed against OpenCode `v2.0.21` and `v2.1.0`.
 
-模型发现数据可参考 [models.dev](https://models.dev/api.json)、[OpenAI models API](https://developers.openai.com/api/reference/resources/models/methods/list)
-和 [OpenRouter](https://openrouter.ai/api/v1/models)。列表可能滞后，或只描述第三方路由；不能单纯按日期排序自动换默认模型，
-还需核对图像输出能力、协议、账号权限及参数兼容性。
+Model discovery references: [models.dev](https://models.dev/api.json),
+[OpenAI models API](https://developers.openai.com/api/reference/resources/models/methods/list), and
+[OpenRouter](https://openrouter.ai/api/v1/models). Listings can lag or describe third-party routes only; do not
+switch the default model by date alone. Verify image output, protocol, account permissions, and parameter support.

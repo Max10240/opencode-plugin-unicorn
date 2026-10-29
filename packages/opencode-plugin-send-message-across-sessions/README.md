@@ -1,21 +1,28 @@
 # @max10240/opencode-plugin-send-message-across-sessions
 
-在不同 cwd 的 OpenCode session 之间发送用户风格的消息。
+**English** | [简体中文](README.zh-CN.md)
+
+Send user-style messages between OpenCode sessions in different working directories.
 
 ## Tools
 
-- `list_online_sessions`：列出插件已观察到的在线 session，包含 session ID、标题、cwd 和状态；
-- `send_message_across_sessions`：向另一个在线 OpenCode session 发送用户风格的消息，仅用于跨 session 通信，不可用于主 Agent 与其子 Agent 之间。消息会以以下固定格式注入目标 session：
+- `list_online_sessions`: list sessions observed by the plugin, including session ID, title, working directory, and
+  status.
+- `send_message_across_sessions`: send a user-style message to another online OpenCode session. Use it only for
+  cross-session communication, never between a main agent and its subagents. The message is injected with this stable protocol format:
+
   ```text
   来自<from_session_id>的消息: <message>
   ```
 
-`delivery` 参数控制投递时机：
+`delivery` controls when the message is delivered:
 
-- `steer`：默认。目标 session 正在工作时，在下一个 tool 调用结束后立即注入，属于当前 turn；目标空闲时立即开始新的 turn。
-- `queue`：等待目标 session 当前 turn 结束后，在下一个 turn 处理。
+- `steer` (default): if the target is working, inject after its next tool call within the current turn; if idle,
+  start a new turn immediately.
+- `queue`: wait for the target's current turn to finish, then deliver in the next turn.
 
-如果未提供 `target_session_id`，发送工具会返回可选 session 列表，模型应先让用户选择，再重新调用发送工具。
+If `target_session_id` is omitted, the send tool returns the selectable session list. The model should ask the user
+to choose and then call the tool again.
 
 ## Standalone configuration
 
@@ -27,8 +34,8 @@
 }
 ```
 
-该插件默认开启。session 列表由 OpenCode server 的 session 事件维护，因此目标 session 需要在插件开始观察后启动，
-并且插件需要在同一个 OpenCode server 中运行。
+The plugin is enabled by default. The session list is maintained from OpenCode server session events, so the target
+must start after the plugin begins observing and both must run in the same OpenCode server.
 
 ## E2E
 
@@ -36,6 +43,8 @@
 bun test
 ```
 
-测试使用本地 `opencode`、本地 OpenAI-compatible proxy 和 tmux。每个场景都使用独立的 HOME、XDG 目录、配置和数据库；
-插件及其 Unicorn 依赖通过 `bun pm pack` 打成本地 tarball 后加载，不访问插件 registry。测试覆盖 standalone 插件及 Unicorn
-集成，并断言跨 cwd 的会话确实出现在列表中且收到 user 消息。可用 `OPENCODE_BIN` 指定 OpenCode 可执行文件。
+Tests use a local `opencode` binary, a local OpenAI-compatible proxy, and tmux. Every scenario has its own HOME, XDG
+directories, configuration, and database. The plugin and its Unicorn dependencies are packed as local tarballs and
+loaded without contacting the plugin registry. Coverage includes the standalone plugin and Unicorn integration, and
+asserts that cross-directory sessions appear in the list and receive the user message. Set `OPENCODE_BIN` to choose
+the OpenCode executable.
