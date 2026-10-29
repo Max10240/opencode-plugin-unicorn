@@ -133,11 +133,12 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
         if (entry.kind === "recommended-config") await checkRecommendedConfig(e2e)
         if (entry.kind === "image-gen" || entry.kind === "unicorn") {
           let verifiedHeader = false
+          let upstream = ""
           const gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
             if (request.headers.get("authorization") !== "Basic synthetic-packaged-auth") return new Response("Missing gateway authentication", { status: 401 })
             verifiedHeader = true
             const url = new URL(request.url)
-            const response = await fetch(`${e2e.proxy.baseURL}${url.pathname.replace(/^\/v1/, "")}${url.search}`, {
+            const response = await fetch(`${upstream}${url.pathname.replace(/^\/v1/, "")}${url.search}`, {
               method: request.method, headers: request.headers, body: await request.arrayBuffer(), signal: AbortSignal.timeout(30_000),
             })
             if (/\/images\/(generations|edits)$/.test(url.pathname) && response.ok) return Response.json({
@@ -147,26 +148,34 @@ test("every npm tarball contains only JavaScript and runs in isolated real OpenC
             return response
           } })
           try {
-            const config = await e2e.config()
-            config.providers["packaged-header-auth"] = {
-              package: "@opencode/ai/providers/openai-compatible", env: [],
-              settings: { baseURL: `${gateway.url.origin}/v1` },
-              headers: { Authorization: "Basic synthetic-packaged-auth" },
-              models: { image: { limit: DEFAULT_LOW_LIMIT } },
-            }
             const imageOptions = { model: "packaged-header-auth/image" }
-            config.plugins[0].options = { ...config.plugins[0].options, ...(entry.kind === "unicorn" ? { imageGen: imageOptions } : imageOptions) }
-            await writeFile(e2e.configPath, JSON.stringify(config))
-            await waitFor(async () => {
-              const response = await fetch(`${e2e.baseURL}/api/model?${new URLSearchParams({ directory: e2e.workspace })}`, { headers: authorization() })
-              const models = await response.json() as { data: Array<{ providerID: string; id: string }> }
-              return models.data.some((model) => model.providerID === "packaged-header-auth" && model.id === "image")
-            }, "Packaged header-auth provider did not activate")
-            const result = await e2e.runImagePrompt()
-            const tool = result.messages.flatMap((message) => message.content ?? []).find((part) => part.type === "tool" && part.name === "image_gen")
-            expect(tool?.state.status).toBe("completed")
-            expect(tool.state.metadata.providerID).toBe("packaged-header-auth")
-            expect(verifiedHeader).toBe(true)
+            const header = await createOpenCodeE2E({
+              plugin: entry.kind,
+              pluginPackage: path.join(packageRoot, "dist"),
+              pluginOptions: entry.kind === "unicorn" ? { imageGen: imageOptions } : imageOptions,
+              configure: (config: Record<string, any>) => {
+                config.providers["packaged-header-auth"] = {
+                  package: "@opencode/ai/providers/openai-compatible", env: [],
+                  settings: { baseURL: `${gateway.url.origin}/v1` },
+                  headers: { Authorization: "Basic synthetic-packaged-auth" },
+                  models: { image: { limit: DEFAULT_LOW_LIMIT } },
+                }
+              },
+            })
+            upstream = header.proxy.baseURL
+            try {
+              await header.waitForModelContext(DEFAULT_LOW_LIMIT.context)
+              await waitFor(async () => {
+                const response = await fetch(`${header.baseURL}/api/model?${new URLSearchParams({ directory: header.workspace })}`, { headers: authorization() })
+                const models = await response.json() as { data: Array<{ providerID: string; id: string }> }
+                return models.data.some((model) => model.providerID === "packaged-header-auth" && model.id === "image")
+              }, "Packaged header-auth provider did not activate")
+              const result = await header.runImagePrompt()
+              const tool = result.messages.flatMap((message) => message.content ?? []).find((part) => part.type === "tool" && part.name === "image_gen")
+              expect(tool?.state.status).toBe("completed")
+              expect(tool.state.metadata.providerID).toBe("packaged-header-auth")
+              expect(verifiedHeader).toBe(true)
+            } finally { await header.close() }
           } finally { gateway.stop(true) }
         }
 
