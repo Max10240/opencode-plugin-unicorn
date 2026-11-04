@@ -121,6 +121,28 @@ test("redacts many patterns without changing unrelated output", async () => {
   })
 })
 
+test("keeps registration-order replacement for overlapping protected files", async () => {
+  await fixture(async ({ root, data, options }) => {
+    const short = path.join(root, "short-secret.txt")
+    const long = path.join(root, "long-secret.txt")
+    await writeFile(short, "ORDER_OVERLAP_SECRET", { mode: 0o600 })
+    await writeFile(long, "ORDER_OVERLAP_SECRET_EXTRA", { mode: 0o600 })
+    const { tools, hooks, cleanup } = await setup(root, data, options)
+    try {
+      await tools.get("register_sensitive_file")!.execute({ file: short }, { sessionID: "s1" } as never)
+      await tools.get("register_sensitive_file")!.execute({ file: long }, { sessionID: "s1" } as never)
+      const after: any = {
+        status: "completed",
+        result: {
+          content: [{ type: "text", text: "prefix ORDER_OVERLAP_SECRET_EXTRA suffix" }],
+        },
+      }
+      await hooks.get("execute.after")!(after)
+      expect(after.result.content[0].text).toBe("prefix [REDACTED:PROTECTED]_EXTRA suffix")
+    } finally { await cleanup() }
+  })
+})
+
 test("redacts context messages and outgoing HTTP request bodies", async () => {
   await fixture(async ({ root, data, file, options }) => {
     const { tools, sessions, cleanup } = await setup(root, data, options)

@@ -362,11 +362,12 @@ export async function setupSensitiveEncrypt(context: PluginContext) {
         encryptText: async (rawInput, request) => {
           const input = rawInput as { readonly text?: unknown; readonly out?: unknown; readonly key?: unknown }
           try {
-            const result = await encryptText(options, selectedKey(input.key, publicKey, decryptKey), input)
+            const key = selectedKey(input.key, publicKey, decryptKey)
+            const result = await encryptText(options, key, input)
             return {
               ...(result.ciphertext === undefined ? {} : { ciphertext: result.ciphertext }),
               ...(result.out === undefined ? {} : { out: result.out }),
-              keyID: publicKey.kid,
+              keyID: key.kid,
               bytes: result.metadata.ciphertextBytes,
             }
           } catch {
@@ -376,16 +377,17 @@ export async function setupSensitiveEncrypt(context: PluginContext) {
         encrypt: async (rawInput, request) => {
           const input = rawInput as { readonly file?: unknown; readonly out?: unknown; readonly key?: unknown }
           try {
-            const result = await encryptFile(options, selectedKey(input.key, publicKey, decryptKey), input)
+            const key = selectedKey(input.key, publicKey, decryptKey)
+            const result = await encryptFile(options, key, input)
             await notifyProtection(context, syntheticToolContext(), {
               file: result.input,
               role: "encrypt-input",
-              keyID: publicKey.kid,
+              keyID: key.kid,
             })
             return {
               ...(result.ciphertext === undefined ? {} : { ciphertext: result.ciphertext }),
               ...(result.out === undefined ? {} : { out: result.out }),
-              keyID: publicKey.kid,
+              keyID: key.kid,
               bytes: result.metadata.ciphertextBytes,
             }
           } catch {

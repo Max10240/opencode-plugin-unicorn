@@ -229,7 +229,10 @@ test("notifies an optional protection tool without forwarding its result", async
 
 test("exposes the TUI encryption RPC without exposing plaintext", async () => {
   await fixture(async ({ directory, options }) => {
-    const { rpc, cleanup } = await setup(options)
+    const calls: Array<Record<string, unknown>> = []
+    const { rpc, cleanup } = await setup(options, (tools) => {
+      tools.set("register_sensitive_file", fakeRegisterTool(calls))
+    })
     try {
       const result = await rpc().encrypt(
         { file: literal(directory, "secret.txt") },
@@ -238,6 +241,16 @@ test("exposes the TUI encryption RPC without exposing plaintext", async () => {
       expect(result.ciphertext).toStartWith(ENVELOPE_PREFIX)
       expect(result.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
       expect(JSON.stringify(result)).not.toContain("SECRET_MARKER")
+
+      const keys = await rpc().keys({}, { error: () => { throw new Error("unexpected") } })
+      const encryptID = keys.keys.find((key: { role: string }) => key.role === "encrypt").keyID
+      const selected = await rpc().encrypt(
+        { file: literal(directory, "secret.txt"), key: "encrypt" },
+        { error: () => { throw new Error("unexpected") } },
+      )
+      expect(selected.keyID).toBe(encryptID)
+      expect(calls.at(-1)?.keyID).toBe(encryptID)
+      expect(JSON.stringify(selected)).not.toContain("SECRET_MARKER")
     } finally { await cleanup() }
   })
 })
@@ -249,13 +262,15 @@ test("encrypts text through the TUI RPC without a plaintext file", async () => {
       const keys = await rpc().keys({}, { error: () => { throw new Error("unexpected") } })
       expect(keys.defaultRole).toBe("decrypt")
       expect(keys.keys.map((key: { role: string }) => key.role).sort()).toEqual(["decrypt", "encrypt"])
+      const decryptID = keys.keys.find((key: { role: string }) => key.role === "decrypt").keyID
+      const encryptID = keys.keys.find((key: { role: string }) => key.role === "encrypt").keyID
 
       const inline = await rpc().encryptText(
         { text: "TEXT_MARKER" },
         { error: () => { throw new Error("unexpected") } },
       )
       expect(inline.ciphertext).toStartWith(ENVELOPE_PREFIX)
-      expect(inline.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(inline.keyID).toBe(decryptID)
       expect(decryptEnvelope(inline.ciphertext, decrypt.privateKey).toString()).toBe("TEXT_MARKER")
       expect(JSON.stringify(inline)).not.toContain("TEXT_MARKER")
 
@@ -264,6 +279,7 @@ test("encrypts text through the TUI RPC without a plaintext file", async () => {
         { error: () => { throw new Error("unexpected") } },
       )
       expect(written.out).toBeDefined()
+      expect(written.keyID).toBe(encryptID)
       const ciphertext = await readFile(written.out, "utf8")
       expect(ciphertext).toStartWith(ENVELOPE_PREFIX)
       expect(ciphertext).not.toContain("TEXT_FILE_MARKER")

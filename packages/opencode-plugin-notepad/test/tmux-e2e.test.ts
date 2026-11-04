@@ -72,9 +72,34 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
 
     tmux(["send-keys", "-t", target, "c"])
     await waitForPane(target, "Copied note", "copy action did not report success")
+    await waitFor(async () => !pane(target).includes("Copied note"), "copy toast did not clear")
 
     tmux(["send-keys", "-t", target, "Escape"])
     await waitFor(async () => !pane(target).includes("esc close"), "notepad dialog did not close")
+
+    // Panel keys must not leak into the prompt while the notepad is closed.
+    tmux(["send-keys", "-t", target, "-l", "aedgc"])
+    await Bun.sleep(300)
+    expect(pane(target)).not.toContain("New note")
+    expect(pane(target)).not.toContain("Edit note")
+    expect(pane(target)).not.toContain("Delete note?")
+    expect(pane(target)).not.toContain("Copied note")
+    expect(pane(target)).not.toContain("Moved to")
+    expect(pane(target)).toContain("aedgc")
+    for (let index = 0; index < 5; index++) tmux(["send-keys", "-t", target, "BSpace"])
+
+    // Panel keys must not leak into another modal dialog either.
+    tmux(["send-keys", "-t", target, "C-p"])
+    await waitForPane(target, "Commands", "command palette did not reopen")
+    tmux(["send-keys", "-t", target, "-l", "aedgc"])
+    await Bun.sleep(300)
+    expect(pane(target)).not.toContain("New note")
+    expect(pane(target)).not.toContain("Edit note")
+    expect(pane(target)).not.toContain("Delete note?")
+    expect(pane(target)).not.toContain("Copied note")
+    expect(pane(target)).not.toContain("Moved to")
+    tmux(["send-keys", "-t", target, "Escape"])
+    await waitFor(async () => !pane(target).includes("Commands"), "command palette did not close after isolation check")
 
     tmux(["send-keys", "-t", target, "-l", "/notepad"])
     await waitForPane(target, "Capture and manage notes", "notepad slash command is missing")

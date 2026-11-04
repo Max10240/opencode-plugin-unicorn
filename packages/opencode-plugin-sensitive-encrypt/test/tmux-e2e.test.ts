@@ -7,7 +7,7 @@ import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.
 import { createSession } from "../../opencode-plugin-show-img/test/e2e-utils.js"
 import { commandIsListed } from "../../opencode-plugin-prompt-search/test/palette.js"
 import { createTmux } from "../../../test/tmux.js"
-import { decryptEnvelope } from "../src/crypto.js"
+import { decryptEnvelope, parsePublicKey } from "../src/crypto.js"
 
 setDefaultTimeout(240_000)
 
@@ -121,10 +121,16 @@ async function runScenario(mode: "standalone" | "unicorn") {
     // Text mode: encrypt from memory, with an optional ciphertext file.
     tmux(["send-keys", "-t", target, "-l", marker])
     await waitForPane(target, marker, "text input did not appear")
+    tmux(["send-keys", "-t", target, "C-t"])
+    await waitForPane(target, "[File]", "file mode did not activate for the persistence check")
+    tmux(["send-keys", "-t", target, "C-t"])
+    await waitForPane(target, "[Text]", "text mode did not reactivate")
+    await waitForPane(target, marker, "text was lost when switching modes")
     tmux(["send-keys", "-t", target, "Tab"])
     tmux(["send-keys", "-t", target, "-l", out])
     tmux(["send-keys", "-t", target, "F2"])
     await waitForPane(target, "Encrypted with key", "text encryption result dialog did not open")
+    expect(screen(target).replace(/\s+/g, "")).toContain(parsePublicKey(decryptPair.publicKey).kid)
     await waitFor(
       async () => {
         const resolved = await realpath(out).catch(() => out)
@@ -147,8 +153,30 @@ async function runScenario(mode: "standalone" | "unicorn") {
     expect(decryptEnvelope(textCiphertext, decryptPair.privateKey).toString("utf8")).toBe(marker)
     if (process.platform !== "win32") expect((await stat(out)).mode & 0o777).toBe(0o600)
 
+    await waitFor(
+      async () => !screen(target).includes("Copied output path") && !screen(target).includes("Copied ciphertext"),
+      "copy toasts did not clear",
+    )
     tmux(["send-keys", "-t", target, "Escape"])
     await waitFor(async () => !screen(target).includes("Encrypted with key"), "text result dialog did not close")
+
+    // Result-dialog shortcuts must not leak after the dialog closes.
+    tmux(["send-keys", "-t", target, "-l", "cp"])
+    await Bun.sleep(300)
+    expect(screen(target)).not.toContain("Copied ciphertext")
+    expect(screen(target)).not.toContain("Copied output path")
+    for (let index = 0; index < 2; index++) tmux(["send-keys", "-t", target, "BSpace"])
+
+    // Panel shortcuts must not leak into another modal dialog.
+    await openPalette(target)
+    tmux(["send-keys", "-t", target, "-l", "cp"])
+    await Bun.sleep(300)
+    expect(screen(target)).not.toContain("Copied ciphertext")
+    expect(screen(target)).not.toContain("Copied output path")
+    expect(screen(target)).not.toContain("Type any text to encrypt")
+    expect(screen(target)).not.toContain("f2 encrypt")
+    tmux(["send-keys", "-t", target, "Escape"])
+    await waitFor(async () => !screen(target).includes("Commands"), "command palette did not close after isolation check")
 
     // File mode: still manually typed, and still never uses the model tool.
     await openPalette(target)
@@ -172,6 +200,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
     tmux(["send-keys", "-t", target, "-l", fileOut])
     tmux(["send-keys", "-t", target, "F2"])
     await waitForPane(target, "Encrypted with key", "file encryption result dialog did not open")
+    expect(screen(target).replace(/\s+/g, "")).toContain(parsePublicKey(encryptPair.publicKey).kid)
     await waitFor(
       async () => {
         const resolved = await realpath(fileOut).catch(() => fileOut)

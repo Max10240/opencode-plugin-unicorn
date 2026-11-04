@@ -103,30 +103,36 @@ export class ProtectionRegistry {
     if (!text) return text
     const patterns = this.patternsCache ??= [...new Set([...this.entries.values()].flatMap((entry) => entry.patterns))]
     if (patterns.length === 0) return text
-    let value = text
     // Huge whole-file/base64 patterns are cheapest with native includes. Keep them out of the
     // combined regex so the regex program stays bounded.
     const direct = this.directCache ??= patterns.filter((pattern) => pattern.length > 256)
-    for (const pattern of direct) {
-      if (value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
-    }
-    const short = this.shortCache ??= patterns.filter((pattern) => pattern.length <= 256).sort((left, right) => right.length - left.length)
-    if (short.length === 0) return value
-    const regex = this.regex(short)
-    if (!regex) {
-      for (const pattern of short) {
-        if (value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
+    const short = this.shortCache ??= patterns.filter((pattern) => pattern.length <= 256)
+    // Most outputs contain no protected text. One combined scan proves that without allocating or
+    // replacing anything, which is where the optimization pays off.
+    if (!direct.some((pattern) => text.includes(pattern)) && !this.matchesShort(text, short)) return text
+    // A replacement can create or destroy a later match, so anything that does match keeps the
+    // original registration-order replacement semantics exactly.
+    let value = text
+    for (const entry of this.entries.values()) {
+      for (const pattern of entry.patterns) {
+        if (pattern && value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
       }
-      return value
     }
-    return value.replace(regex, () => REDACTION_TOKEN)
+    return value
+  }
+
+  private matchesShort(text: string, patterns: readonly string[]) {
+    if (patterns.length === 0) return false
+    const regex = this.regex(patterns)
+    if (!regex) return patterns.some((pattern) => text.includes(pattern))
+    return regex.test(text)
   }
 
   private regex(patterns: readonly string[]) {
     if (this.matcher) return this.matcher
     if (patterns.length > 5_000) return undefined
     try {
-      this.matcher = new RegExp(patterns.map(escapeRegExp).join("|"), "g")
+      this.matcher = new RegExp(patterns.map(escapeRegExp).join("|"))
       return this.matcher
     } catch {
       return undefined

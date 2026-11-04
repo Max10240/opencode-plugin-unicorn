@@ -1,6 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { useKeyboard } from "@opentui/solid"
 import { TextAttributes, type BoxRenderable, type InputRenderable, type TextareaRenderable } from "@opentui/core"
 import { createSignal, onMount, Show } from "solid-js"
 import { EncryptPreview } from "./rpc.js"
@@ -58,6 +57,7 @@ async function openEncryptPanel(context: Context) {
 
 function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: KeyRole }) {
   const [mode, setMode] = createSignal<EncryptMode>("text")
+  const [textValue, setTextValue] = createSignal("")
   const [keyRole, setKeyRole] = createSignal<KeyRole>(props.defaultKey)
   const [textarea, setTextarea] = createSignal<TextareaRenderable>()
   const [fileInput, setFileInput] = createSignal<InputRenderable>()
@@ -87,6 +87,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   }
 
   const toggleMode = () => {
+    if (mode() === "text") setTextValue(textarea()?.plainText ?? "")
     const next: EncryptMode = mode() === "text" ? "file" : "text"
     setMode(next)
     setTimeout(() => (next === "text" ? textarea() : fileInput())?.focus(), 0)
@@ -184,6 +185,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
       >
         <textarea
           ref={(value: TextareaRenderable) => { setTextarea(value); setTimeout(() => value.focus(), 0) }}
+          initialValue={textValue()}
           height={8}
           wrapMode="word"
           placeholder="Type any text to encrypt…"
@@ -213,23 +215,32 @@ function EncryptResultDialog(props: { context: Context; result: EncryptResult })
     void props.context.ui.toast.show({ message: `Copied ${label}`, variant: "info" })
   }
 
-  useKeyboard((event) => {
-    if (event.name === "c") {
-      event.preventDefault()
-      event.stopPropagation()
-      copy(props.result.ciphertext ?? props.result.out, "ciphertext")
-    } else if (event.name === "p") {
-      event.preventDefault()
-      event.stopPropagation()
-      copy(props.result.out, "output path")
-    }
-  })
+  const [target, setTarget] = createSignal<BoxRenderable>()
+  props.context.keymap.layer(() => ({
+    mode: "modal",
+    target,
+    priority: 20,
+    commands: [
+      { bind: "c", title: "Copy ciphertext", run: () => copy(props.result.ciphertext ?? props.result.out, "ciphertext") },
+      { bind: "p", title: "Copy output path", run: () => copy(props.result.out, "output path") },
+    ],
+  }))
 
   const ciphertext = () => props.result.ciphertext ?? ""
   const shown = () => ciphertext().length > 20_000 ? `${ciphertext().slice(0, 20_000)}\n…` : ciphertext()
 
   return (
-    <box flexDirection="column" gap={1}>
+    <box
+      ref={(value: BoxRenderable) => {
+        setTarget(value)
+        setTimeout(() => {
+          if (!value.isDestroyed) value.focus()
+        }, 0)
+      }}
+      focusable
+      flexDirection="column"
+      gap={1}
+    >
       <text>Encrypted with key {props.result.keyID}</text>
       <text>{props.result.bytes} ciphertext bytes</text>
       <Show when={props.result.out}>
