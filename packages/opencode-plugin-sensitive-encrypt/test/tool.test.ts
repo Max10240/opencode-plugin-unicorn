@@ -242,6 +242,36 @@ test("exposes the TUI encryption RPC without exposing plaintext", async () => {
   })
 })
 
+test("encrypts text through the TUI RPC without a plaintext file", async () => {
+  await fixture(async ({ directory, options, encrypt, decrypt }) => {
+    const { rpc, cleanup } = await setup(options)
+    try {
+      const keys = await rpc().keys({}, { error: () => { throw new Error("unexpected") } })
+      expect(keys.defaultRole).toBe("decrypt")
+      expect(keys.keys.map((key: { role: string }) => key.role).sort()).toEqual(["decrypt", "encrypt"])
+
+      const inline = await rpc().encryptText(
+        { text: "TEXT_MARKER" },
+        { error: () => { throw new Error("unexpected") } },
+      )
+      expect(inline.ciphertext).toStartWith(ENVELOPE_PREFIX)
+      expect(inline.keyID).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(decryptEnvelope(inline.ciphertext, decrypt.privateKey).toString()).toBe("TEXT_MARKER")
+      expect(JSON.stringify(inline)).not.toContain("TEXT_MARKER")
+
+      const written = await rpc().encryptText(
+        { text: "TEXT_FILE_MARKER", key: "encrypt", out: literal(directory, "text.ocsec") },
+        { error: () => { throw new Error("unexpected") } },
+      )
+      expect(written.out).toBeDefined()
+      const ciphertext = await readFile(written.out, "utf8")
+      expect(ciphertext).toStartWith(ENVELOPE_PREFIX)
+      expect(ciphertext).not.toContain("TEXT_FILE_MARKER")
+      expect(decryptEnvelope(ciphertext, encrypt.privateKey).toString()).toBe("TEXT_FILE_MARKER")
+    } finally { await cleanup() }
+  })
+})
+
 test("notifies protection after decryption with the plaintext output path", async () => {
   await fixture(async ({ directory, options, decrypt }) => {
     const calls: Array<Record<string, unknown>> = []

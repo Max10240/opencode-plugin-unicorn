@@ -27,9 +27,9 @@ test("sensitive encryption is enabled by default and can be disabled independent
   expect(sensitiveEncryptFeatureEnabled({ features: { sensitiveEncrypt: false } })).toBe(false)
 })
 
-test("sensitive protection is opt-in", () => {
-  expect(sensitiveProtectionFeatureEnabled({})).toBe(false)
-  expect(sensitiveProtectionFeatureEnabled({ sensitiveProtection: { enabled: true } })).toBe(false)
+test("sensitive protection is enabled by default", () => {
+  expect(sensitiveProtectionFeatureEnabled({})).toBe(true)
+  expect(sensitiveProtectionFeatureEnabled({ sensitiveProtection: { enabled: true } })).toBe(true)
   expect(sensitiveProtectionFeatureEnabled({ features: { sensitiveProtection: true } })).toBe(true)
   expect(sensitiveProtectionFeatureEnabled({ features: { sensitiveProtection: false } })).toBe(false)
 })
@@ -96,7 +96,7 @@ test("feature gates win over child options and remain independent", () => {
   expect(sensitiveEncryptFeatureEnabled(options)).toBe(false)
   expect(sensitiveEncryptFeatureEnabled({})).toBe(true)
   expect(sensitiveProtectionFeatureEnabled(options)).toBe(false)
-  expect(sensitiveProtectionFeatureEnabled({})).toBe(false)
+  expect(sensitiveProtectionFeatureEnabled({})).toBe(true)
 })
 
 test("show_img can be enabled and disabled independently of image generation and prompt search", () => {

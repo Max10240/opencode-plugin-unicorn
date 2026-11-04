@@ -59,7 +59,9 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
 
     tmux(["send-keys", "-t", target, "a"])
     await waitForPane(target, "New note", "note editor did not open")
+    await Bun.sleep(200)
     tmux(["send-keys", "-t", target, "-l", MARKER])
+    await waitForPane(target, MARKER, "note text did not appear in the editor")
     tmux(["send-keys", "-t", target, "F2"])
     await waitForPane(target, MARKER, "note was not saved")
     await waitForPane(target, "folder ·", "new note was not scoped to the current folder")
@@ -82,7 +84,9 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
 
     tmux(["send-keys", "-t", target, "e"])
     await waitForPane(target, "Edit note", "note editor did not reopen")
+    await Bun.sleep(200)
     tmux(["send-keys", "-t", target, "-l", " EDITED"])
+    await waitForPane(target, " EDITED", "edited text did not appear in the editor")
     tmux(["send-keys", "-t", target, "F2"])
     await waitForPane(target, "EDITED", "note edit was not saved")
     await Bun.sleep(1000)

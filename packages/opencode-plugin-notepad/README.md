@@ -62,15 +62,15 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · c copy · g scope · / search · tab switch · esc close
+a add · e edit · d delete · c copy · g scope · tab search · esc close
 ```
 
 - `a`: add a note; it defaults to the current folder.
-- `e`: edit the selected note in a multiline editor. `f2` or `ctrl+enter` saves; `esc` cancels.
+- `e`: edit the selected note in a multiline editor. `f2` saves; `esc` cancels.
 - `d`: delete after confirmation.
 - `c`: copy the note text with OSC52 and show a toast.
 - `g`: move the selected note between the current folder and Global.
-- `/` or `Tab`: focus the search box; `Esc` or `Enter` returns to the list.
+- `Tab`: focus the search box; `Esc` or `Enter` returns to the list.
 - `↑` / `↓`: select notes.
 - `Esc`: close the notepad.
 

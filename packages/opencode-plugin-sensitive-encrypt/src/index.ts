@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
-import { decryptEnvelope, encryptEnvelope, ENVELOPE_ALGORITHM, type ParsedPublicKey } from "./crypto.js"
+import { decryptEnvelope, encryptEnvelope, ENVELOPE_ALGORITHM, parsePublicKey, type ParsedPublicKey } from "./crypto.js"
 import { MAX_INLINE_CIPHERTEXT_BYTES, parseOptions, type ResolvedSensitiveEncryptOptions } from "./options.js"
 import {
   ensureDecryptKey,
@@ -128,6 +128,57 @@ async function encryptFile(
     out,
   }
 }
+
+async function encryptText(
+  options: ResolvedSensitiveEncryptOptions,
+  publicKey: ParsedPublicKey,
+  input: { readonly text?: unknown; readonly out?: unknown },
+) {
+  if (typeof input.text !== "string" || input.text.length === 0) throw new Error("text is required")
+  if (input.out !== undefined && (typeof input.out !== "string" || !input.out.trim())) {
+    throw new Error("out must be a non-empty path")
+  }
+  const plaintext = Buffer.from(input.text, "utf8")
+  if (plaintext.length > options.maxBytes) throw new Error(`text exceeds the ${options.maxBytes} byte limit`)
+  const envelope = encryptEnvelope(publicKey, plaintext)
+  const bytes = Buffer.byteLength(envelope, "utf8")
+  const metadata = {
+    algorithm: ENVELOPE_ALGORITHM,
+    keyID: publicKey.kid,
+    textBytes: plaintext.length,
+    ciphertextBytes: bytes,
+  }
+  if (input.out === undefined) {
+    if (bytes > MAX_INLINE_CIPHERTEXT_BYTES) throw new Error("Ciphertext is too large for inline output; specify out")
+    return { ciphertext: envelope, metadata }
+  }
+  const out = await writeCiphertext(input.out, envelope, "")
+  return { ciphertext: bytes <= MAX_INLINE_CIPHERTEXT_BYTES ? envelope : undefined, out, metadata }
+}
+
+type KeyRole = "decrypt" | "encrypt"
+
+function availableKeys(publicKey: ParsedPublicKey | undefined, decryptKey: DecryptKey | undefined) {
+  return [
+    ...(decryptKey?.publicKey ? [{ role: "decrypt" as const, keyID: decryptKey.keyID }] : []),
+    ...(publicKey ? [{ role: "encrypt" as const, keyID: publicKey.kid }] : []),
+  ]
+}
+
+function defaultKeyRole(decryptKey: DecryptKey | undefined): KeyRole {
+  return decryptKey?.publicKey ? "decrypt" : "encrypt"
+}
+
+function selectedKey(role: unknown, publicKey: ParsedPublicKey | undefined, decryptKey: DecryptKey | undefined) {
+  const selected: KeyRole = role === "decrypt" || role === "encrypt" ? role : defaultKeyRole(decryptKey)
+  if (selected === "decrypt") {
+    if (!decryptKey?.publicKey) throw new Error("Decryption public key is unavailable")
+    return parsePublicKey(decryptKey.publicKey)
+  }
+  if (!publicKey) throw new Error("Encryption public key is unavailable")
+  return publicKey
+}
+
 
 function createEncryptTool(context: PluginContext, options: ResolvedSensitiveEncryptOptions, publicKey: ParsedPublicKey) {
   return {
@@ -303,10 +354,29 @@ export async function setupSensitiveEncrypt(context: PluginContext) {
 
     if (context.rpc && publicKey) {
       const rpc = await context.rpc.register(EncryptPreview, {
-        encrypt: async (rawInput, request) => {
-          const input = rawInput as { readonly file?: unknown; readonly out?: unknown }
+        keys: async (_rawInput, request) => {
+          const keys = availableKeys(publicKey, decryptKey)
+          if (keys.length === 0) return request.error("unavailable", "No encryption key is available", {})
+          return { keys, defaultRole: defaultKeyRole(decryptKey) }
+        },
+        encryptText: async (rawInput, request) => {
+          const input = rawInput as { readonly text?: unknown; readonly out?: unknown; readonly key?: unknown }
           try {
-            const result = await encryptFile(options, publicKey, input)
+            const result = await encryptText(options, selectedKey(input.key, publicKey, decryptKey), input)
+            return {
+              ...(result.ciphertext === undefined ? {} : { ciphertext: result.ciphertext }),
+              ...(result.out === undefined ? {} : { out: result.out }),
+              keyID: publicKey.kid,
+              bytes: result.metadata.ciphertextBytes,
+            }
+          } catch {
+            return request.error("unavailable", "Unable to encrypt this text", {})
+          }
+        },
+        encrypt: async (rawInput, request) => {
+          const input = rawInput as { readonly file?: unknown; readonly out?: unknown; readonly key?: unknown }
+          try {
+            const result = await encryptFile(options, selectedKey(input.key, publicKey, decryptKey), input)
             await notifyProtection(context, syntheticToolContext(), {
               file: result.input,
               role: "encrypt-input",

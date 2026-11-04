@@ -92,6 +92,35 @@ test("registers a file, blocks read, and redacts tool output", async () => {
   })
 })
 
+test("redacts many patterns without changing unrelated output", async () => {
+  await fixture(async ({ root, data, options }) => {
+    const file = path.join(root, "many-secrets.txt")
+    const lines = Array.from({ length: 300 }, (_, index) => `MANY_SECRET_LINE_${String(index).padStart(3, "0")}_${"x".repeat(24)}`)
+    await writeFile(file, lines.join("\n"), { mode: 0o600 })
+    const { tools, hooks, cleanup } = await setup(root, data, { ...options, maxContentBytes: 100_000 })
+    try {
+      await tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
+      const after: any = {
+        status: "completed",
+        result: {
+          content: [{ type: "text", text: `prefix ${lines[10]} middle ${lines[250]} suffix` }],
+          output: `safe prefix ${lines[1]} safe suffix`,
+          metadata: { unchanged: "metadata stays intact" },
+        },
+      }
+      await hooks.get("execute.after")!(after)
+      const serialized = JSON.stringify(after.result)
+      expect(serialized).not.toContain(lines[10])
+      expect(serialized).not.toContain(lines[250])
+      expect(serialized).not.toContain(lines[1])
+      expect(serialized).toContain("prefix")
+      expect(serialized).toContain("suffix")
+      expect(after.result.metadata.unchanged).toBe("metadata stays intact")
+      expect(serialized).toContain("[REDACTED:PROTECTED]")
+    } finally { await cleanup() }
+  })
+})
+
 test("redacts context messages and outgoing HTTP request bodies", async () => {
   await fixture(async ({ root, data, file, options }) => {
     const { tools, sessions, cleanup } = await setup(root, data, options)

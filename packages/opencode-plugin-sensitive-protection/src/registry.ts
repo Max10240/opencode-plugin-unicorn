@@ -19,6 +19,10 @@ type StoredEntry = Omit<Entry, "patterns">
 export class ProtectionRegistry {
   private readonly entries = new Map<string, Entry>()
   private saveQueue: Promise<void> = Promise.resolve()
+  private patternsCache: readonly string[] | undefined
+  private directCache: readonly string[] | undefined
+  private shortCache: readonly string[] | undefined
+  private matcher: RegExp | undefined
 
   constructor(
     private readonly directory: string,
@@ -87,18 +91,46 @@ export class ProtectionRegistry {
       patterns,
     }
     this.entries.set(resolved, entry)
+    this.patternsCache = undefined
+    this.directCache = undefined
+    this.shortCache = undefined
+    this.matcher = undefined
     if (input.persist !== false) void this.queueSave()
     return { path: resolved, bytes: content.length }
   }
 
   redact(text: string) {
+    if (!text) return text
+    const patterns = this.patternsCache ??= [...new Set([...this.entries.values()].flatMap((entry) => entry.patterns))]
+    if (patterns.length === 0) return text
     let value = text
-    for (const entry of this.entries.values()) {
-      for (const pattern of entry.patterns) {
-        if (pattern && value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
-      }
+    // Huge whole-file/base64 patterns are cheapest with native includes. Keep them out of the
+    // combined regex so the regex program stays bounded.
+    const direct = this.directCache ??= patterns.filter((pattern) => pattern.length > 256)
+    for (const pattern of direct) {
+      if (value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
     }
-    return value
+    const short = this.shortCache ??= patterns.filter((pattern) => pattern.length <= 256).sort((left, right) => right.length - left.length)
+    if (short.length === 0) return value
+    const regex = this.regex(short)
+    if (!regex) {
+      for (const pattern of short) {
+        if (value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
+      }
+      return value
+    }
+    return value.replace(regex, () => REDACTION_TOKEN)
+  }
+
+  private regex(patterns: readonly string[]) {
+    if (this.matcher) return this.matcher
+    if (patterns.length > 5_000) return undefined
+    try {
+      this.matcher = new RegExp(patterns.map(escapeRegExp).join("|"), "g")
+      return this.matcher
+    } catch {
+      return undefined
+    }
   }
 
   redactValue(value: unknown): { value: unknown; changed: boolean } {
@@ -108,23 +140,30 @@ export class ProtectionRegistry {
       return { value: next, changed: next !== value }
     }
     if (Array.isArray(value)) {
-      let changed = false
-      const next = value.map((item) => {
-        const result = this.redactValue(item)
-        if (result.changed) changed = true
-        return result.value
-      })
-      return { value: next, changed }
+      let next: unknown[] | undefined
+      for (let index = 0; index < value.length; index++) {
+        const result = this.redactValue(value[index])
+        if (result.changed) {
+          if (!next) next = value.slice(0, index)
+          next.push(result.value)
+        } else if (next) {
+          next.push(value[index])
+        }
+      }
+      return next ? { value: next, changed: true } : { value, changed: false }
     }
     if (value && typeof value === "object") {
-      let changed = false
-      const next: Record<string, unknown> = {}
+      let next: Record<string, unknown> | undefined
       for (const [key, item] of Object.entries(value)) {
         const result = this.redactValue(item)
-        if (result.changed) changed = true
-        next[key] = result.value
+        if (result.changed) {
+          if (!next) next = { ...(value as Record<string, unknown>) }
+          next[key] = result.value
+        } else if (next) {
+          next[key] = item
+        }
       }
-      return { value: next, changed }
+      return next ? { value: next, changed: true } : { value, changed: false }
     }
     return { value, changed: false }
   }
@@ -150,6 +189,10 @@ export class ProtectionRegistry {
       await unlink(temporary).catch(() => {})
     }
   }
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function buildPatterns(content: Buffer) {

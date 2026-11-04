@@ -60,15 +60,15 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · c copy · g scope · / search · tab switch · esc close
+a add · e edit · d delete · c copy · g scope · tab search · esc close
 ```
 
 - `a`：新增，默认保存到当前文件夹。
-- `e`：在弹窗中编辑多行内容；`f2` 或 `ctrl+enter` 保存，`esc` 取消。
+- `e`：在弹窗中编辑多行内容；`f2` 保存，`esc` 取消。
 - `d`：确认后删除。
 - `c`：通过 OSC52 复制笔记并显示 toast。
 - `g`：在当前文件夹和全局之间切换。
-- `/` 或 `Tab`：聚焦搜索框；`Esc` 或 `Enter` 返回列表。
+- `Tab`：聚焦搜索框；`Esc` 或 `Enter` 返回列表。
 - `↑` / `↓`：选择笔记。
 - `Esc`：关闭记事本。
 

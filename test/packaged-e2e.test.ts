@@ -38,6 +38,8 @@ const toolDescriptions = {
     "Decrypt a single ocsec1 file under $TMPDIR into a new file with the configured private key only when the user explicitly requests it. Never output plaintext or key material; always write the result to out and report only its path. Keep out under $TMPDIR.",
   sensitive_key_info: "Show the configured public key and fingerprint without exposing private key material.",
   list_online_sessions: "List other online OpenCode sessions across working directories.",
+  register_sensitive_file:
+    "Register an existing file as protected. The file is read locally for redaction; its contents are never output.",
 }
 
 test("every npm tarball contains only JavaScript and runs in isolated real OpenCode", async () => {

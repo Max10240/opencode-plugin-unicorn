@@ -12,7 +12,7 @@ import { decryptEnvelope } from "../src/crypto.js"
 setDefaultTimeout(240_000)
 
 const PASSWORD = "opencode-plugin-unicorn-e2e"
-const PALETTE_TITLE = "Encrypt sensitive file"
+const PALETTE_TITLE = "Encrypt sensitive data"
 const SLASH = "/encrypt-sensitive"
 
 test("manual encryption is reachable and works through the real TUI", async () => {
@@ -25,16 +25,24 @@ async function runScenario(mode: "standalone" | "unicorn") {
   tmux = createTmux()
   const root = await mkdtemp(path.join(os.tmpdir(), `sensitive-encrypt-tui-${mode}-`))
   const secret = path.join(root, "secret.txt")
-  const out = path.join(root, "secret.ocsec")
+  const out = path.join(root, "text.ocsec")
+  const fileOut = path.join(root, "secret.ocsec")
   const marker = `SENSITIVE_TUI_${mode.toUpperCase()}_MARKER`
-  const { publicKey, privateKey } = generateKeyPairSync("rsa", {
+  const encryptPair = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  })
+  const decryptPair = generateKeyPairSync("rsa", {
     modulusLength: 2048,
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   })
   const publicKeyFile = path.join(root, "public.pem")
+  const decryptPrivateFile = path.join(root, "decrypt-private.pem")
   await writeFile(secret, marker, { mode: 0o600 })
-  await writeFile(publicKeyFile, publicKey, { mode: 0o644 })
+  await writeFile(publicKeyFile, encryptPair.publicKey, { mode: 0o644 })
+  await writeFile(decryptPrivateFile, decryptPair.privateKey, { mode: 0o600 })
 
   const tuiPackage = path.resolve(import.meta.dir, mode === "unicorn" ? "../../opencode-plugin-unicorn" : "..")
   const pluginOptions = mode === "unicorn"
@@ -48,9 +56,9 @@ async function runScenario(mode: "standalone" | "unicorn") {
           sessionSearch: false,
           sensitiveProtection: true,
         },
-        sensitiveEncrypt: { publicKeyFileForEncrypt: publicKeyFile, decrypt: false },
+        sensitiveEncrypt: { publicKeyFileForEncrypt: publicKeyFile, privateKeyFileForDecrypt: decryptPrivateFile, decrypt: true },
       }
-    : { publicKeyFileForEncrypt: publicKeyFile, decrypt: false }
+    : { publicKeyFileForEncrypt: publicKeyFile, privateKeyFileForDecrypt: decryptPrivateFile, decrypt: true }
 
   const e2e = await createOpenCodeE2E({
     plugin: mode === "unicorn" ? "unicorn" : "sensitive-encrypt",
@@ -78,7 +86,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
 
     // The slash completion inserts an autocomplete mode, which must stay reachable too.
     tmux(["send-keys", "-t", target, "-l", SLASH])
-    await waitForPane(target, "Encrypt a file under $TMPDIR", "slash command is missing from autocomplete")
+    await waitForPane(target, "Encrypt in-memory text or a file with the configured public key", "slash command is missing from autocomplete")
     tmux(["send-keys", "-t", target, "Escape"])
     await clearPrompt(target, SLASH.length)
 
@@ -95,10 +103,10 @@ async function runScenario(mode: "standalone" | "unicorn") {
       await clearPrompt(target, "/protect-sensitive-file-ui".length)
     }
 
-    // Invoke through the palette in standalone mode and through slash in Unicorn.
+    // Open with the palette in standalone and with slash in Unicorn.
     if (mode === "unicorn") {
       tmux(["send-keys", "-t", target, "-l", SLASH])
-      await waitForPane(target, "Encrypt a file under $TMPDIR", "slash command disappeared before invocation")
+      await waitForPane(target, "Encrypt in-memory text or a file with the configured public key", "slash command disappeared before invocation")
       tmux(["send-keys", "-t", target, "Enter"])
     } else {
       await openPalette(target)
@@ -106,41 +114,77 @@ async function runScenario(mode: "standalone" | "unicorn") {
       await waitFor(async () => commandIsListed(screen(target), PALETTE_TITLE), "encryption command disappeared from the palette")
       tmux(["send-keys", "-t", target, "Enter"])
     }
-    await waitForPane(target, "Input file under $TMPDIR", "encryption file dialog did not open")
-    tmux(["send-keys", "-t", target, "-l", secret])
-    tmux(["send-keys", "-t", target, "Enter"])
-    await waitForPane(target, "Ciphertext output (optional)", "encryption output dialog did not open")
+    await waitForPane(target, "Encrypt sensitive data", "encryption panel did not open")
+    await waitForPane(target, "Type any text to encrypt", "text mode is not the default")
+    await Bun.sleep(300)
+
+    // Text mode: encrypt from memory, with an optional ciphertext file.
+    tmux(["send-keys", "-t", target, "-l", marker])
+    await waitForPane(target, marker, "text input did not appear")
+    tmux(["send-keys", "-t", target, "Tab"])
     tmux(["send-keys", "-t", target, "-l", out])
-    tmux(["send-keys", "-t", target, "Enter"])
-    await waitForPane(target, "Encrypted with key", "encryption result dialog did not open")
+    tmux(["send-keys", "-t", target, "F2"])
+    await waitForPane(target, "Encrypted with key", "text encryption result dialog did not open")
     await waitFor(
       async () => {
         const resolved = await realpath(out).catch(() => out)
         return screen(target).replace(/\s+/g, "").includes(`Output:${resolved}`)
       },
-      "encryption result did not show the output path",
+      "text encryption result did not show the output path",
     )
     expect(screen(target)).not.toContain(marker)
 
-    // The result dialog is intentionally persistent and exposes copy actions.
-    await Bun.sleep(1_500)
+    await Bun.sleep(1_000)
     expect(screen(target)).toContain("Encrypted with key")
     tmux(["send-keys", "-t", target, "p"])
-    await waitForPane(target, "Copied output path", "copying the output path did not report success")
+    await waitForPane(target, "Copied output path", "copying the text ciphertext path did not report success")
     tmux(["send-keys", "-t", target, "c"])
-    await waitForPane(target, "Copied ciphertext", "copying the ciphertext did not report success")
+    await waitForPane(target, "Copied ciphertext", "copying the text ciphertext did not report success")
+
+    const textCiphertext = await readFile(out, "utf8")
+    expect(textCiphertext).toStartWith("ocsec1:")
+    expect(textCiphertext).not.toContain(marker)
+    expect(decryptEnvelope(textCiphertext, decryptPair.privateKey).toString("utf8")).toBe(marker)
+    if (process.platform !== "win32") expect((await stat(out)).mode & 0o777).toBe(0o600)
 
     tmux(["send-keys", "-t", target, "Escape"])
-    await waitFor(async () => !screen(target).includes("Encrypted with key"), "result dialog did not close")
-    tmux(["send-keys", "-t", target, "-l", "TUI_STILL_ALIVE"])
-    await waitForPane(target, "TUI_STILL_ALIVE", "TUI was not usable after closing the result dialog")
-    await clearPrompt(target, "TUI_STILL_ALIVE".length)
+    await waitFor(async () => !screen(target).includes("Encrypted with key"), "text result dialog did not close")
 
-    const ciphertext = await readFile(out, "utf8")
-    expect(ciphertext).toStartWith("ocsec1:")
-    expect(ciphertext).not.toContain(marker)
-    expect(decryptEnvelope(ciphertext, privateKey).toString("utf8")).toBe(marker)
-    if (process.platform !== "win32") expect((await stat(out)).mode & 0o777).toBe(0o600)
+    // File mode: still manually typed, and still never uses the model tool.
+    await openPalette(target)
+    tmux(["send-keys", "-t", target, "-l", PALETTE_TITLE])
+    await waitFor(async () => commandIsListed(screen(target), PALETTE_TITLE), "encryption command disappeared for file mode")
+    tmux(["send-keys", "-t", target, "Enter"])
+    await waitForPane(target, "Encrypt sensitive data", "encryption panel did not reopen")
+    await Bun.sleep(200)
+    tmux(["send-keys", "-t", target, "C-t"])
+    await waitForPane(target, "[File]", "file mode did not activate")
+    await Bun.sleep(300)
+    await waitForPane(target, "Key: Decrypt", "default encryption key was not derived from the decrypt private key")
+    tmux(["send-keys", "-t", target, "Tab"])
+    tmux(["send-keys", "-t", target, "Tab"])
+    await waitForPane(target, "left/right change", "encryption key selector is not focusable")
+    tmux(["send-keys", "-t", target, "Right"])
+    await waitForPane(target, "Key: Encrypt", "encryption key did not switch to the encrypt public key")
+    tmux(["send-keys", "-t", target, "Tab"])
+    tmux(["send-keys", "-t", target, "-l", secret])
+    tmux(["send-keys", "-t", target, "Tab"])
+    tmux(["send-keys", "-t", target, "-l", fileOut])
+    tmux(["send-keys", "-t", target, "F2"])
+    await waitForPane(target, "Encrypted with key", "file encryption result dialog did not open")
+    await waitFor(
+      async () => {
+        const resolved = await realpath(fileOut).catch(() => fileOut)
+        return screen(target).replace(/\s+/g, "").includes(`Output:${resolved}`)
+      },
+      "file encryption result did not show the output path",
+    )
+
+    const fileCiphertext = await readFile(fileOut, "utf8")
+    expect(fileCiphertext).toStartWith("ocsec1:")
+    expect(fileCiphertext).not.toContain(marker)
+    expect(decryptEnvelope(fileCiphertext, encryptPair.privateKey).toString("utf8")).toBe(marker)
+    if (process.platform !== "win32") expect((await stat(fileOut)).mode & 0o777).toBe(0o600)
     expect(JSON.stringify(e2e.proxy.requests)).not.toContain(marker)
   } catch (error) {
     const log = await readFile(path.join(e2e.root, "xdg-data/opencode/log/opencode.log"), "utf8").catch(() => "")

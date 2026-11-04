@@ -63,8 +63,8 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 推荐配置插件会将源 inline 和 Markdown 命令补充到缺失的 inline commands；已有同名用户命令保持原样。
 
 `features.sensitiveEncrypt` 默认开启，设为 `false` 可关闭。`sensitiveEncrypt` 提供 `encrypt_sensitive`、`decrypt_sensitive` 和 `sensitive_key_info`；加密、解密各用独立密钥，默认按角色生成密钥对。
-`encrypt` / `decrypt` 可设为 `false` 或 `null` 单独关闭。TUI 可用 `/encrypt-sensitive` 或 keybind 打开一次性加密弹窗，结果不会进入模型上下文。
-`features.sensitiveProtection` 默认关闭；开启后自动登记加解密文件，阻止直接 `read` 保护文件，并把工具输出中的敏感内容替换为 `[REDACTED:PROTECTED]`。
+`encrypt` / `decrypt` 可设为 `false` 或 `null` 单独关闭。TUI 可用 `/encrypt-sensitive` 或 keybind 打开加密面板；默认 Text，可按 `ctrl+t` 切到 File；默认使用解密私钥推导的公钥，可用 Tab/左右方向键切换；文本在内存中加密、不落明文文件，结果不会进入模型上下文。
+`features.sensitiveProtection` 默认开启；设为 `false` 可关闭。它会自动登记加解密文件，阻止直接 `read` 保护文件，并把工具输出中的敏感内容替换为 `[REDACTED:PROTECTED]`。
 
 记事本默认开启。按 `ctrl+shift+n`、在命令面板搜索 **Open notepad**，或输入 `/notepad` 打开。新笔记默认归入当前文件夹；按 `g` 可在当前文件夹和全局之间切换。数据存储在同一 server 上，所有 session 共享。
 

@@ -245,7 +245,6 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
       { bind: "d", title: "Delete note", run: () => void remove() },
       { bind: "c", title: "Copy note", run: () => copy(selectedNote()) },
       { bind: "g", title: "Toggle note scope", run: () => void toggleScope() },
-      { bind: "/", title: "Search notes", run: focusSearch },
       { bind: "tab", title: "Search notes", run: focusSearch },
       { bind: "escape", title: "Close notepad", run: () => props.context.ui.dialog.clear() },
     ],
@@ -257,7 +256,6 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     priority: 20,
     commands: [
       { bind: "escape", title: "Back to notes", run: focusList },
-      { bind: "tab", title: "Back to notes", run: focusList },
       { bind: "return", title: "Back to notes", run: focusList },
     ],
   }))
@@ -273,7 +271,7 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
         ref={(value: InputRenderable) => setSearchTarget(value)}
         onInput={setQuery}
         onSubmit={focusList}
-        placeholder={query() ? "" : "Press / or Tab to search"}
+        placeholder={query() ? "" : "Press Tab to search"}
         placeholderColor={theme.text.muted}
         textColor={theme.text.formfield.base}
         focusedTextColor={theme.text.formfield.base}
@@ -295,7 +293,7 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
           </Show>
         </Show>
       </scrollbox>
-      <text fg={theme.text.muted}>a add · e edit · d delete · c copy · g scope · / search · tab switch · esc close</text>
+      <text fg={theme.text.muted}>a add · e edit · d delete · c copy · g scope · tab search · esc close</text>
     </box>
   )
 }
@@ -369,7 +367,6 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
     priority: 20,
     commands: [
       { bind: "f2", title: "Save note", run: save },
-      { bind: "ctrl+return", title: "Save note", run: save },
       { bind: "ctrl+g", title: "Toggle note scope", run: () => setScope((value) => value === "folder" ? "global" : "folder") },
       { bind: "escape", title: "Cancel note", run: () => props.onDone(undefined) },
     ],
@@ -392,7 +389,7 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
         focusedTextColor={theme.text.formfield.base}
         cursorColor={theme.text.base}
       />
-      <text fg={theme.text.muted}>f2 / ctrl+enter save · esc cancel · ctrl+g target: {scope() === "global" ? "Global" : "This folder"}</text>
+      <text fg={theme.text.muted}>f2 save · esc cancel · ctrl+g target: {scope() === "global" ? "Global" : "This folder"}</text>
     </box>
   )
 }

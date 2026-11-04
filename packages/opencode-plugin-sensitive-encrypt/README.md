@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Encrypt sensitive files under `$TMPDIR` with an independent public key and decrypt them with a separate private key.
+Encrypt sensitive text or files with an independent public key and decrypt them with a separate private key.
 Plaintext and private keys never enter model context.
 
 ## Tools
@@ -43,8 +43,17 @@ Plaintext and private keys never enter model context.
 
 ## TUI
 
-Run `/encrypt-sensitive` or a configured keybind to open a one-shot encryption dialog. The dialog does not close
-automatically and lets you copy the ciphertext or output path. Results never enter model context.
+Run `/encrypt-sensitive` or a configured keybind to open the encryption panel. The panel starts in **Text** mode and
+switches to **File** mode with `ctrl+t`:
+
+- **Text**: type arbitrary multiline text. It is encrypted in memory through the plugin RPC, never written as a
+  plaintext file, and does not use the `encrypt_sensitive` tool. An optional ciphertext output path is available.
+- **File**: type the source file path manually and optionally an output path.
+- **Key**: defaults to the public key derived from the decryption private key, so `decrypt_sensitive` can decrypt
+  new output. `Tab` to the key selector and use Left/Right to switch to the configured encryption public key.
+
+Press `f2` to encrypt, `ctrl+t` to switch Text/File, `Tab` to move through output/key, and `Esc` to close. The result
+dialog stays open and lets you copy the ciphertext or output path. Results never enter model context.
 
 ## Protection plugin integration
 

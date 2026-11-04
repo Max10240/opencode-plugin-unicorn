@@ -60,9 +60,10 @@ export function sensitiveEncryptFeatureEnabled(options: Readonly<Record<string, 
   return !isRecord(features) || features.sensitiveEncrypt !== false
 }
 
+// Enabled by default; set features.sensitiveProtection to false to disable it.
 export function sensitiveProtectionFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
-  return isRecord(features) && features.sensitiveProtection === true
+  return !isRecord(features) || features.sensitiveProtection !== false
 }
 
 export function sessionSearchFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
