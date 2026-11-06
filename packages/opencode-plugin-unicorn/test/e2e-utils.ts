@@ -1,4 +1,5 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { generateKeyPairSync } from "node:crypto"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -51,6 +52,46 @@ export type OpenCodeE2E = {
   readonly config: () => Promise<Record<string, any>>
 }
 
+let fixtureKeyPairs: Promise<{
+  readonly encrypt: { publicKey: string; privateKey: string }
+  readonly decrypt: { publicKey: string; privateKey: string }
+}> | undefined
+
+function keyPairs() {
+  fixtureKeyPairs ??= Promise.resolve().then(() => {
+    const generate = () => generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    })
+    return { encrypt: generate(), decrypt: generate() }
+  })
+  return fixtureKeyPairs
+}
+
+// Servers that do not exercise key initialization read pre-generated keys instead of paying
+// two RSA key generations per fresh HOME. Default generation is covered by the encrypt E2E.
+async function seedSensitiveKeys(configDirectory: string) {
+  const directory = path.join(configDirectory, "sensitive-encrypt")
+  await mkdir(directory, { recursive: true })
+  const { encrypt, decrypt } = await keyPairs()
+  await Promise.all([
+    writeFile(path.join(directory, "encrypt-public.pem"), encrypt.publicKey, { mode: 0o644 }),
+    writeFile(path.join(directory, "encrypt-private.pem"), encrypt.privateKey, { mode: 0o600 }),
+    writeFile(path.join(directory, "decrypt-public.pem"), decrypt.publicKey, { mode: 0o644 }),
+    writeFile(path.join(directory, "decrypt-private.pem"), decrypt.privateKey, { mode: 0o600 }),
+  ])
+}
+
+async function removeTree(directory: string) {
+  if (process.platform === "win32") {
+    await rm(directory, { recursive: true, force: true })
+    return
+  }
+  const result = Bun.spawnSync(["rm", "-rf", directory], { stdout: "ignore", stderr: "ignore" })
+  if (result.exitCode !== 0) await rm(directory, { recursive: true, force: true })
+}
+
 const SUMMARY_MARKER = "You MUST summarize the conversation above"
 const PRIMARY_RESPONSE = "E2E_PRIMARY_OK"
 const IMAGE_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -100,6 +141,7 @@ export async function createOpenCodeE2E(
   const configPath = path.join(configDirectory, "opencode.jsonc")
   await mkdir(configDirectory, { recursive: true })
   await mkdir(workspace, { recursive: true })
+  if (options.plugin !== "sensitive-encrypt") await seedSensitiveKeys(configDirectory)
 
   const proxy = await startMockProvider()
   const features = options.plugin !== undefined && options.plugin !== "unicorn"
@@ -181,7 +223,7 @@ export async function createOpenCodeE2E(
   const close = async () => {
     await proxy.close()
     await stopServer()
-    await rm(root, { recursive: true, force: true })
+    await removeTree(root)
   }
 
   const ready = () => waitFor(async () => {
@@ -377,7 +419,7 @@ async function waitFor<T>(check: () => Promise<T | false>, message: string, time
   while (Date.now() < deadline) {
     const result = await check()
     if (result !== false) return result
-    await Bun.sleep(100)
+    await Bun.sleep(25)
   }
   throw new Error(message)
 }

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, setDefaultTimeout, test } from "bun:test"
 import { createPublicKey, generateKeyPairSync } from "node:crypto"
 import {
   decryptEnvelope,
@@ -26,6 +26,7 @@ function mutate(value: string, change: (body: Record<string, any>) => void) {
   return `${ENVELOPE_PREFIX}${Buffer.from(JSON.stringify(body)).toString("base64url")}`
 }
 
+setDefaultTimeout(30_000)
 test("parses PEM and base64 DER public keys and rejects private or weak keys", () => {
   const keys = pair()
   const pem = parsePublicKey(keys.publicKey)

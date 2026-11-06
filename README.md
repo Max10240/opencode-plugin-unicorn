@@ -34,22 +34,25 @@ bun run check
 | `bun run check:fast` | One build, typecheck all workspaces, unit/render tests; no network install |
 | `bun run test:e2e` | One build, source-level server/TUI E2E |
 | `bun run test` | Unit, render, and source E2E; excludes packaged installation |
-| `bun run test:packaged` | Fresh installation of this round's npm archives plus server/TUI validation |
+| `bun run test:packaged` | Fresh installation of this round's npm archives plus import and dependency validation |
 | `bun run check` / `check:full` | Full check with all test suites |
 | `bun run check:fresh` | Full check with forced dependency resolution; use before publishing |
 | `bun run test:packaged:fresh` | Packaged validation with forced dependency resolution |
 
 Workspace artifacts are built and packed exactly once per round, in workspace dependency order. Source and packaged
 tests use isolated copies and never reuse test results, servers, databases, HOME, or TUI state. A build or archive
-hash mismatch fails the run instead of using stale output. Build and typecheck run at most two tasks in parallel;
-E2E runs at most three. Each phase reports its actual duration.
+hash mismatch fails the run instead of using stale output. Build, typecheck, and unit tests use CPU-sized concurrency;
+E2E schedules long TUI files separately from wide API files to avoid oversubscription. Each phase reports its actual
+duration.
 
 Packaged tests create a clean `node_modules` every time. After the first dependency resolution, the lockfile and npm
 downloads are cached. Cache hits still run a real `npm ci --offline`, and local plugin integrity is refreshed from
 this round's archives, so code changes under the same version are tested. Corrupt caches or missing offline
 dependencies trigger a clean reinstall; installation failures still fail the test.
 
-The cache key includes plugin manifests, Node/npm/Bun versions, platform, and architecture. The default directory is
+The cache key includes external dependency declarations, Node/npm/Bun versions, platform, and architecture. Local
+package versions and code bytes are excluded, so a version bump reuses the same third-party resolution while local
+integrities are refreshed from this round's archives. The default directory is
 `opencode/unicorn-test-cache` under the system temporary directory. Set `UNICORN_TEST_CACHE_DIR` to a writable
 directory and cache it in CI. Use `check:fresh` to check for new versions within dependency ranges; it bypasses the
 cached lockfile but can still use npm's download cache. The installer uses an isolated npm configuration, preserves
@@ -123,6 +126,10 @@ Local publishing:
 npm run release -- --release-type=local-publish
 npm run release -- --release-type=local-stage --version=minor
 ```
+
+Local publishing runs npm through a pseudo-terminal, prints npm's web-auth link when login or a package needs
+verification, and continues automatically after the browser approval. Each link is printed once and can be copied.
+Transient registry failures during post-publish verification are retried.
 
 CI publishing:
 

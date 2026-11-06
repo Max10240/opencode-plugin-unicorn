@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { installerEnvironment } from "../scripts/test-artifacts.mjs"
-import { mapLimit } from "../scripts/workspace.mjs"
+import { concurrency, mapLimit } from "../scripts/workspace.mjs"
 import { runCommand, timed } from "../scripts/process.mjs"
 
 type Archive = { file: string; manifest: Record<string, any> }
@@ -15,7 +15,7 @@ export async function installUnicornOnly(archives: readonly Archive[], root: str
   const children = archives.filter((item) => item !== unicorn)
   const artifacts = path.join(root, "registry-artifacts")
   await mkdir(artifacts, { recursive: true })
-  const packages = await mapLimit(children, 2, async (item: Archive, index: number) => {
+  const packages = await mapLimit(children, Math.max(1, Math.min(concurrency, children.length)), async (item: Archive, index: number) => {
     const directory = path.join(root, `legacy-${index}`)
     await mkdir(directory)
     const old = { name: item.manifest.name, version: legacyVersion }
@@ -58,40 +58,45 @@ export async function installUnicornOnly(archives: readonly Archive[], root: str
     // Control: reproduce npm's preference for a matching latest tag over a newer prerelease-tagged version.
     const probe = path.join(root, "range-control")
     const showImg = "@max10240/opencode-plugin-show-img"
-    await install(probe, { [showImg]: "^1" }, undefined, true)
-    expect(JSON.parse(await readFile(path.join(probe, "node_modules", showImg, "package.json"), "utf8")).version).toBe(legacyVersion)
+    const probeInstall = install(probe, { [showImg]: "^1" }, undefined, true).then(async () => {
+      expect(JSON.parse(await readFile(path.join(probe, "node_modules", showImg, "package.json"), "utf8")).version).toBe(legacyVersion)
+    })
 
-    const directory = path.join(root, "unicorn-only")
-    const dependencies = { [unicorn.manifest.name]: `file:${path.relative(directory, unicorn.file)}` }
-    let seed: any
-    if (dependencyLock) {
-      seed = JSON.parse(await readFile(dependencyLock, "utf8"))
-      seed.name = "unicorn-only-install-test"
-      seed.packages[""].name = seed.name
-      seed.packages[""].dependencies = dependencies
-      const parent = seed.packages[`node_modules/${unicorn.manifest.name}`]
-      parent.resolved = dependencies[unicorn.manifest.name]
-      parent.integrity = `sha512-${createHash("sha512").update(await readFile(unicorn.file)).digest("base64")}`
-      // Reuse this run's external resolution, including fresh runs. Child plugins still resolve independently.
-      for (const item of children) delete seed.packages[`node_modules/${item.manifest.name}`]
-    }
-    if (seed) {
-      try { await timed("npm install (Unicorn only, current external lock)", () => install(directory, dependencies, seed)) }
-      catch {
-        await rm(path.join(directory, "node_modules"), { recursive: true, force: true })
-        await rm(path.join(directory, "package-lock.json"), { force: true })
-        seed = undefined
+    const installUnicorn = async () => {
+      const directory = path.join(root, "unicorn-only")
+      const dependencies = { [unicorn.manifest.name]: `file:${path.relative(directory, unicorn.file)}` }
+      let seed: any
+      if (dependencyLock) {
+        seed = JSON.parse(await readFile(dependencyLock, "utf8"))
+        seed.name = "unicorn-only-install-test"
+        seed.packages[""].name = seed.name
+        seed.packages[""].dependencies = dependencies
+        const parent = seed.packages[`node_modules/${unicorn.manifest.name}`]
+        parent.resolved = dependencies[unicorn.manifest.name]
+        parent.integrity = `sha512-${createHash("sha512").update(await readFile(unicorn.file)).digest("base64")}`
+        // Reuse this run's external resolution, including fresh runs. Child plugins still resolve independently.
+        for (const item of children) delete seed.packages[`node_modules/${item.manifest.name}`]
       }
+      if (seed) {
+        try { await timed("npm install (Unicorn only, current external lock)", () => install(directory, dependencies, seed)) }
+        catch {
+          await rm(path.join(directory, "node_modules"), { recursive: true, force: true })
+          await rm(path.join(directory, "package-lock.json"), { force: true })
+          seed = undefined
+        }
+      }
+      if (!seed) await timed("npm install (Unicorn only, stale latest tag)", () => install(directory, dependencies))
+      expect(Object.keys(JSON.parse(await readFile(path.join(directory, "package.json"), "utf8")).dependencies)).toEqual([unicorn.manifest.name])
+      const lock = JSON.parse(await readFile(path.join(directory, "package-lock.json"), "utf8"))
+      for (const item of children) {
+        const manifest = JSON.parse(await readFile(path.join(directory, "node_modules", item.manifest.name, "package.json"), "utf8"))
+        expect(manifest.version).toBe(unicorn.manifest.version)
+        expect(requested.has(item.manifest.name)).toBe(true)
+        expect(lock.packages[`node_modules/${item.manifest.name}`].integrity).toBe(`sha512-${createHash("sha512").update(await readFile(item.file)).digest("base64")}`)
+      }
+      return path.join(directory, "node_modules", unicorn.manifest.name)
     }
-    if (!seed) await timed("npm install (Unicorn only, stale latest tag)", () => install(directory, dependencies))
-    expect(Object.keys(JSON.parse(await readFile(path.join(directory, "package.json"), "utf8")).dependencies)).toEqual([unicorn.manifest.name])
-    const lock = JSON.parse(await readFile(path.join(directory, "package-lock.json"), "utf8"))
-    for (const item of children) {
-      const manifest = JSON.parse(await readFile(path.join(directory, "node_modules", item.manifest.name, "package.json"), "utf8"))
-      expect(manifest.version).toBe(unicorn.manifest.version)
-      expect(requested.has(item.manifest.name)).toBe(true)
-      expect(lock.packages[`node_modules/${item.manifest.name}`].integrity).toBe(`sha512-${createHash("sha512").update(await readFile(item.file)).digest("base64")}`)
-    }
-    return path.join(directory, "node_modules", unicorn.manifest.name)
+    const [, unicornPath] = await Promise.all([probeInstall, installUnicorn()])
+    return unicornPath
   } finally { registry.stop(true) }
 }

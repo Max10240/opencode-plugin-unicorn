@@ -6,6 +6,7 @@ import {
   assertCleanWorkspace,
   bumpVersion,
   compareVersions,
+  fetchRegistryVersion,
   parseReleaseArgs,
   parseVersion,
   planRelease,
@@ -16,6 +17,7 @@ import {
   resolveTargetVersion,
   tarballIntegrity,
   triggerCi,
+  waitForRegistry,
 } from "../scripts/release.mjs"
 import { workspacePackages } from "../scripts/workspace.mjs"
 
@@ -34,6 +36,19 @@ test("registry URLs encode scoped package names once", () => {
   expect(registryVersionUrl("https://registry.npmjs.org/", CHILD, "1.0.12")).toBe(
     "https://registry.npmjs.org/@max10240%2Fopencode-plugin-show-img/1.0.12",
   )
+})
+
+test("registry reads can bypass a cached version response", async () => {
+  const urls: string[] = []
+  const remote = await fetchRegistryVersion("https://registry.npmjs.org/", CHILD, "1.0.12", {
+    cacheBust: true,
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return Response.json({ dist: { integrity: "sha512-ok" } })
+    },
+  })
+  expect(remote).toMatchObject({ integrity: "sha512-ok" })
+  expect(urls[0]).toContain("__release=")
 })
 
 test("release arguments require an explicit release type and default to patch", () => {
@@ -162,6 +177,22 @@ test("explicit target must be strictly newer than latest and not lower than loca
   } finally { await lower.cleanup() }
 })
 
+test("registry verification retries transient network failures", async () => {
+  let calls = 0
+  const remote = await waitForRegistry("https://registry.npmjs.org/", CHILD, "1.0.12", {
+    attempts: 2,
+    delay: 1,
+    log: () => {},
+    fetchImpl: async () => {
+      calls++
+      if (calls === 1) throw new TypeError("fetch failed")
+      return Response.json({ dist: { integrity: "sha512-ok" } })
+    },
+  })
+  expect(remote).toMatchObject({ integrity: "sha512-ok" })
+  expect(calls).toBe(2)
+})
+
 test("release dry run does not check, bump or publish", async () => {
   const fx = await fixture()
   try {
@@ -220,6 +251,26 @@ test("release publishes leaves before Unicorn and never bumps versions", async (
       expect.stringContaining("unicorn"),
     ])
     expect(fx.calls.some((args) => args.includes("version"))).toBe(false)
+  } finally { await fx.cleanup() }
+})
+
+test("a web-auth CLI error does not fail a package the registry accepted", async () => {
+  const fx = await fixture()
+  try {
+    const result = await releasePackages({
+      root: fx.root,
+      build: false,
+      verify: false,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      run: fx.run,
+      authRun: async () => {
+        for (const name of [CHILD, UNICORN]) fx.versions.set(`${name}@1.0.11`, { integrity: `sha512-${name}` })
+        throw new Error("npm error 404 Not Found - GET /-/v1/done")
+      },
+      log: () => {},
+    })
+    expect(result).toMatchObject({ version: "1.0.11", published: [CHILD, UNICORN] })
   } finally { await fx.cleanup() }
 })
 

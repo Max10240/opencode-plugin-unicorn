@@ -82,6 +82,7 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const [selected, setSelected] = createSignal<string | undefined>(props.selected ?? props.initial[0]?.id)
   const [listTarget, setListTarget] = createSignal<ScrollBoxRenderable>()
   const [searchTarget, setSearchTarget] = createSignal<InputRenderable>()
+  const [dialogOpen, setDialogOpen] = createSignal(false)
   const theme = props.context.theme.surface("dialog")
   const folder = createMemo(() => notes().filter((note) => note.scope === "folder"))
   const global = createMemo(() => notes().filter((note) => note.scope === "global"))
@@ -151,8 +152,17 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     }
   }
 
+  const withDialog = async <T,>(task: () => Promise<T>) => {
+    setDialogOpen(true)
+    try {
+      return await task()
+    } finally {
+      setDialogOpen(false)
+    }
+  }
+
   const add = async () => {
-    const result = await editDialog(props.context, { scope: "folder" })
+    const result = await withDialog(() => editDialog(props.context, { scope: "folder" }))
     if (!result) {
       await openList(props.context, props.directory, selected())
       return
@@ -172,7 +182,7 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const edit = async () => {
     const note = selectedNote()
     if (!note) return
-    const result = await editDialog(props.context, { text: note.text, scope: note.scope })
+    const result = await withDialog(() => editDialog(props.context, { text: note.text, scope: note.scope }))
     if (!result) {
       await openList(props.context, props.directory, note.id)
       return
@@ -195,11 +205,11 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const remove = async () => {
     const note = selectedNote()
     if (!note) return
-    const confirmed = await props.context.ui.dialog.confirm({
+    const confirmed = await withDialog(() => props.context.ui.dialog.confirm({
       title: "Delete note?",
       message: `${note.text.replace(/\s+/g, " ").slice(0, 120)}${note.text.length > 120 ? "…" : ""}`,
       label: { confirm: "Delete", cancel: "Cancel" },
-    })
+    }))
     if (!confirmed) {
       await openList(props.context, props.directory, note.id)
       return
@@ -237,6 +247,7 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     mode: "modal",
     target: listTarget,
     priority: 20,
+    enabled: () => !dialogOpen(),
     commands: [
       { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
       { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },

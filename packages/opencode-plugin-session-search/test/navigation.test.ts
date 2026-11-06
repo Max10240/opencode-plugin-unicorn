@@ -78,7 +78,7 @@ test("cancellation and missing anchors settle instead of leaving navigation acti
   await expect(pending).rejects.toThrow()
   expect(busy).toBe(false)
   current.host.loaded = () => true; current.host.find = () => undefined
-  await expect(new SessionNavigator(current.host, () => {}, 5).jump("current", { messageID: "missing" })).rejects.toThrow("history may have changed")
+  await expect(new SessionNavigator(current.host, () => {}, 250).jump("current", { messageID: "missing" })).rejects.toThrow("history may have changed")
   expect(current.calls).toContain("session.line.up")
 })
 

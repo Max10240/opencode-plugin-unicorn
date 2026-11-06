@@ -170,10 +170,18 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     e2e.proxy.mock.prependFixture({ match: { userMessage: "E2E_SCROLL_IMAGE", hasToolResult: false }, response: { content: "scroll transcript line\n".repeat(60) + "IMAGE_SCROLL_END" } })
     await prompt(e2e, sessionID, "E2E_SCROLL_IMAGE")
     await waitFor(async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Image stayed fixed at the bottom instead of scrolling with its tool output")
-    tmux(["send-keys", "-t", "preview", "F6"])
-    await waitFor(async () => pane().includes(`Image preview: ${path.basename(file)}`) && pane().includes("Click to enlarge"), "Scrolling back did not restore the original inline preview")
-    tmux(["send-keys", "-t", "preview", "F7"])
-    await waitFor(async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Last-message navigation left the old preview pinned")
+    const pressUntil = async (key: string, check: () => Promise<boolean>, message: string) => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        tmux(["send-keys", "-t", "preview", key])
+        try {
+          await waitFor(check, message, 10_000)
+          return
+        } catch {}
+      }
+      throw new Error(message)
+    }
+    await pressUntil("F6", async () => pane().includes(`Image preview: ${path.basename(file)}`) && pane().includes("Click to enlarge"), "Scrolling back did not restore the original inline preview")
+    await pressUntil("F7", async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Last-message navigation left the old preview pinned")
 
     const liveFile = path.join(serverOnly, "live-image.png")
     await writeFile(liveFile, imageBytes)
@@ -274,11 +282,11 @@ export function headers() {
   return { authorization: `Basic ${btoa(`opencode:${password}`)}`, "content-type": "application/json" }
 }
 
-export async function waitFor(check: () => Promise<boolean>, message: string) {
-  const deadline = Date.now() + 30_000
+export async function waitFor(check: () => Promise<boolean>, message: string, timeout = 30_000) {
+  const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     if (await check()) return
-    await Bun.sleep(100)
+    await Bun.sleep(25)
   }
   throw new Error(message)
 }

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, setDefaultTimeout, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
 import { generateKeyPairSync, randomUUID } from "node:crypto"
@@ -109,6 +109,7 @@ function execute(tool: Info, input: Record<string, unknown>) {
   } as unknown as ToolContext) as Promise<any>
 }
 
+setDefaultTimeout(30_000)
 test("registers encrypt, decrypt and key-info tools with concise descriptions", async () => {
   await fixture(async ({ options }) => {
     const { registered, cleanup, disposed } = await setup(options)

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { access, readFile, writeFile } from "node:fs/promises"
 import { createOpenCodeE2E, DEFAULT_LOW_LIMIT } from "./e2e-utils.js"
+import { toolDescriptions } from "./tool-descriptions.js"
 
 test("Unicorn does not change global config or Luna context by default", async () => {
   const e2e = await createOpenCodeE2E()
@@ -98,4 +99,23 @@ test("integrates image generation as an independently switchable Unicorn feature
   } finally {
     await standalone.close()
   }
+})
+
+test("advertises all packaged tool descriptions", async () => {
+  const e2e = await createOpenCodeE2E({ pluginOptions: { promptSearch: { keybind: "f12" } } })
+  try {
+    await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)
+    await e2e.runImagePrompt()
+    const seen = new Set<string>()
+    for (const request of e2e.proxy.mock.getRequests()) {
+      const body = request.body as { tools?: Array<{ function?: { name: string; description: string } }> } | null
+      for (const tool of body?.tools ?? []) {
+        const definition = tool.function
+        if (!definition || !(definition.name in toolDescriptions)) continue
+        seen.add(definition.name)
+        expect(definition.description).toBe(toolDescriptions[definition.name as keyof typeof toolDescriptions])
+      }
+    }
+    expect([...seen].sort()).toEqual(Object.keys(toolDescriptions).sort())
+  } finally { await e2e.close() }
 })

@@ -34,20 +34,20 @@ bun run check
 | `bun run check:fast` | 构建一次、全部 workspace 类型检查、单元/渲染测试；不联网安装依赖 |
 | `bun run test:e2e` | 构建一次、源码 server/TUI E2E |
 | `bun run test` | 单元、渲染和源码 E2E，不包含安装包验证 |
-| `bun run test:packaged` | 本轮 npm 归档的全新安装及 server/TUI 验证 |
+| `bun run test:packaged` | 本轮 npm 归档的全新安装及导入、依赖解析验证 |
 | `bun run check` / `check:full` | 完整检查，保留全部测试 |
 | `bun run check:fresh` | 完整检查，强制重新解析安装依赖；发布前使用 |
 | `bun run test:packaged:fresh` | 仅运行强制重新解析依赖的安装包验证 |
 
 工作区产物只统一构建一次、每包统一打包一次，按 workspace 依赖顺序构建。源码和安装包用例使用归档的独立副本，
 不复用测试结果、server、数据库、HOME 或 TUI 状态。构建和归档的内容哈希不匹配时会失败，不会使用过期产物。
-构建/类型检查最多两个任务并行，E2E 最多三个；每阶段输出实际耗时。
+构建、类型检查和单元测试按 CPU 数量并行；E2E 将长 TUI 文件与宽 API 文件分组调度，避免过度并发。每阶段输出实际耗时。
 
 安装包测试每次创建干净的 `node_modules`。首次解析依赖后缓存锁文件和 npm 下载内容；命中后执行真正的
 `npm ci --offline`，并用本轮归档更新本地插件的完整性校验，因此同版本代码变化也会被测试。
 缓存损坏或离线依赖缺失会清理部分安装并重新安装；安装失败仍会使测试失败。
 
-缓存键包含插件 manifests、Node/npm/Bun 版本、平台及架构。默认目录为系统临时目录下的
+缓存键包含外部依赖声明、Node/npm/Bun 版本、平台及架构；本地包版本和代码字节不参与，因此版本升级会复用同一份第三方解析结果，同时从本轮归档刷新本地完整性。默认目录为系统临时目录下的
 `opencode/unicorn-test-cache`，可用 `UNICORN_TEST_CACHE_DIR` 指定可写目录并在 CI 中缓存。
 需要检查依赖范围内的新版本时运行 `check:fresh`；该入口不使用缓存锁，但仍可利用 npm 下载缓存。
 安装器使用独立 npm 配置，保留网络代理/CA 设置，不读取用户的 npm 认证配置或预加载脚本。
@@ -107,6 +107,9 @@ npm run release -- --release-type=<type> [--version=<spec>]
 npm run release -- --release-type=local-publish
 npm run release -- --release-type=local-stage --version=minor
 ```
+
+本地发布会通过伪终端运行 npm；需要登录或某个包需要网页验证时，脚本会打印 npm 的认证链接，浏览器批准后自动继续。
+每个链接只打印一次，可直接复制。发布后的 registry 校验遇到临时网络错误会自动重试。
 
 CI 发布：
 

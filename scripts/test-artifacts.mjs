@@ -3,7 +3,7 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promis
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { BUILD_MANIFEST, buildFingerprint, mapLimit, workspacePackages } from "./workspace.mjs"
+import { BUILD_MANIFEST, buildFingerprint, concurrency, mapLimit, workspacePackages } from "./workspace.mjs"
 import { runCommand, timed } from "./process.mjs"
 
 const repository = fileURLToPath(new URL("../", import.meta.url))
@@ -49,7 +49,7 @@ export async function packWorkspace(destination, { root = repository, run = runC
     await verifyBuild(root, build)
     return copied
   }
-  const archives = await mapLimit(await workspacePackages(root), 2, async (item) => {
+  const archives = await mapLimit(await workspacePackages(root), concurrency, async (item) => {
     const output = await run(["npm", "pack", "--ignore-scripts", "--json", "--pack-destination", destination], { cwd: item.directory, capture: true })
     const packed = JSON.parse(output)
     if (packed.length !== 1 || packed[0].version !== item.manifest.version || path.basename(packed[0].filename) !== packed[0].filename) throw new Error(`Invalid archive: ${item.manifest.name}`)
@@ -71,8 +71,46 @@ export function installerEnvironment(install, parent = process.env) {
   }
 }
 
+const localManifestFields = [
+  "license",
+  "bin",
+  "engines",
+  "os",
+  "cpu",
+  "dependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "peerDependenciesMeta",
+  "bundledDependencies",
+]
+
+function externalManifest(manifest, local) {
+  const external = (value) =>
+    Object.fromEntries(
+      Object.entries(value ?? {})
+        .filter(([name]) => !local.has(name))
+        .sort(([left], [right]) => left.localeCompare(right)),
+    )
+  return {
+    name: manifest.name,
+    dependencies: external(manifest.dependencies),
+    optionalDependencies: external(manifest.optionalDependencies),
+    peerDependencies: external(manifest.peerDependencies),
+  }
+}
+
 export function dependencyKey(archives, runtime) {
-  return digest(JSON.stringify({ format: 2, runtime, flags: INSTALL_FLAGS, packages: archives.map((item) => [item.manifest, path.basename(item.file)]).sort(([a], [b]) => a.name.localeCompare(b.name)) }))
+  const local = new Set(archives.map((item) => item.manifest.name))
+  // Local package versions change on every release. Only external resolution belongs in the
+  // cache key; local entries are refreshed in the cached lock below.
+  return digest(JSON.stringify({
+    format: 3,
+    runtime,
+    flags: INSTALL_FLAGS,
+    packages: archives
+      .map((item) => externalManifest(item.manifest, local))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  }))
 }
 
 export async function archivePackage(archives, install) {
@@ -83,12 +121,29 @@ export async function archivePackage(archives, install) {
 
 export async function refreshLocalIntegrities(lock, archives, manifest) {
   const next = structuredClone(lock)
-  if (next.lockfileVersion !== 3 || !next.packages?.[""] || JSON.stringify(next.packages[""].dependencies) !== JSON.stringify(manifest.dependencies)) throw new Error("Cached dependency lock does not match archives")
+  if (next.lockfileVersion !== 3 || !next.packages?.[""]) throw new Error("Cached dependency lock is invalid")
+  const versions = new Map(archives.map((item) => [item.manifest.name, item.manifest.version]))
+  next.packages[""].dependencies = manifest.dependencies
+  const localNames = new Set(archives.map((item) => item.manifest.name))
+  for (const id of Object.keys(next.packages)) {
+    if (!id.startsWith("node_modules/@max10240/") || localNames.has(id.slice("node_modules/".length))) continue
+    delete next.packages[id]
+  }
   for (const item of archives) {
-    const entry = next.packages[`node_modules/${item.manifest.name}`]
+    const id = `node_modules/${item.manifest.name}`
+    const entry = next.packages[id]
     const reference = manifest.dependencies[item.manifest.name]
-    if (!entry || entry.version !== item.manifest.version || entry.resolved !== reference) throw new Error("Cached local package does not match archive")
+    if (!entry || !reference) throw new Error("Cached local package is missing")
+    entry.version = item.manifest.version
+    entry.resolved = reference
     entry.integrity = `sha512-${createHash("sha512").update(await readFile(item.file)).digest("base64")}`
+    for (const field of localManifestFields) {
+      const value = field === "dependencies"
+        ? Object.fromEntries(Object.entries(item.manifest.dependencies ?? {}).map(([name, range]) => [name, versions.get(name) ?? range]))
+        : item.manifest[field]
+      if (value === undefined) delete entry[field]
+      else entry[field] = structuredClone(value)
+    }
   }
   return next
 }

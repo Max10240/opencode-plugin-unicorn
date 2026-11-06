@@ -38,13 +38,17 @@ async function fixture(run: (state: any) => Promise<void>) {
   } finally { await rm(root, { recursive: true, force: true }) }
 }
 
-test("dependency cache keys include manifests and toolchain, but not plugin code bytes", async () => fixture(async ({ archives }: any) => {
+test("dependency cache keys follow external resolution and toolchain, not local versions or code bytes", async () => fixture(async ({ archives }: any) => {
   const key = dependencyKey(archives, runtime)
   await writeFile(archives[0].file, "new implementation, same dependencies")
   expect(dependencyKey(archives, runtime)).toBe(key)
   for (const input of [{ ...runtime, node: "other" }, { ...runtime, npm: "other" }, { ...runtime, arch: "other" }]) expect(dependencyKey(archives, input)).not.toBe(key)
-  expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, version: "2.0.0" } }], runtime)).not.toBe(key)
+  expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, version: "2.0.0" } }], runtime)).toBe(key)
   expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, dependencies: { external: "^2" } } }], runtime)).not.toBe(key)
+
+  const local = { file: archives[0].file, manifest: { name: "@test/local", version: "1.0.0" } }
+  const withLocal = [{ ...archives[0], manifest: { ...archives[0].manifest, dependencies: { external: "^1.0.0", "@test/local": "1.0.0" } } }, local]
+  expect(dependencyKey(withLocal, runtime)).toBe(dependencyKey([archives[0], local], runtime))
 }))
 
 test("warm installs use clean npm ci offline and the current archive's integrity", async () => fixture(async ({ root, archives, cache, calls, fakeRun, install }: any) => {
@@ -91,9 +95,16 @@ test("a failed offline install removes partial output before retrying, and fresh
   expect(calls.map((args: string[]) => args[1])).toEqual(["install", "install"])
 }))
 
-test("cached locks cannot silently redirect a local package or change the declared dependencies", async () => fixture(async ({ archives, install }: any) => {
+test("cached locks refresh local versions and integrities but reject invalid or incomplete locks", async () => fixture(async ({ archives, install }: any) => {
   const manifest = await archivePackage(archives, install("one"))
-  const lock = { lockfileVersion: 3, packages: { "": manifest, "node_modules/@test/plugin": { version: "1.0.0", resolved: "file:wrong.tgz" } } }
-  await expect(refreshLocalIntegrities(lock, archives, manifest)).rejects.toThrow("does not match")
-  await expect(refreshLocalIntegrities({ ...lock, lockfileVersion: 2 }, archives, manifest)).rejects.toThrow("does not match")
+  const lock = { lockfileVersion: 3, packages: { "": manifest, "node_modules/@test/plugin": { version: "0.9.0", resolved: "file:wrong.tgz", integrity: "old" }, "node_modules/@max10240/removed": { version: "1.0.0", resolved: "file:removed.tgz" }, "node_modules/external": { version: "1.2.3", resolved: "https://registry.npmjs.org/external/-/external-1.2.3.tgz", integrity: "external-integrity" } } }
+  const next = await refreshLocalIntegrities(lock, archives, manifest)
+  const entry = next.packages["node_modules/@test/plugin"]
+  expect(entry.version).toBe("1.0.0")
+  expect(entry.resolved).toBe(manifest.dependencies["@test/plugin"])
+  expect(entry.integrity).toBe(`sha512-${createHash("sha512").update("first archive").digest("base64")}`)
+  expect(next.packages["node_modules/@max10240/removed"]).toBeUndefined()
+  expect(next.packages["node_modules/external"].integrity).toBe("external-integrity")
+  await expect(refreshLocalIntegrities({ ...lock, lockfileVersion: 2 }, archives, manifest)).rejects.toThrow("invalid")
+  await expect(refreshLocalIntegrities({ lockfileVersion: 3, packages: { "": manifest } }, archives, manifest)).rejects.toThrow("missing")
 }))

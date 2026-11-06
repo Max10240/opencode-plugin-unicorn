@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { applyEdits, modify } from "jsonc-parser"
+import { ensureNpmLogin, runWithAuthLinks } from "./auth-process.mjs"
 import { assertPluginVersions, checkPluginVersions } from "./check-versions.mjs"
 import { runCommand } from "./process.mjs"
 import { syncPluginDependencies } from "./sync-plugin-dependencies.mjs"
@@ -46,16 +47,20 @@ export function tarballIntegrity(bytes) {
   return `sha512-${createHash("sha512").update(bytes).digest("base64")}`
 }
 
-export async function fetchRegistryVersion(registry, name, version, { fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(registryVersionUrl(registry, name, version), { headers: { accept: "application/json" } })
+function cacheBusted(url, enabled) {
+  return enabled ? `${url}${url.includes("?") ? "&" : "?"}__release=${Date.now()}` : url
+}
+
+export async function fetchRegistryVersion(registry, name, version, { fetchImpl = fetch, cacheBust = false } = {}) {
+  const response = await fetchImpl(cacheBusted(registryVersionUrl(registry, name, version), cacheBust), { headers: { accept: "application/json" } })
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`Registry query failed for ${name}@${version}: ${response.status}`)
   const body = await response.json()
   return { integrity: body.dist?.integrity ?? null, tarball: body.dist?.tarball ?? null }
 }
 
-export async function fetchRegistryLatest(registry, name, { fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(`${registry.replace(/\/+$/, "")}/${registryPackagePath(name)}/latest`, { headers: { accept: "application/json" } })
+export async function fetchRegistryLatest(registry, name, { fetchImpl = fetch, cacheBust = false } = {}) {
+  const response = await fetchImpl(cacheBusted(`${registry.replace(/\/+$/, "")}/${registryPackagePath(name)}/latest`, cacheBust), { headers: { accept: "application/json" } })
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`Registry query failed for ${name}: ${response.status}`)
   const body = await response.json()
@@ -109,10 +114,14 @@ async function defaultPack(root, item, destination, { run = runCommand } = {}) {
   return { file, integrity: tarballIntegrity(bytes), filename: path.basename(file) }
 }
 
-async function waitForRegistry(registry, name, version, { fetchImpl = fetch, attempts = 40, delay = 3000, log = console.error } = {}) {
+export async function waitForRegistry(registry, name, version, { fetchImpl = fetch, attempts = 40, delay = 3000, log = console.error } = {}) {
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const remote = await fetchRegistryVersion(registry, name, version, { fetchImpl })
-    if (remote) return remote
+    try {
+      const remote = await fetchRegistryVersion(registry, name, version, { fetchImpl, cacheBust: true })
+      if (remote) return remote
+    } catch (error) {
+      if (attempt === attempts - 1) throw error
+    }
     if (attempt === 0) log(`[release] waiting for ${name}@${version} to appear in the registry`)
     await new Promise((resolve) => setTimeout(resolve, delay))
   }
@@ -129,7 +138,7 @@ export async function assertReleaseVersion({
   if (!parseVersion(version)) throw new Error(`Invalid workspace version: ${version}`)
 
   for (const item of packages) {
-    const latest = await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl })
+    const latest = await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl, cacheBust: true })
     if (latest && compareVersions(version, latest) <= 0) {
       throw new Error(`${item.manifest.name}@${version} is not newer than registry latest ${latest}; bump the version first`)
     }
@@ -149,7 +158,7 @@ export async function resolveTargetVersion({
 
   const latest = []
   for (const item of packages) {
-    latest.push({ name: item.manifest.name, version: await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl }) })
+    latest.push({ name: item.manifest.name, version: await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl, cacheBust: true }) })
   }
   const registryMax = latest.map((item) => item.version).filter(Boolean).sort(compareVersions).at(-1) ?? null
 
@@ -243,7 +252,7 @@ export async function planRelease({
     const plan = []
     for (const item of buildLevels(packages).flat()) {
       const packed = await pack(root, item, temporary, { run })
-      const remote = await fetchRegistryVersion(registry, item.manifest.name, version, { fetchImpl })
+      const remote = await fetchRegistryVersion(registry, item.manifest.name, version, { fetchImpl, cacheBust: true })
       if (remote) {
         if (!remote.integrity) throw new Error(`Registry has no integrity for ${item.manifest.name}@${version}`)
         if (remote.integrity !== packed.integrity) {
@@ -269,6 +278,7 @@ export async function releasePackages({
   dryRun = false,
   build = true,
   run = runCommand,
+  authRun = run,
   fetchImpl = fetch,
   log = (...values) => console.error(...values),
   pack,
@@ -299,7 +309,16 @@ export async function releasePackages({
       const command = stage
         ? ["npm", "stage", "publish", item.file, "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false"]
         : ["npm", "publish", item.file, "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false"]
-      await run(command, { cwd: root })
+      try {
+        await authRun(command, { cwd: root })
+      } catch (error) {
+        // npm's web-auth polling can report 404/E404 after the registry accepted the
+        // upload. Treat the package as published when the exact version exists.
+        if (stage) throw error
+        const remote = await fetchRegistryVersion(registry, item.name, item.version, { fetchImpl })
+        if (!remote) throw error
+        log(`[release] ${item.name}@${item.version} is present despite the CLI error; continuing`)
+      }
     }
 
     if (stage) {
@@ -351,6 +370,13 @@ export async function release({
   await bumpVersion({ root, target: resolved.target })
   await assertCleanWorkspace({ root, run, allowVersion: true })
 
+  const authRun = (command, options = {}) => runWithAuthLinks(command, {
+    cwd: options.cwd ?? root,
+    env: options.env ?? process.env,
+    log,
+  })
+  if (!ci) await ensureNpmLogin({ registry: options.registry, run, authRun, log })
+
   if (ci) {
     const result = await triggerCi({ root, target: resolved.target, stage, run })
     return { releaseType: options.releaseType, version: resolved.target, ...result }
@@ -363,6 +389,7 @@ export async function release({
     stage,
     build: true,
     run,
+    authRun,
     fetchImpl,
     log,
     ...overrides,

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { BUILD_MANIFEST, buildFingerprint, buildLevels, mapLimit, treeFiles, workspacePackages } from "./workspace.mjs"
+import { BUILD_MANIFEST, buildFingerprint, buildLevels, concurrency, mapLimit, treeFiles, workspacePackages } from "./workspace.mjs"
 import { packWorkspace, verifyBuild } from "./test-artifacts.mjs"
 import { runCommand, timed } from "./process.mjs"
 
@@ -14,7 +14,7 @@ export async function buildWorkspace(root, run = runCommand) {
   await run(["bun", "run", "check:versions"], { cwd: root })
   await run(["bun", "run", "sync:rules"], { cwd: root })
   for (const level of buildLevels(await workspacePackages(root))) {
-    await mapLimit(level, 2, (item) => run(["bun", "run", "build"], { cwd: item.directory }))
+    await mapLimit(level, concurrency, (item) => run(["bun", "run", "build"], { cwd: item.directory }))
   }
 }
 
@@ -51,12 +51,33 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
   delete environment.UNICORN_TEST_FRESH_INSTALL
   if (mode === "build") return timed("build", () => buildWorkspace(root, run))
   const suites = await testSuites(root)
-  const test = (kind) => timed(kind, () => mapLimit(suites[kind], kind === "e2e" ? 3 : 2, (files) => run([
-    "bun", "test", ...(kind === "render" ? ["--conditions=browser", "--preload", "@opentui/solid/preload"] : []), ...files,
-  ], {
-    cwd: kind === "render" ? path.dirname(path.dirname(files[0])) : root,
-    env: kind === "packaged" && fresh ? { ...environment, UNICORN_TEST_FRESH_INSTALL: "1" } : environment,
-  })))
+  const e2eFiles = suites.e2e.flat()
+  const single = new Set([
+    "opencode-plugin-notepad/test/tmux-e2e.test.ts",
+    "opencode-plugin-prompt-search/test/tmux-e2e.test.ts",
+    "opencode-plugin-send-message-across-sessions/test/tmux-e2e.test.ts",
+    "opencode-plugin-sensitive-encrypt/test/tmux-e2e.test.ts",
+  ])
+  const isSingle = (file) => [...single].some((suffix) => file.endsWith(suffix))
+  const wide = e2eFiles.filter((file) => !isSingle(file))
+  const singleFiles = e2eFiles.filter(isSingle)
+  const e2e = (files, fileLimit, testLimit) => mapLimit(files, fileLimit, (file) => run([
+    "bun", "test", ...(testLimit > 1 ? ["--concurrent", `--max-concurrency=${testLimit}`] : []), "--timeout=60000", file,
+  ], { cwd: root, env: environment }))
+  const test = (kind) => timed(kind, () => {
+    if (kind === "e2e") {
+      return Promise.all([
+        e2e(wide, Number(process.env.UNICORN_E2E_WIDE_FILES ?? 2), Number(process.env.UNICORN_E2E_WIDE_TESTS ?? 4)),
+        e2e(singleFiles, Number(process.env.UNICORN_E2E_SINGLE_FILES ?? 4), 1),
+      ])
+    }
+    return mapLimit(suites[kind], concurrency, (files) => run([
+      "bun", "test", ...(kind === "render" ? ["--conditions=browser", "--preload", "@opentui/solid/preload"] : []), ...files,
+    ], {
+      cwd: kind === "render" ? path.dirname(path.dirname(files[0])) : root,
+      env: kind === "packaged" && fresh ? { ...environment, UNICORN_TEST_FRESH_INSTALL: "1" } : environment,
+    }))
+  })
   if (mode === "unit") {
     await test("unit"); await test("render")
     console.log(`[check] total: ${((performance.now() - started) / 1000).toFixed(2)}s`)
@@ -73,13 +94,27 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
       lease.archives = await Promise.all(archives.map(async (item) => ({ ...item, digest: createHash("sha256").update(await readFile(item.file)).digest("hex") })))
       await writeFile(environment[BUILD_MANIFEST], JSON.stringify(lease))
     }
-    if (["typecheck", "fast", "check"].includes(mode)) {
+    const typecheck = async () => {
       const packages = await workspacePackages(root)
-      await timed("typecheck", () => mapLimit(packages, 2, (item) => run(["bun", "run", "typecheck"], { cwd: item.directory, env: environment })))
+      return timed("typecheck", () => mapLimit(packages, concurrency, (item) => run(["bun", "run", "typecheck"], { cwd: item.directory, env: environment })))
     }
-    if (["test", "unit", "fast", "check"].includes(mode)) { await test("unit"); await test("render") }
-    if (["test", "e2e", "check"].includes(mode)) await test("e2e")
-    if (["packaged", "check"].includes(mode)) await test("packaged")
+    if (mode === "check") {
+      await Promise.all([typecheck(), test("unit"), test("render"), test("e2e"), test("packaged")])
+    } else if (mode === "typecheck") {
+      await typecheck()
+    } else if (mode === "test") {
+      await test("unit")
+      await test("render")
+      await test("e2e")
+    } else if (mode === "unit" || mode === "fast") {
+      await test("unit")
+      await test("render")
+      if (mode === "fast") await typecheck()
+    } else if (mode === "e2e") {
+      await test("e2e")
+    } else if (mode === "packaged") {
+      await test("packaged")
+    }
     await verifyBuild(root, lease)
     return lease
   } finally {

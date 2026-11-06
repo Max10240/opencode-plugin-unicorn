@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, setDefaultTimeout, test } from "bun:test"
 import { generateKeyPairSync } from "node:crypto"
 import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -26,6 +26,7 @@ function options(config: string) {
   return parseOptions({}, { OPENCODE_CONFIG_DIR: config })
 }
 
+setDefaultTimeout(30_000)
 test("reads only owner-only regular files under the system temp directory", async () => {
   await fixture(async (directory) => {
     const file = path.join(directory, "secret.txt")

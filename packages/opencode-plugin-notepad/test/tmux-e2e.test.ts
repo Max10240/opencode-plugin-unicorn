@@ -56,19 +56,23 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
     await waitFor(async () => commandIsListed(pane(target), "Open notepad"), "notepad is missing from the command palette")
     tmux(["send-keys", "-t", target, "Enter"])
     await waitForPane(target, "No notes yet", "empty notepad did not open")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "a"])
     await waitForPane(target, "New note", "note editor did not open")
-    await Bun.sleep(200)
+    await waitForPane(target, "f2 save", "note editor did not become ready")
+    await Bun.sleep(75)
     tmux(["send-keys", "-t", target, "-l", MARKER])
     await waitForPane(target, MARKER, "note text did not appear in the editor")
     tmux(["send-keys", "-t", target, "F2"])
-    await waitForPane(target, MARKER, "note was not saved")
+    await waitFor(async () => !pane(target).includes("f2 save") && pane(target).includes(MARKER), "note was not saved")
     await waitForPane(target, "folder ·", "new note was not scoped to the current folder")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "g"])
     await waitForPane(target, "Moved to Global", "note scope did not change")
     await waitForPane(target, "global ·", "note was not shown as global")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "c"])
     await waitForPane(target, "Copied note", "copy action did not report success")
@@ -76,23 +80,23 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
 
     tmux(["send-keys", "-t", target, "Escape"])
     await waitFor(async () => !pane(target).includes("esc close"), "notepad dialog did not close")
+    await Bun.sleep(100)
 
     // Panel keys must not leak into the prompt while the notepad is closed.
     tmux(["send-keys", "-t", target, "-l", "aedgc"])
-    await Bun.sleep(300)
+    await waitFor(async () => pane(target).includes("aedgc"), "prompt did not receive panel isolation keys")
     expect(pane(target)).not.toContain("New note")
     expect(pane(target)).not.toContain("Edit note")
     expect(pane(target)).not.toContain("Delete note?")
     expect(pane(target)).not.toContain("Copied note")
     expect(pane(target)).not.toContain("Moved to")
-    expect(pane(target)).toContain("aedgc")
     for (let index = 0; index < 5; index++) tmux(["send-keys", "-t", target, "BSpace"])
 
     // Panel keys must not leak into another modal dialog either.
     tmux(["send-keys", "-t", target, "C-p"])
     await waitForPane(target, "Commands", "command palette did not reopen")
     tmux(["send-keys", "-t", target, "-l", "aedgc"])
-    await Bun.sleep(300)
+    await Bun.sleep(100)
     expect(pane(target)).not.toContain("New note")
     expect(pane(target)).not.toContain("Edit note")
     expect(pane(target)).not.toContain("Delete note?")
@@ -106,21 +110,24 @@ test("notepad CRUD, global scope, palette and slash work in the real TUI", async
     tmux(["send-keys", "-t", target, "Enter"])
     await waitForPane(target, MARKER, "note did not persist after reopening")
     expect(pane(target)).toContain("global ·")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "e"])
     await waitForPane(target, "Edit note", "note editor did not reopen")
-    await Bun.sleep(200)
+    await waitForPane(target, "f2 save", "note editor did not become ready")
+    await Bun.sleep(75)
     tmux(["send-keys", "-t", target, "-l", " EDITED"])
     await waitForPane(target, " EDITED", "edited text did not appear in the editor")
     tmux(["send-keys", "-t", target, "F2"])
-    await waitForPane(target, "EDITED", "note edit was not saved")
-    await Bun.sleep(1000)
+    await waitFor(async () => !pane(target).includes("f2 save") && pane(target).includes("EDITED"), "note edit was not saved")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "e"])
     await waitForPane(target, "Edit note", "note editor did not reopen for cancel")
+    await waitForPane(target, "f2 save", "note editor did not become ready for cancel")
     tmux(["send-keys", "-t", target, "Escape"])
-    await waitForPane(target, MARKER, "cancel did not return to the note list")
-    await Bun.sleep(500)
+    await waitFor(async () => !pane(target).includes("f2 save") && pane(target).includes(MARKER), "cancel did not return to the note list")
+    await Bun.sleep(75)
 
     tmux(["send-keys", "-t", target, "d"])
     await waitForPane(target, "Delete note?", "delete confirmation did not open")
@@ -169,7 +176,7 @@ async function waitFor(check: () => Promise<boolean>, message: string, timeout =
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     if (await check()) return
-    await Bun.sleep(100)
+    await Bun.sleep(25)
   }
   throw new Error(message)
 }

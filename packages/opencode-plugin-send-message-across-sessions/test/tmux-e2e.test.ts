@@ -463,7 +463,7 @@ async function waitFor<T>(check: () => Promise<T | false>, message: string, time
   while (Date.now() < deadline) {
     const result = await check()
     if (result !== false) return result
-    await Bun.sleep(100)
+    await Bun.sleep(25)
   }
   throw new Error(message)
 }

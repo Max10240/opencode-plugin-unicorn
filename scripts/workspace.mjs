@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto"
 import { readdir, readFile, realpath, stat } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 
 export const BUILD_MANIFEST = "UNICORN_TEST_BUILD_MANIFEST"
+const concurrencyOverride = Number(process.env.UNICORN_TEST_CONCURRENCY)
+export const concurrency = Number.isSafeInteger(concurrencyOverride) && concurrencyOverride > 0
+  ? concurrencyOverride
+  : Math.max(2, Math.min(8, os.availableParallelism?.() ?? os.cpus().length))
 
 export async function workspacePackages(root) {
   const entries = await readdir(path.join(root, "packages"), { withFileTypes: true })
