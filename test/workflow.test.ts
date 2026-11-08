@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import os from "node:os"
 import path from "node:path"
 import { buildFingerprint, buildLevels, mapLimit } from "../scripts/workspace.mjs"
-import { BUILD_MANIFEST, executeWorkflow, FRESH_ONLY, isTestFile, testGroup, testSuites } from "../scripts/workflow.mjs"
+import { BUILD_MANIFEST, executeWorkflow, isTestFile, testGroup, testSuites } from "../scripts/workflow.mjs"
 import { ensureBuilt, packWorkspace, verifyBuild } from "../scripts/test-artifacts.mjs"
 
 async function fixture(run: (root: string) => Promise<void>) {
@@ -30,6 +30,7 @@ async function fixture(run: (root: string) => Promise<void>) {
 test("test selection is disjoint and keeps all E2E and renderer conditions", () => {
   expect(testGroup("/repo/packages/a/test/auth-e2e.test.ts")).toBe("e2e")
   expect(testGroup("/repo/test/rules-sync.test.ts")).toBe("e2e")
+  expect(testGroup("/repo/test/version-lifecycle-e2e.test.ts")).toBe("e2e")
   expect(testGroup("/repo/test/packaged-e2e.test.ts")).toBe("packaged")
   expect(testGroup("/repo/packages/a/test/tui/preview.test.tsx")).toBe("render")
   expect(testGroup("/repo/packages/a/test/model.test.ts")).toBe("unit")
@@ -94,8 +95,8 @@ test("full check builds exactly once, runs every test once, and deletes the buil
   expect(calls.filter((call) => call.args.join(" ") === "bun run build").map((call) => path.basename(call.cwd))).toEqual(["a", "b"])
   const tests = calls.filter((call) => call.args[1] === "test")
   const files = tests.flatMap((call) => call.args.filter((arg) => arg.endsWith(".test.ts") || arg.endsWith(".test.tsx")))
-  expect(files).toHaveLength(8)
-  expect(new Set(files).size).toBe(8)
+  expect(files).toHaveLength(9)
+  expect(new Set(files).size).toBe(9)
   expect(packs).toBe(1)
   expect(tests.filter((call) => call.args.includes("--conditions=browser"))).toHaveLength(2)
   const lease = tests[0].lease!
@@ -119,7 +120,7 @@ test("manifest overrides preserve version-only fingerprints without hiding sourc
 }))
 
 test("fast and unit entrypoints never run server or packaged tests", async () => fixture(async (root) => {
-  for (const mode of ["fast", "unit"]) {
+  for (const mode of ["quick", "unit"]) {
     const calls: string[][] = []
     await executeWorkflow(mode, { root, run: async (args: string[]) => { calls.push(args); return "" } })
     const files = calls.flat().filter((arg) => arg.endsWith(".test.ts"))
@@ -138,9 +139,26 @@ test("a failed build prevents all checks and tests", async () => fixture(async (
   expect(calls.some((call) => call.startsWith("bun test") || call.endsWith("typecheck"))).toBe(false)
 }))
 
+test("a failing E2E file waits for already-started files before rejecting", async () => fixture(async (root) => {
+  let otherFinished = false
+  await expect(executeWorkflow("check", { root, pack: async () => [], run: async (args: string[]) => {
+    const file = (suffix: string) => args.some((arg) => arg.endsWith(suffix))
+    if (file("packages/a/test/auth-e2e.test.ts")) {
+      await Bun.sleep(10)
+      throw new Error("e2e failed")
+    }
+    if (file("packages/b/test/auth-e2e.test.ts")) {
+      await Bun.sleep(50)
+      otherFinished = true
+    }
+    return ""
+  } })).rejects.toThrow("e2e failed")
+  expect(otherFinished).toBe(true)
+}), 15_000)
+
 test("a source change during tests cannot produce a passing check and still cleans its lease", async () => fixture(async (root) => {
   let lease: string | undefined
-  await expect(executeWorkflow("fast", { root, run: async (args: string[], options: any) => {
+  await expect(executeWorkflow("quick", { root, run: async (args: string[], options: any) => {
     if (args[1] === "test") {
       lease = options.env[BUILD_MANIFEST]
       await writeFile(path.join(root, "packages/a/source.ts"), "changed during tests")
@@ -237,11 +255,3 @@ test("cross-process archive leases copy current bytes and reject corruption with
   await writeFile(archives[0].file, "corrupt")
   await expect(packWorkspace(path.join(root, "next"), options)).rejects.toThrow("changed after packing")
 }))
-
-test("fresh-only entries all exist and fresh covers every E2E file", async () => {
-  const root = path.resolve(import.meta.dir, "..")
-  const e2e = (await testSuites(root)).e2e.flat()
-  for (const suffix of FRESH_ONLY) expect(e2e.some((file) => file.endsWith(suffix))).toBe(true)
-  const fast = e2e.filter((file) => ![...FRESH_ONLY].some((suffix) => file.endsWith(suffix)))
-  expect(new Set([...fast, ...e2e]).size).toBe(e2e.length)
-})

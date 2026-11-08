@@ -4,6 +4,16 @@
 
 When developing plugins, use the OpenCode source tree to confirm APIs, runtime behavior, and implementation details.
 
+## Check Commands
+
+- `bun run check:quick`: fast local feedback (build, typecheck, unit/render). Never use it as a release gate.
+- `bun run check`: complete everyday gate. Runs every unit, render, E2E, and packaged test; reuses only build,
+  typecheck, and packed-tarball artifacts.
+- `bun run check:release`: complete uncached release gate. Runs the same test set without cache reuse and serializes
+  phases. Releases call this command.
+- `bun run test*`: scoped test commands, not complete checks.
+- Test results are never cached or skipped. No check or release stage runs `npm install`.
+
 ## Plugin Independence and Unicorn Integration
 
 - Every plugin must remain independently usable and must not require another plugin to run. When plugins cooperate,

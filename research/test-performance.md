@@ -2,38 +2,43 @@
 
 **English** | [简体中文](test-performance.zh-CN.md)
 
-2026-10-20, macOS arm64, Node v26.5.0, Bun 1.4.2. Timings are samples from the test host, not a cross-machine performance guarantee.
+2026-11-08, macOS arm64, 8-core host, Bun 1.4.4. Timings are samples from the test host, not a cross-machine
+performance guarantee.
 
-## Measurements after optimization
+## Current entry points
 
-| Entry / phase | Duration |
-| --- | --- |
-| `bun run test:unit`, no build | 0.94 s |
-| `bun run check:fast`, including build and typecheck | 10.89 s |
-| `bun run check`, OpenCode v2.1.0, dependency cache hit | 65.47 s |
-| `bun run check`, OpenCode v2.0.21, dependency cache hit | 70.08 s |
-| `bun run check:fresh`, v2.1.0, forced dependency resolution | 123.69 s |
-| Unified six-package build / archive in the full check | about 5.0 s / 1.6 s |
-| Real `npm ci --offline` during packaged installation | about 1.9–2.0 s |
+| Command | Use when | Typical duration |
+| --- | --- | --- |
+| `bun run test:unit` | unit/render only | about 5 s |
+| `bun run check:quick` | fast local iteration | about 7–8 s |
+| `bun run check` | complete cached everyday gate | about 19–22 s |
+| `bun run check:release` | complete uncached release gate | about 40–42 s |
+| `bun run test:packaged` | tarball debugging only | about 0.4 s |
 
-Before optimization: packaged E2E took 92.93 s, including 7.33 s build, 10.70 s for six packs, and 46.99 s npm
-install. After optimization the packaged E2E phase takes about 20.6–21.3 s; unified build/pack moved to earlier
-phases, so phase durations are not standalone command totals. The cross-session case dropped from 27.68 s to about
-4.9–6.0 s in the full workflow because repeated packing was removed and the earlier archive is reused.
+`check:quick` intentionally excludes E2E and packaged validation. `check` and `check:release` both execute every
+unit, render, E2E, and packaged test. The only difference is cache reuse and phase ordering; test results are never
+reused across runs.
 
-`check:fresh` still needs network access for npm resolution and installation; this run took 57.58 s. It can use the
-download cache but does not reuse the cached lockfile or `node_modules`.
+## Test layering
 
-## Correctness validation
+- One warm server/TUI file covers real terminal interaction for notepad, prompt search, session search, encryption,
+  and image previews. The file takes about 6.5–7 s; individual test bodies take about 0.14–0.9 s.
+- Render tests cover plugin UI behavior in-process without a server or tmux.
+- Headless server tests cover session-search history, compaction, revert, and delivery semantics. The session-search
+  controller E2E takes about 0.9 s.
+- send-message no longer uses tmux; it runs a real server plus `opencode run` subprocesses and shares only the
+  read-only extracted package tree between modes.
 
-- Full checks on v2.0.21 and v2.1.0: **238 passed, 0 failed** each; 211 existing tests were preserved and 27 were
-  added.
-- Unit tests cover build order, concurrency limits, failure propagation, test discovery, renderer conditions, and
-  single build/pack execution.
-- Source, test, manifest, artifact changes, and artifact deletion invalidate the build ticket; linked source changes
-  and directory cycles are covered.
-- Archive copies never share writable files, and a corrupt cache cannot produce a successful test.
-- Real npm cases verify that code changes under the same plugin version are read by both offline and forced-fresh
-  installations.
-- Dependency cache key changes, corrupt caches, missing offline dependencies, partial installation cleanup, and
-  fresh failures are covered.
+## What is cached
+
+Only build outputs, typecheck results, and packed tarballs are content-addressed. Test results are not cached and no
+test is skipped because it passed previously. `check:release` bypasses every cache and serializes phases to avoid
+cold-cache contention.
+
+No check or release stage runs `npm install`. Packaged validation only runs `npm pack` and inspects the resulting
+tarballs.
+
+## Variance
+
+The host also runs other applications, so `check` timing varies. Clean runs reached 18.6–19.5 s; busier runs reached
+22–28 s. The uncached `check:release` run is more stable because its phases are serial.

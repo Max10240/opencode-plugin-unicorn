@@ -107,6 +107,6 @@ Unicorn 不再读取顶层 `model`、`baseURL`、`integrationID`、`keybind`、`
 所有插件版本一致，内部依赖精确固定到同版本，不使用 `^1`，避免 `latest` / `prerelease` 标签不同步时安装旧子包。
 统一升版后运行 `bun run sync:versions` 同步内部依赖；发布命令包含此步骤，不自动创建 Git commit/tag。
 升版阶段不重装 workspace 依赖，待版本及内部依赖同步完成后再构建。
-`npm run release -- --release-type=...` 是唯一发布入口，会先运行完整检查。
-`check:fresh` 还会只安装 Unicorn，在 `latest` 指向旧子包的隔离 registry 中验证依赖解析，并运行图片随正文滚动的 tmux E2E。
-不会自动执行发布或更新正在运行的插件。
+`npm run release -- --release-type=...` 是唯一发布入口，会先运行 `check:release`。
+日常使用 `bun run check`（完整缓存检查），发布前使用 `bun run check:release`（完整无缓存检查）；
+两者都会执行全部测试，且都不运行 `npm install`。不会自动执行发布或更新正在运行的插件。

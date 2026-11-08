@@ -119,7 +119,7 @@ using `^1`, so mismatched `latest` / `prerelease` tags cannot install stale chil
 bump, run `bun run sync:versions`; the release command includes this step and does not create a Git commit or tag on
 its own. Version bumps do not reinstall workspace dependencies; internal dependencies are synced before the build.
 
-`npm run release -- --release-type=...` is the only release entry point and validates the full check first.
-`check:fresh` also installs Unicorn alone against an isolated registry where `latest` points to a stale child package
-and runs the tmux E2E for image preview scrolling. Nothing publishes automatically or updates a running plugin
+`npm run release -- --release-type=...` is the only release entry point and runs `check:release` first.
+Use `bun run check` for the complete cached everyday gate and `bun run check:release` for the uncached release gate;
+both execute every test, and neither runs `npm install`. Nothing publishes automatically or updates a running plugin
 installation without an explicit command.

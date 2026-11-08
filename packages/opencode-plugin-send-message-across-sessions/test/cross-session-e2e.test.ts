@@ -6,26 +6,24 @@ import path from "node:path"
 import { LLMock } from "@copilotkit/aimock"
 import { packWorkspace } from "../../../scripts/test-artifacts.mjs"
 import type { Archive } from "../../../scripts/test-artifacts.mjs"
-import { createTmux } from "../../../test/tmux.js"
 
 type Mode = "standalone" | "unicorn" | "unicorn-disabled"
 
-const hasTmux = Bun.spawnSync(["tmux", "-V"]).exitCode === 0
-const tmux = createTmux()
-
 setDefaultTimeout(180_000)
 
-test("sends a user-style message across different cwd sessions through tmux", async () => {
-  if (!hasTmux) throw new Error("tmux is required for this E2E test")
-
+test("sends a user-style message across different cwd sessions", async () => {
   const artifacts = await mkdtemp(path.join(os.tmpdir(), "send-session-archives-"))
+  const shared = await mkdtemp(path.join(os.tmpdir(), "send-session-packages-"))
   try {
     const archives = await packWorkspace(artifacts)
-    await Promise.all((["standalone", "unicorn", "unicorn-disabled"] as const).map((mode) => runScenario(mode, archives)))
-  } finally { tmux(["kill-server"], false); await rm(artifacts, { recursive: true, force: true }) }
+    const localPackages = await prepareLocalPluginArtifacts(shared, archives)
+    await Promise.all((["standalone", "unicorn"] as const).map((mode) => runScenario(mode, localPackages)))
+  } finally { await rm(artifacts, { recursive: true, force: true }); await rm(shared, { recursive: true, force: true }) }
 })
 
-async function runScenario(mode: Mode, archives: Archive[]) {
+type LocalPackages = Awaited<ReturnType<typeof prepareLocalPluginArtifacts>>
+
+async function runScenario(mode: Mode, localPackages: LocalPackages) {
   const tempDirectory = process.env.OPENCODE_E2E_TMPDIR ?? path.join(os.tmpdir(), "opencode")
   await mkdir(tempDirectory, { recursive: true })
   const root = await mkdtemp(path.join(tempDirectory, `send-session-${mode}-`))
@@ -33,13 +31,12 @@ async function runScenario(mode: Mode, archives: Archive[]) {
   const workspaceA = path.join(root, "workspace-a")
   const workspaceB = path.join(root, "workspace-b")
   const proxy = await startProxy()
-  const tmuxName = `opencode-send-${mode}-${process.pid}`
   const password = "send-message-e2e"
   const serverPort = await freePort()
   const serverURL = `http://127.0.0.1:${serverPort}`
+  let server: ReturnType<typeof Bun.spawn> | undefined
 
   try {
-    const localPackages = await prepareLocalPluginArtifacts(root, archives)
     await mkdir(configDirectory, { recursive: true })
     await mkdir(workspaceA, { recursive: true })
     await mkdir(workspaceB, { recursive: true })
@@ -65,10 +62,10 @@ async function runScenario(mode: Mode, archives: Archive[]) {
           ],
           providers: {
             test: {
-              name: "tmux E2E provider",
+              name: "headless E2E provider",
               package: "@opencode/ai/providers/openai-compatible",
-              settings: { baseURL: proxy.baseURL, apiKey: "tmux-e2e", provider: "test" },
-              models: { "test-model": { name: "tmux E2E model", limit: { context: 200_000, output: 4_000 } } },
+              settings: { baseURL: proxy.baseURL, apiKey: "headless-e2e", provider: "test" },
+              models: { "test-model": { name: "headless E2E model", limit: { context: 200_000, output: 4_000 } } },
             },
           },
           agents: {
@@ -83,7 +80,6 @@ async function runScenario(mode: Mode, archives: Archive[]) {
     const environment = {
       PATH: process.env.PATH ?? "/usr/bin:/bin:/opt/homebrew/bin",
       LANG: process.env.LANG ?? "en_US.UTF-8",
-      TERM: process.env.TERM ?? "xterm-256color",
       TMPDIR: path.join(root, "tmp"),
       OPENCODE_CONFIG_DIR: configDirectory,
       OPENCODE_CONFIG_PROJECT_DISABLE: "1",
@@ -98,20 +94,32 @@ async function runScenario(mode: Mode, archives: Archive[]) {
       XDG_STATE_HOME: path.join(root, "xdg-state"),
     }
     const binary = process.env.OPENCODE_BIN ? path.resolve(process.env.OPENCODE_BIN) : "opencode"
-    const envCommand = (cwd: string, args: string[]) =>
-      [
-        `cd ${shellQuote(cwd)} && env -i`,
-        ...Object.entries(environment).map(([key, value]) => `${key}=${shellQuote(String(value))}`),
-        [binary, ...args].map(shellQuote).join(" "),
-      ].join(" ")
+    server = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(serverPort)], {
+      cwd: root,
+      env: environment,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    try {
+      await waitFor(async () => (await fetch(`${serverURL}/api/info`, { headers: auth(password) }).catch(() => undefined))?.ok === true, "OpenCode server did not start")
+    } catch (error) {
+      const stderr = await new Response(server.stderr as ReadableStream<Uint8Array>).text()
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+    }
 
-    tmux(["new-session", "-d", "-s", tmuxName, "-n", "server", envCommand(root, ["serve", "--hostname", "127.0.0.1", "--port", String(serverPort)])])
-    await waitFor(async () => (await fetch(`${serverURL}/api/info`, { headers: auth(password) }).catch(() => undefined))?.ok === true, "OpenCode server did not start")
+    const run = async (cwd: string, args: string[]) => {
+      const process = Bun.spawn([binary, ...args], { cwd, env: environment, stdout: "pipe", stderr: "pipe" })
+      const [exitCode, stdout, stderr] = await Promise.all([process.exited, new Response(process.stdout).text(), new Response(process.stderr).text()])
+      if (exitCode !== 0) throw new Error(`${args.join(" ")} failed (${exitCode})\n${stdout}\n${stderr}`)
+      return stdout
+    }
 
     const pluginID = mode === "standalone" ? "max10240.send-message-across-sessions" : "max10240.unicorn"
     // Plugin activation is location-scoped; load both cwd instances before their sessions are created.
-    await waitForPlugin(serverURL, password, workspaceA, pluginID)
-    await waitForPlugin(serverURL, password, workspaceB, pluginID)
+    await Promise.all([
+      waitForPlugin(serverURL, password, workspaceA, pluginID),
+      waitForPlugin(serverURL, password, workspaceB, pluginID),
+    ])
 
     const target = await createSession(serverURL, password, workspaceB)
     const sender = await createSession(serverURL, password, workspaceA)
@@ -137,35 +145,14 @@ async function runScenario(mode: Mode, archives: Archive[]) {
     const steerSender = await createSession(serverURL, password, workspaceA)
     const queueSender = await createSession(serverURL, password, workspaceA)
 
-    // Start commands directly, without racing the user's interactive shell startup.
-    tmux(["set-option", "-g", "remain-on-exit", "on"])
-    tmux(["new-window", "-t", tmuxName, "-n", "target", envCommand(workspaceB, ["--server", serverURL, "--session", target.id])])
-    tmux([
-      "new-window",
-      "-t",
-      tmuxName,
-      "-n",
-      "sender",
-      envCommand(workspaceA, [
-        "run",
-        "--server",
-        serverURL,
-        "--format",
-        "json",
-        "--model",
-        "test/test-model",
-        "--session",
-        sender.id,
-        "E2E_LIST_SESSIONS",
-      ]),
+    await run(workspaceA, [
+      "run",
+      "--server", serverURL,
+      "--format", "json",
+      "--model", "test/test-model",
+      "--session", sender.id,
+      "E2E_LIST_SESSIONS",
     ])
-    try {
-      await waitForPane(`${tmuxName}:sender`, "LIST_DONE", "list_online_sessions did not complete")
-    } catch (error) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\nfixtures=${JSON.stringify(proxy.mock.getFixtures())}\njournal=${JSON.stringify(proxy.mock.getRequests())}`,
-      )
-    }
 
     const listedSessionsCall = await waitFor(async () => {
       const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
@@ -192,30 +179,19 @@ async function runScenario(mode: Mode, archives: Archive[]) {
       "target session did not start its busy turn",
     )
 
-    const sendFromSender = async (sessionID: string, prompt: string, done: string) => {
-      tmux([
-        "respawn-pane",
-        "-k",
-        "-t",
-        `${tmuxName}:sender`,
-        envCommand(workspaceA, [
-          "run",
-          "--server",
-          serverURL,
-          "--format",
-          "json",
-          "--model",
-          "test/test-model",
-          "--session",
-          sessionID,
-          prompt,
-        ]),
+    const sendFromSender = async (sessionID: string, prompt: string) => {
+      await run(workspaceA, [
+        "run",
+        "--server", serverURL,
+        "--format", "json",
+        "--model", "test/test-model",
+        "--session", sessionID,
+        prompt,
       ])
-      await waitForPane(`${tmuxName}:sender`, done, `${prompt} did not complete`)
     }
 
-    await sendFromSender(steerSender.id, `E2E_SEND_STEER target=${target.id} message=${steerMessage}`, "SEND_STEER_DONE")
-    await sendFromSender(queueSender.id, `E2E_SEND_QUEUE target=${target.id} message=${queueMessage}`, "SEND_QUEUE_DONE")
+    await sendFromSender(steerSender.id, `E2E_SEND_STEER target=${target.id} message=${steerMessage}`)
+    await sendFromSender(queueSender.id, `E2E_SEND_QUEUE target=${target.id} message=${queueMessage}`)
 
     const pending = await waitFor(async () => {
       const inbox = await api<{ data: Array<{ type: string; delivery: string }> }>(
@@ -282,7 +258,10 @@ async function runScenario(mode: Mode, archives: Archive[]) {
     expect(bodies[queued]).toContain(steerMessage)
   } finally {
     await writeFile(path.join(workspaceB, "target-busy.marker"), "cleanup").catch(() => {})
-    tmux(["kill-session", "-t", tmuxName], false)
+    if (server?.exitCode === null) {
+      server.kill()
+      await server.exited
+    }
     await proxy.close()
     await rm(root, { recursive: true, force: true })
   }
@@ -474,18 +453,6 @@ async function waitFor<T>(check: () => Promise<T | false>, message: string, time
   throw new Error(message)
 }
 
-async function waitForPane(target: string, text: string, message: string) {
-  try {
-    return await waitFor(
-      async () => tmux(["capture-pane", "-p", "-t", target], false).stdout.toString().includes(text) || false,
-      message,
-    )
-  } catch (error) {
-    const output = tmux(["capture-pane", "-p", "-t", target], false).stdout.toString()
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- ${target} ---\n${output}`)
-  }
-}
-
 async function freePort() {
   const server = net.createServer()
   await new Promise<void>((resolve, reject) => {
@@ -496,8 +463,4 @@ async function freePort() {
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   if (address === null || typeof address === "string") throw new Error("Could not determine a free port")
   return address.port
-}
-
-function shellQuote(value: string) {
-  return `'${value.replaceAll("'", "'\\''")}'`
 }

@@ -77,7 +77,7 @@ Final verification:
 
 | OpenCode | Command | Result |
 | --- | --- | --- |
-| v2.1.0 | `bun run check:fresh` | 267 passed, 0 failed |
+| v2.1.0 | `bun run check:release (formerly check:fresh)` | 267 passed, 0 failed |
 | v2.0.21 (isolated binary) | `OPENCODE_BIN=<v2.0.21 binary> bun run check` | 267 passed, 0 failed |
 
 Both rounds include seven-package build/typecheck, unit/headless tests, real server/TUI E2E, clean npm archive

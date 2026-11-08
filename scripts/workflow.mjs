@@ -1,26 +1,15 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { CHECK_CACHE_VERSION, cacheKey, checkCacheDirectory, checkRuntime, distHash, fileHash, packageDirectory, packageHash, pruneCache, readMarker, readTimings, snapshotRepository, testDependencies, writeMarker, writeTimings } from "./check-cache.mjs"
+import { CHECK_CACHE_VERSION, cacheKey, checkCacheDirectory, checkRuntime, distHash, packageHash, pruneCache, readMarker, readTimings, snapshotRepository, writeMarker, writeTimings } from "./check-cache.mjs"
 import { BUILD_MANIFEST, buildFingerprint, buildLevels, concurrency, mapLimit, treeFiles, workspacePackages } from "./workspace.mjs"
 import { packWorkspace, verifyBuild } from "./test-artifacts.mjs"
 import { runCommand, timed } from "./process.mjs"
 
 const repository = fileURLToPath(new URL("../", import.meta.url))
 export { BUILD_MANIFEST } from "./workspace.mjs"
-
-export const FRESH_ONLY = new Set([
-  "opencode-plugin-notepad/test/tmux-e2e.test.ts",
-  "opencode-plugin-prompt-search/test/tmux-e2e.test.ts",
-  "opencode-plugin-send-message-across-sessions/test/tmux-e2e.test.ts",
-  "opencode-plugin-sensitive-encrypt/test/tmux-e2e.test.ts",
-  "opencode-plugin-image-gen/test/preview-e2e.test.ts",
-  "opencode-plugin-session-search/test/e2e.test.ts",
-  "opencode-plugin-show-img/test/e2e.test.ts",
-  "test/rules-sync.test.ts",
-])
 
 async function typescriptVersion(root, packages) {
   for (const directory of [root, ...packages.map((item) => item.directory)]) {
@@ -93,22 +82,20 @@ export async function testSuites(root) {
   return groups
 }
 
-export async function executeWorkflow(mode, { root = repository, run = runCommand, fresh = false, all = false, pack = packWorkspace, cache = !fresh, cacheRoot = checkCacheDirectory(), skipPackaged = false } = {}) {
-  if (!["build", "typecheck", "test", "unit", "e2e", "packaged", "fast", "check"].includes(mode)) throw new Error(`Unknown workflow: ${mode}`)
+export async function executeWorkflow(mode, { root = repository, run = runCommand, fresh = false, pack = packWorkspace, cache = !fresh, cacheRoot = checkCacheDirectory() } = {}) {
+  if (!["build", "typecheck", "test", "unit", "e2e", "packaged", "quick", "check"].includes(mode)) throw new Error(`Unknown workflow: ${mode}`)
   const started = performance.now()
   const environment = { ...process.env }
   delete environment[BUILD_MANIFEST]
   delete environment.UNICORN_TEST_FRESH_INSTALL
   if (mode === "build") return timed("build", () => buildWorkspace(root, run))
   const suites = await testSuites(root)
-  const freshOnly = FRESH_ONLY
-  const e2eFiles = (mode === "check" && !fresh && !all ? suites.e2e.flat().filter((file) => ![...freshOnly].some((suffix) => file.endsWith(suffix))) : suites.e2e.flat())
+  const e2eFiles = suites.e2e.flat()
   const cacheEnabled = cache && !fresh
   await run(["bun", "run", "check:versions"], { cwd: root })
   await run(["bun", "run", "sync:rules"], { cwd: root })
   const packages = await workspacePackages(root)
   const packageByName = new Map(packages.map((item) => [item.manifest.name, item]))
-  const packageByDirectory = new Map(packages.map((item) => [path.basename(item.directory), item]))
   const snapshot = cacheEnabled || mode !== "build" ? await snapshotRepository(root, packages) : undefined
   const runtime = checkRuntime(environment)
   const tscVersion = await typescriptVersion(root, packages)
@@ -116,95 +103,100 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
   let distHashes = new Map()
   for (const item of packages) distHashes.set(item.manifest.name, await distHash(item.directory))
 
-  const testKey = async (kind, file) => {
-    const directory = packageDirectory(file)
-    const pkg = directory ? packageByDirectory.get(directory) : undefined
-    const text = await readFile(file, "utf8").catch(() => "")
-    const dependencies = await testDependencies(file, packages)
-    const kinds = dependencies.packages
-    const unicorn = "@max10240/opencode-plugin-unicorn"
-    if (pkg?.manifest.name === unicorn) for (const item of packages) kinds.set(item.manifest.name, "all")
-    const sources = [...kinds].sort(([left], [right]) => left.localeCompare(right)).map(([name, kind]) => {
-      const item = packageByName.get(name)
-      return [name, item ? packageHash(snapshot, path.basename(item.directory), kind) : undefined, distHashes.get(name)]
-    })
-    const helpers = dependencies.files.map((dependency) => {
-      const relative = path.relative(root, dependency).split(path.sep).join("/")
-      return [relative, fileHash(snapshot, dependency)]
-    })
-    const scripts = !pkg ? snapshot.scriptHash : text.includes("scripts/") ? snapshot.supportHash : undefined
-    return cacheKey([
-      CHECK_CACHE_VERSION, kind, snapshot.root, snapshot.lockHash, fileHash(snapshot, file), snapshot.manifestHash,
-      pkg ? undefined : [snapshot.rootHash, snapshot.testHash], scripts, sources, helpers, snapshot.helperHash, runtime,
-      { opencodeBin: environment.OPENCODE_BIN, logLevel: environment.OPENCODE_E2E_LOG_LEVEL },
-    ])
-  }
-
-  const cachedFiles = async (kind, files) => {
-    if (!cacheEnabled) return { files, keys: new Map() }
-    const entries = await Promise.all(files.map(async (file) => [file, await testKey(kind, file)]))
-    const keys = new Map(entries)
-    const uncached = []
-    for (const [file, key] of entries) if (!(await readMarker(cacheRoot, kind, key))) uncached.push(file)
-    if (process.env.UNICORN_CACHE_DEBUG && uncached.length) console.error(`[check] ${kind} rerun: ${uncached.map((file) => `${path.relative(root, file)} ${keys.get(file)}`).join(", ")}`)
-    return { files: uncached, keys }
-  }
-
-  const recordFiles = async (kind, files, keys) => {
-    if (!cacheEnabled) return
-    for (const file of files) await writeMarker(cacheRoot, kind, keys.get(file), { file })
-  }
-
   const timings = cacheEnabled ? await readTimings(cacheRoot, "e2e") : {}
-  const e2e = (files, fileLimit, testLimit, keys) => mapLimit(files, fileLimit, async (file) => {
+  const e2eStarted = performance.now()
+  const e2e = (files, fileLimit, testLimit) => mapLimit(files, fileLimit, async (file) => {
     const limit = typeof testLimit === "function" ? testLimit(file) : testLimit
     const began = performance.now()
+    if (process.env.UNICORN_CACHE_DEBUG) console.error(`[check] e2e start ${((began - e2eStarted) / 1000).toFixed(2)}s ${path.relative(root, file)} weight=${limit}`)
     await run([
       "bun", "test", ...(limit > 1 ? ["--concurrent", `--max-concurrency=${limit}`] : []), "--timeout=60000", file,
     ], { cwd: root, env: environment })
     const elapsed = (performance.now() - began) / 1000
     if (cacheEnabled) timings[path.relative(root, file)] = elapsed
-    if (process.env.UNICORN_CACHE_DEBUG) console.error(`[check] e2e ${elapsed.toFixed(2)}s ${path.relative(root, file)} limit=${limit}`)
-    await recordFiles("e2e", [file], keys)
+    if (process.env.UNICORN_CACHE_DEBUG) console.error(`[check] e2e ${elapsed.toFixed(2)}s ${path.relative(root, file)} limit=${limit} at=${((performance.now() - e2eStarted) / 1000).toFixed(2)}s`)
   })
 
   const test = (kind) => timed(kind, async () => {
     if (kind === "e2e") {
-      const single = new Set([
-        "opencode-plugin-notepad/test/tmux-e2e.test.ts",
-        "opencode-plugin-prompt-search/test/tmux-e2e.test.ts",
-        "opencode-plugin-send-message-across-sessions/test/tmux-e2e.test.ts",
-        "opencode-plugin-sensitive-encrypt/test/tmux-e2e.test.ts",
-      ])
+      const single = new Set(["test/warm-tui-e2e.test.ts", "opencode-plugin-send-message-across-sessions/test/cross-session-e2e.test.ts"])
       const isSingle = (file) => [...single].some((suffix) => file.endsWith(suffix))
-      const selected = await cachedFiles("e2e", e2eFiles)
-      if (selected.files.length === 0) return
-      const ordered = [...selected.files].sort((left, right) => (timings[path.relative(root, right)] ?? 0) - (timings[path.relative(root, left)] ?? 0))
-      const wide = ordered.filter((file) => !isSingle(file))
-      const singleFiles = ordered.filter(isSingle)
-      const small = selected.files.length <= 6
-      const testLimit = (file) => /(?:auth|preview)-e2e/.test(file) ? 8 : small ? 4 : Number(process.env.UNICORN_E2E_WIDE_TESTS ?? 4)
-      await Promise.all([
-        e2e(wide, small ? Math.max(1, Math.min(7, wide.length)) : Number(process.env.UNICORN_E2E_WIDE_FILES ?? 2), testLimit, selected.keys),
-        e2e(singleFiles, small ? Math.max(1, Math.min(4, singleFiles.length)) : Number(process.env.UNICORN_E2E_SINGLE_FILES ?? 4), 1, selected.keys),
-      ])
+      const selected = e2eFiles
+      if (selected.length === 0) return
+      const testLimit = (file) => {
+        if (isSingle(file)) return 1
+        if (/opencode-plugin-image-gen[/\\]test[/\\]preview-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_PREVIEW_TESTS ?? 5)
+        if (/test[/\\]version-lifecycle-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_LIFECYCLE_TESTS ?? 3)
+        if (/test[/\\]rules-sync\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_RULES_TESTS ?? 4)
+        if (/opencode-plugin-show-img[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_SHOW_TESTS ?? 3)
+        if (/opencode-plugin-recomended-opencode-config[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_RECOMMENDED_TESTS ?? 4)
+        if (/(?:auth)-e2e/.test(file)) return Number(process.env.UNICORN_E2E_HEAVY_TESTS ?? 4)
+        return Number(process.env.UNICORN_E2E_WIDE_TESTS ?? 2)
+      }
+      const budget = Math.max(1, Number(process.env.UNICORN_E2E_BUDGET ?? 10))
+      const jobs = selected
+        .map((file) => ({ file, weight: Math.min(testLimit(file), budget), duration: timings[path.relative(root, file)] ?? 0 }))
+        .sort((left, right) => right.weight - left.weight || right.duration - left.duration)
+      const schedule = async (queue, limit) => {
+        const pending = [...queue]
+        let used = 0
+        let failed = false
+        let failure
+        const active = new Set()
+        await new Promise((resolve, reject) => {
+          const pump = () => {
+            while (!failed && pending.length) {
+              const highest = Math.max(...pending.map((job) => job.weight))
+              const start = (weight) => {
+                let started = false
+                for (let index = 0; index < pending.length; ) {
+                  const job = pending[index]
+                  if (job.weight !== weight || used + job.weight > limit) { index++; continue }
+                  pending.splice(index, 1)
+                  used += job.weight
+                  started = true
+                  const running = e2e([job.file], 1, job.weight).then(() => {}, (error) => {
+                    failed = true
+                    failure ??= error
+                  })
+                  active.add(running)
+                  running.finally(() => {
+                    used -= job.weight
+                    active.delete(running)
+                    pump()
+                  })
+                }
+                return started
+              }
+              if (start(highest)) continue
+              const lower = [...new Set(pending.filter((job) => job.weight < highest).map((job) => job.weight))].sort((left, right) => right - left)
+              let started = false
+              for (const weight of lower) {
+                if (start(weight)) { started = true; break }
+              }
+              if (!started) break
+            }
+            if (active.size === 0 && (failed || pending.length === 0)) {
+              if (failure) reject(failure)
+              else resolve()
+            }
+          }
+          pump()
+        })
+      }
+      await schedule(jobs, budget)
       if (cacheEnabled) await writeTimings(cacheRoot, "e2e", timings)
       return
     }
-    const groups = []
-    for (const files of suites[kind]) {
-      const selected = await cachedFiles(kind, files)
-      if (selected.files.length) groups.push(selected)
-    }
-    await mapLimit(groups, concurrency, async (selected) => {
-      const cwd = kind === "render" ? path.dirname(path.dirname(selected.files[0])) : root
+    const groups = suites[kind]
+    await mapLimit(groups, concurrency, async (files) => {
+      const cwd = kind === "render" ? path.dirname(path.dirname(files[0])) : root
       await run([
-        "bun", "test", ...(kind === "render" ? ["--conditions=browser", "--preload", "@opentui/solid/preload"] : []), ...selected.files,
+        "bun", "test", ...(kind === "render" ? ["--conditions=browser", "--preload", "@opentui/solid/preload"] : []), ...files,
       ], {
         cwd,
         env: kind === "packaged" && fresh ? { ...environment, UNICORN_TEST_FRESH_INSTALL: "1" } : environment,
       })
-      if (kind !== "packaged") await recordFiles(kind, selected.files, selected.keys)
     })
   })
 
@@ -220,7 +212,13 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
   try {
     environment[BUILD_MANIFEST] = path.join(temporary, "build.json")
     const lease = { root, fingerprint: await buildFingerprint(root) }
-    await writeFile(environment[BUILD_MANIFEST], JSON.stringify(lease), { mode: 0o600 })
+    const writeLease = async () => {
+      const target = environment[BUILD_MANIFEST]
+      const file = `${target}.${process.pid}.tmp`
+      await writeFile(file, JSON.stringify(lease), { mode: 0o600 })
+      await rename(file, target)
+    }
+    await writeLease()
     const typecheck = async () => {
       if (!cacheEnabled) {
         return timed("typecheck", () => mapLimit(packages, concurrency, (item) => run(["bun", "run", "typecheck"], { cwd: item.directory, env: environment })))
@@ -241,21 +239,13 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
         await writeMarker(cacheRoot, "typecheck", key, { directory: item.directory })
       }))
     }
-    const packagedKey = cacheKey([
-      CHECK_CACHE_VERSION, "packaged", snapshot.root, snapshot.lockHash, snapshot.rootHash,
-      packages.map((item) => [item.manifest.name, packageHash(snapshot, path.basename(item.directory), "build"), distHashes.get(item.manifest.name)]),
-      snapshot.helperHash, snapshot.supportHash, snapshot.scriptHash, fileHash(snapshot, path.join(root, "test/packaged-e2e.test.ts")), runtime,
-      { opencodeBin: environment.OPENCODE_BIN },
-    ])
-    const packagedCached = skipPackaged || (cacheEnabled && mode !== "packaged" && Boolean(await readMarker(cacheRoot, "packaged", packagedKey)))
     const packaged = async () => {
-      if (packagedCached) return
       await timed("packaged", async () => {
         const archives = await timed("pack", () => pack(path.join(temporary, "artifacts"), {
           root, run, env: environment, cache: cacheEnabled, cacheRoot, snapshot, distHashes,
         }))
         lease.archives = await Promise.all(archives.map(async (item) => ({ ...item, digest: createHash("sha256").update(await readFile(item.file)).digest("hex") })))
-        await writeFile(environment[BUILD_MANIFEST], JSON.stringify(lease))
+        await writeLease()
         await mapLimit(suites.packaged, concurrency, async (files) => {
           await run(["bun", "test", ...files], {
             cwd: root,
@@ -265,21 +255,30 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
             },
           })
         })
-        if (cacheEnabled) await writeMarker(cacheRoot, "packaged", packagedKey, { directory: root })
       })
     }
     if (mode === "check") {
-      await Promise.all([typecheck(), test("unit"), test("render"), test("e2e"), packaged()])
+      if (fresh) {
+        await typecheck()
+        await test("unit")
+        await test("render")
+        await test("e2e")
+        await packaged()
+      } else {
+        const results = await Promise.allSettled([typecheck(), test("unit"), test("render"), test("e2e"), packaged()])
+        const failure = results.find((result) => result.status === "rejected")
+        if (failure) throw failure.reason
+      }
     } else if (mode === "typecheck") {
       await typecheck()
     } else if (mode === "test") {
       await test("unit")
       await test("render")
       await test("e2e")
-    } else if (mode === "unit" || mode === "fast") {
+    } else if (mode === "unit" || mode === "quick") {
       await test("unit")
       await test("render")
-      if (mode === "fast") await typecheck()
+      if (mode === "quick") await typecheck()
     } else if (mode === "e2e") {
       await test("e2e")
     } else if (mode === "packaged") {
@@ -297,8 +296,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const mode = process.argv[2] ?? "check"
     const fresh = process.argv.includes("--fresh")
-    const all = process.argv.includes("--all")
-    await executeWorkflow(mode, { fresh, all, skipPackaged: mode === "check" })
+    await executeWorkflow(mode, { fresh })
   }
   catch (error) { console.error(error); process.exitCode = 1 }
 }

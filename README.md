@@ -28,41 +28,44 @@ bun run check
 
 ### Test entry points
 
-| Command | Scope |
-| --- | --- |
-| `bun run test:unit` | Unit tests and headless TUI rendering; no build and no OpenCode process |
-| `bun run check:fast` | One build, typecheck all workspaces, unit/render tests; no network install |
-| `bun run test:e2e` | One build, source-level server/TUI E2E |
-| `bun run test` | Unit, render, and source E2E; excludes packaged installation |
-| `bun run test:packaged` | Tarball structure, manifest, exports, and file-list validation; no installation |
-| `bun run check` | Incremental full check; unchanged work is reused from the content-addressed cache |
-| `bun run check:full` | All source tests with cache reuse, including long real-TUI scenarios |
-| `bun run check:fresh` | Full check with no cache reuse; use before publishing |
+| Command | Use when | Scope |
+| --- | --- | --- |
+| `bun run check:quick` | fast local iteration | Build, typecheck, unit and render tests; no E2E or packaged validation |
+| `bun run check` | before pushing or opening a PR | All unit, render, E2E, and packaged tests; build/typecheck/pack artifacts may be reused |
+| `bun run check:release` | before publishing | Same complete suite as `check`, but no cache reuse and phases run serially |
+| `bun run test` | source-test debugging only | Unit, render, and source E2E; no typecheck or packaged validation |
+| `bun run test:unit` | unit/render only | Unit tests and headless TUI rendering; no build and no OpenCode process |
+| `bun run test:e2e` | E2E only | One build, source-level server/TUI E2E |
+| `bun run test:packaged` | tarball debugging only | Tarball structure, manifest, exports, and file-list validation |
 
-`bun run check` stores successful build, typecheck, test-file, and packaged results keyed by source, test, toolchain, and
-environment hashes. Test invalidation is derived on every run from each file's actual local imports and package path
-references; there are no hand-written dependency annotations to expire. Unicorn's own E2E also depends on every workspace
-package's built output, so any child change revalidates the assembled plugin. Other plugin suites are scoped to their own
-package, imported helpers, and packages they explicitly reference. `check:fresh` bypasses all caches and runs every suite
-together, so cross-plugin regressions are always checked before publishing. Releases call `check:fresh`, then run the
-pack-only tarball check, and never run `npm install`. Packed tarballs are reused per package when their inputs are
-unchanged. Regular `check` skips packaged validation.
+Naming rules:
 
-Workspace artifacts are built and packed exactly once per round, in workspace dependency order. Source and packaged
-tests use isolated copies and never reuse test results, servers, databases, HOME, or TUI state. A build or archive
-hash mismatch fails the run instead of using stale output. Build, typecheck, and unit tests use CPU-sized concurrency;
-E2E schedules long TUI files separately from wide API files to avoid oversubscription. Each phase reports its actual
-duration.
+- `check` is the complete everyday gate.
+- `check:quick` is intentionally incomplete and must never be used as a release gate.
+- `check:release` is the complete uncached release gate; releases call it directly.
+- `test*` commands are scoped test subsets, not full gates.
+
+`bun run check` always executes every test file; test results are never reused across runs. Only build outputs,
+typecheck results, and packed tarballs are content-addressed and reused when their inputs are unchanged.
+`check:release` bypasses every cache and runs the same complete suite, so cross-plugin regressions are always checked
+before publishing. No check or release stage runs `npm install`.
+
+Workspace artifacts are built and packed exactly once per round, in workspace dependency order. Test files use
+isolated roots, servers, databases, HOME, and tmux sockets; only the warm TUI file intentionally reuses one prewarmed
+server/TUI for its sequential interaction tests. A build or archive hash mismatch fails the run instead of using stale
+output. E2E uses a weighted scheduler: the warm TUI pair serves fast interaction tests, render tests exercise plugin UI
+behavior in-process, and headless server tests cover API and delivery semantics. Long scenarios no longer depend on a
+cold tmux startup for every assertion. Each phase reports its actual duration.
 
 Packaged validation only runs `npm pack` and inspects the resulting tarballs: allowed file list, manifest version,
-exports, and expected dist files. It never creates a consumer `node_modules` or runs `npm install`. Routine checks do
-not run it automatically; release runs this pack-only check explicitly.
+exports, and expected dist files. It never creates a consumer `node_modules` or runs `npm install`. `check` and
+`check:release` run this validation every time; packed archives may be reused, but the validation test always executes.
 
 The content-addressed check cache includes external dependency declarations, Node/npm/Bun versions, platform, and
 architecture. Local package versions and code bytes are excluded from resolution identity, while local source and
 build hashes determine whether work reruns. The default cache directory is `opencode/unicorn-test-cache` under the
 system temporary directory; set `UNICORN_TEST_CACHE_DIR` to a writable directory and cache it in CI. Use
-`check:fresh` for an uncached full run. The check workflow never reads user npm credentials or preload scripts.
+`check:release` for an uncached full run. The check workflow never reads user npm credentials or preload scripts.
 
 Production `npm pack` / `npm publish` still runs the prepack build and rules sync; Unicorn also syncs internal
 dependency versions. Only test archives that already validated this round's build skip repeated lifecycle scripts.
@@ -90,10 +93,10 @@ templates, and same-name user commands are not overwritten.
 
 All packages compile NodeNext source into the Git-ignored `dist/`. npm tarballs contain only `package.json`,
 `README.md`, `README.zh-CN.md`, and `dist/**/*.js`; they never publish `.ts`, `.tsx`, or declaration files.
-`check:full` runs all source tests with cache reuse. `check:fresh` runs the same complete suite without cache reuse
-and remains the authoritative release gate. TUI plugins run in
-their own tmux sockets to check interaction, reactive filtering, and cross-filesystem image previews. The release script
-runs `check:fresh` and the pack-only `test:packaged` check before changing versions or uploading.
+`check` runs the complete suite with build/typecheck/pack cache reuse; `check:release` runs the same suite without
+cache reuse and is the authoritative release gate. Plugin UI behavior is covered primarily by headless render tests,
+with one warm tmux TUI smoke for interaction, reactive filtering, and cross-filesystem image previews. The release
+script runs `check:release`, which includes the pack-only tarball validation, before changing versions or uploading.
 
 ### Publishing
 

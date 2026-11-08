@@ -2,35 +2,38 @@
 
 [English](test-performance.md) | **简体中文**
 
-2026-10-20，macOS arm64，Node v26.5.0、Bun 1.4.2。耗时是测试环境样本，不是跨机器性能保证。
+2026-11-08，macOS arm64，8 核测试机，Bun 1.4.4。耗时是测试环境样本，不是跨机器性能保证。
 
-## 优化后实测
+## 当前入口
 
-| 入口 / 阶段 | 耗时 |
-| --- | --- |
-| `bun run test:unit`，不构建 | 0.94 s |
-| `bun run check:fast`，包含构建和类型检查 | 10.89 s |
-| `bun run check`，OpenCode v2.1.0，依赖缓存命中 | 65.47 s |
-| `bun run check`，OpenCode v2.0.21，依赖缓存命中 | 70.08 s |
-| `bun run check:fresh`，v2.1.0，强制重新解析依赖 | 123.69 s |
-| 完整检查中的六包统一构建 / 统一归档 | 约 5.0 s / 1.6 s |
-| 安装包阶段的真实 `npm ci --offline` | 约 1.9–2.0 s |
+| 命令 | 使用时机 | 典型耗时 |
+| --- | --- | --- |
+| `bun run test:unit` | 只跑单元/渲染 | 约 5 s |
+| `bun run check:quick` | 本地快速迭代 | 约 7–8 s |
+| `bun run check` | 日常完整缓存检查 | 约 19–22 s |
+| `bun run check:release` | 发布前完整无缓存检查 | 约 40–42 s |
+| `bun run test:packaged` | 只调试 tarball | 约 0.4 s |
 
-优化前分项计时：安装包 E2E 92.93 s，其中构建 7.33 s、六次 pack 10.70 s、npm install 46.99 s。
-优化后安装包 E2E 阶段约 20.6–21.3 s，统一构建/打包已移到前置阶段，不能把阶段耗时当作独立命令总耗时。
-跨会话用例优化前 27.68 s，其中重复打包 22.70 s；现在在完整 workflow 中执行约 4.9–6.0 s，复用前置归档。
+`check:quick` 有意不包含 E2E 和打包验证。`check` 与 `check:release` 都会执行全部单元、渲染、E2E 和打包测试；
+唯一区别是缓存复用和阶段顺序。测试结果不会跨运行复用。
 
-`check:fresh` 的 npm 解析和安装仍需联网，本次占 57.58 s；它可利用下载缓存，但不复用缓存锁或 node_modules。
+## 测试分层
 
-## 正确性验证
+- 一个预热 server/TUI 文件覆盖 notepad、prompt search、session search、加密和图片预览的真实终端交互。
+  文件约 6.5–7 s，单个测试体约 0.14–0.9 s。
+- render 测试在进程内覆盖插件 UI 行为，不启动 server 或 tmux。
+- headless server 测试覆盖 session-search 的历史、compaction、revert 和消息投递语义。
+  session-search controller E2E 约 0.9 s。
+- send-message 不再使用 tmux；使用真实 server 和 `opencode run` 子进程，mode 之间只共享只读的解包目录。
 
-- v2.0.21 / v2.1.0 的完整检查分别 **238 项通过、0 失败**；原有 211 项保留，新增 27 项。
-- 构建顺序、并发上限、失败传播、测试发现、renderer 条件、单次构建/打包均有单测。
-- 源码、测试、manifest、产物变化及产物删除会使构建票据失效；链接源码变化和目录循环也有覆盖。
-- 归档副本互不共享可写文件，缓存损坏不产生测试成功结果。
-- 真实 npm 用例验证同版本插件修改代码后，离线安装和强制 fresh 安装均读到新代码。
-- 依赖缓存键变化、缓存损坏、离线缓存缺失、部分安装清理、fresh 失败均有覆盖。
-- TUI 使用独立 tmux socket；prompt-search 等待命令实际注册，不再固定等待 1.5 秒。
-- 原有 prepack 规则/命令同步的真实生命周期测试保留；另有 3 项研究入口的隔离/中断清理测试通过。
+## 缓存范围
 
-入口及缓存使用说明见根目录 README 的“测试入口”。
+只有构建产物、类型检查结果和打包 tarball 按内容哈希复用。测试结果不缓存，也不会因为上次通过而跳过。
+`check:release` 绕过全部缓存并串行执行阶段，避免冷缓存争抢。
+
+任何检查或发布阶段都不运行 `npm install`。打包验证只执行 `npm pack` 并检查生成的 tarball。
+
+## 波动
+
+测试机同时运行其他应用，因此 `check` 耗时会波动。空闲时可到 18.6–19.5 s；负载较高时为 22–28 s。
+无缓存的 `check:release` 因为阶段串行，反而更稳定。

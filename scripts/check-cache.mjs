@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
-import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { treeFiles } from "./workspace.mjs"
@@ -84,17 +84,11 @@ export async function snapshotRepository(root, packages) {
   const supportFiles = scriptFiles.filter((file) => !["scripts/workflow.mjs", "scripts/check-cache.mjs", "scripts/release.mjs", "scripts/publish.mjs"].includes(file.relative))
   return {
     root,
-    files,
-    rootFiles,
-    scriptFiles,
-    testFiles,
     packages: packageSnapshots,
     rootHash: hashes(rootFiles),
     scriptHash: hashes(scriptFiles),
     supportHash: hashes(supportFiles),
-    testHash: hashes(testFiles),
     lockHash: hashes(files.filter((file) => ["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(path.basename(file.relative)))),
-    manifestHash: hashes(files.filter((file) => path.basename(file.relative) === "package.json")),
     helperHash: hashes(files.filter((file) => /(^|\/)test\//.test(file.relative) && !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file.relative))),
   }
 }
@@ -104,121 +98,6 @@ export function packageHash(snapshot, directory, kind) {
   if (!item) return digest(`missing:${directory}`)
   const files = kind === "all" ? item.files : kind === "test" ? item.testFiles : kind === "source" ? item.sourceFiles : item.buildFiles
   return digest(JSON.stringify(files.map((file) => [file.relative, file.hash])))
-}
-
-export function fileHash(snapshot, file) {
-  const relative = path.relative(snapshot.root, file).split(path.sep).join("/")
-  return snapshot.files.find((entry) => entry.relative === relative)?.hash ?? digest(`missing:${relative}`)
-}
-
-export function packageDirectory(file) {
-  const parts = file.split(path.sep)
-  const index = parts.lastIndexOf("packages")
-  return index === -1 ? undefined : parts[index + 1]
-}
-
-const TEST_IMPORT = /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["'`]([^"'`]+)["'`]/g
-const STRING_LITERAL = /["'`]([^"'`\n]+)["'`]/g
-function packageNameFor(directory, packages) {
-  const item = packages.find((entry) => path.basename(entry.directory) === directory)
-  return item?.manifest.name
-}
-
-function packageForPath(file, packages) {
-  const parts = file.split(path.sep)
-  const index = parts.lastIndexOf("packages")
-  if (index === -1 || index + 1 >= parts.length) return undefined
-  const item = packages.find((entry) => path.basename(entry.directory) === parts[index + 1])
-  if (!item) return undefined
-  return { item, kind: parts.slice(index + 2).includes("test") ? "test" : "source" }
-}
-
-async function resolveFile(file, specifier) {
-  if (!specifier.startsWith(".") && !specifier.startsWith("/")) return undefined
-  const base = path.resolve(path.dirname(file), specifier)
-  const rewritten = base.endsWith(".js") ? [base.slice(0, -3) + ".ts", base.slice(0, -3) + ".tsx"] : []
-  const candidates = [base, ...rewritten, ...[".ts", ".tsx", ".js", ".mjs", ".json"].map((extension) => base + extension), ...["index.ts", "index.tsx", "index.js", "index.mjs"].map((name) => path.join(base, name))]
-  for (const candidate of candidates) {
-    try {
-      if ((await stat(candidate)).isFile()) return candidate
-    } catch {}
-  }
-  return undefined
-}
-
-async function resolvePath(file, value) {
-  if (!value.startsWith(".") && !value.startsWith("/")) return undefined
-  try {
-    return await realpath(path.resolve(path.dirname(file), value))
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Infers what a test can observe from its actual imports and path literals.
- * Everything is derived from source on every run, so there is no annotation to go stale.
- * Unicorn's own tests also depend on every child package; see workflow.mjs.
- */
-export async function testDependencies(file, packages) {
-  const kinds = new Map()
-  const files = new Set()
-  const add = (name, kind) => {
-    if (!name) return
-    const current = kinds.get(name)
-    if (current === "all" || current === kind) return
-    kinds.set(name, current === undefined ? kind : "all")
-  }
-  const own = packageForPath(file, packages)
-  if (own) add(own.item.manifest.name, "all")
-  const queue = [file]
-  const visited = new Set()
-  while (queue.length) {
-    const current = queue.shift()
-    if (visited.has(current)) continue
-    visited.add(current)
-    const text = await readFile(current, "utf8").catch(() => "")
-    for (const match of text.matchAll(TEST_IMPORT)) {
-      const specifier = match[1]
-      const resolved = await resolveFile(current, specifier)
-      if (resolved) {
-        const dependency = packageForPath(resolved, packages)
-        if (dependency) {
-          if (dependency.kind === "test" && resolved !== file) {
-            files.add(resolved)
-            queue.push(resolved)
-          } else add(dependency.item.manifest.name, "source")
-        } else if (!resolved.includes(`${path.sep}node_modules${path.sep}`)) {
-          files.add(resolved)
-          queue.push(resolved)
-        }
-        continue
-      }
-      const bare = specifier.match(/(?:^|\/)(opencode-plugin-[a-z0-9-]+)(?:\/|$)/)
-      if (bare) add(packageNameFor(bare[1], packages), "all")
-    }
-    if (current === file) {
-      for (const match of text.matchAll(STRING_LITERAL)) {
-        const value = match[1]
-        if (value.includes("${") || path.basename(value) === "package.json") continue
-        const resolved = await resolvePath(current, value)
-        if (resolved) {
-          const dependency = packageForPath(resolved, packages)
-          if (dependency) {
-            if (dependency.kind === "test") {
-              files.add(resolved)
-              queue.push(resolved)
-            } else add(dependency.item.manifest.name, "source")
-          }
-        }
-        for (const pathMatch of value.matchAll(/packages[\\/](opencode-plugin-[a-z0-9-]+)([^"'`\s]*)/g)) {
-          const name = packageNameFor(pathMatch[1], packages)
-          if (name && !pathMatch[2].startsWith("/package.json")) add(name, "source")
-        }
-      }
-    }
-  }
-  return { packages: kinds, files: [...files].sort() }
 }
 
 export async function distHash(packageDirectory) {

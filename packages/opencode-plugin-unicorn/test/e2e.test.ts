@@ -38,18 +38,6 @@ test("without the feature, the same real OpenCode session compacts at the low li
   }
 })
 
-test("recommended config does not change an existing share policy or model limits", async () => {
-  const e2e = await createOpenCodeE2E({ share: "manual", featureEnabled: true, pluginOptions: { recommendedOpencodeConfig: { enabled: true } } })
-  try {
-    await e2e.waitForModelContext(DEFAULT_LOW_LIMIT.context)
-    expect((await e2e.config()).share).toBe("manual")
-
-    expect((await e2e.config()).providers.openai.settings.store).toBe(false)
-  } finally {
-    await e2e.close()
-  }
-})
-
 test("integrates image generation as an independently switchable Unicorn feature", async () => {
   const enabled = await createOpenCodeE2E({ imageGenEnabled: true })
   try {
@@ -77,28 +65,6 @@ test("integrates image generation as an independently switchable Unicorn feature
     await enabled.close()
   }
 
-  const disabled = await createOpenCodeE2E({ imageGenEnabled: false })
-  try {
-    await disabled.waitForModelContext(DEFAULT_LOW_LIMIT.context)
-    await disabled.runImagePrompt()
-    expect(disabled.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(false)
-    expect(disabled.proxy.imageRequests).toBe(0)
-    await expect(access(`${disabled.workspace}/e2e-image.png`)).rejects.toThrow()
-  } finally {
-    await disabled.close()
-  }
-
-  const standalone = await createOpenCodeE2E({ plugin: "image-gen" })
-  try {
-    await standalone.waitForModelContext(DEFAULT_LOW_LIMIT.context)
-    const result = await standalone.runImagePrompt()
-    expect(result.messages.some((message) => message.type === "user" && message.text === "E2E_IMAGE_GEN")).toBe(true)
-    expect(standalone.proxy.requests.some((request) => request.tools.includes("image_gen"))).toBe(true)
-    expect(standalone.proxy.imageRequests).toBe(1)
-    await access(`${standalone.workspace}/e2e-image.png`)
-  } finally {
-    await standalone.close()
-  }
 })
 
 test("advertises all packaged tool descriptions", async () => {

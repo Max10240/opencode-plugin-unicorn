@@ -6,9 +6,11 @@ import { api, checkGeneratedImagePreview, waitFor } from "../../opencode-plugin-
 
 setDefaultTimeout(180_000)
 
-for (const mode of ["image-gen-only", "image-gen-first", "show-img-first", "show-img-disabled", "unicorn", "unicorn-no-preview", "broken-preview"] as const) {
+// Disabled-preview feature combinations are covered by options tests; E2E covers plugin ordering,
+// standalone, Unicorn, and failure tolerance.
+for (const mode of ["image-gen-only", "image-gen-first", "show-img-first", "unicorn", "broken-preview"] as const) {
   test(`${mode}: generate/edit save successfully with optional, failure-tolerant show_img previews`, async () => {
-    const combined = mode === "unicorn" || mode === "unicorn-no-preview"
+    const combined = mode === "unicorn"
     const enabled = mode === "image-gen-first" || mode === "show-img-first" || mode === "unicorn"
     const e2e = await createOpenCodeE2E({
       plugin: combined ? "unicorn" : "image-gen",
@@ -41,7 +43,7 @@ for (const mode of ["image-gen-only", "image-gen-first", "show-img-first", "show
             } }
           `)
         }
-        const preview = { package: companion, options: { features: { showImg: mode !== "show-img-disabled" } } }
+        const preview = { package: companion, options: { features: { showImg: true } } }
         config.plugins = mode === "show-img-first" ? [preview, ...config.plugins] : [...config.plugins, preview]
         await writeFile(e2e.configPath, JSON.stringify(config))
         await waitFor(async () => {
@@ -51,7 +53,7 @@ for (const mode of ["image-gen-only", "image-gen-first", "show-img-first", "show
           return companion?.state.status === "active"
         }, "Companion plugin did not activate")
       }
-      await checkGeneratedImagePreview(e2e, enabled, mode === "image-gen-first" || mode === "unicorn", mode === "show-img-first" ? "gpt-image-2.5-flare" : "gpt-image-2.5-sunburst")
+      await checkGeneratedImagePreview(e2e, enabled, mode === "show-img-first" ? "gpt-image-2.5-flare" : "gpt-image-2.5-sunburst")
       expect(e2e.proxy.requests.some((request) => request.tools.includes("show_img"))).toBe(enabled || mode === "broken-preview")
       if (mode === "broken-preview") {
         const calls = (await readFile(previewCalls, "utf8")).trim().split("\n")

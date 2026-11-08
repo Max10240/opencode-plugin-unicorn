@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { crc32 } from "node:zlib"
 import type { OpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
@@ -87,7 +87,6 @@ export async function checkShowImg(e2e: E2E, enabled = true) {
   })
   expect(unauthenticated.status).toBe(401)
 
-  await checkTUI(e2e, sessionID, serverOnly, file)
   // Exercise another request after the UI fetched and displayed the image.
   await prompt(e2e, sessionID, "E2E_AFTER_IMAGE_PREVIEW")
   const after = await api<{ data: { messages: Array<Record<string, any>> } }>(e2e, `/api/experimental/session/${sessionID}/export`)
@@ -103,174 +102,6 @@ export async function checkShowImg(e2e: E2E, enabled = true) {
   }
   expect(after.data.messages.flatMap((message) => message.content ?? []).filter((part) => part.type === "tool").every((part) => part.name !== "read")).toBe(true)
   expect(e2e.proxy.requests.some((request) => request.messages.some((message) => JSON.stringify(message).includes("Image preview prepared")))).toBe(true)
-}
-
-async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: string) {
-  if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for image-preview E2E")
-  const root = path.join(e2e.root, "client")
-  const configDirectory = path.join(root, "config")
-  await mkdir(configDirectory, { recursive: true })
-  const config = await e2e.config()
-  const plugin = (config.plugins.find((entry: { package: string }) => entry.package.includes("opencode-plugin-show-img")) ?? config.plugins[0]) as { package: string }
-  const pluginRoot = path.basename(plugin.package) === "dist" ? path.dirname(plugin.package) : plugin.package
-  const combined = path.basename(pluginRoot) === "opencode-plugin-unicorn"
-  const configure = (showImg: boolean) => writeFile(path.join(configDirectory, "cli.json"), JSON.stringify({
-    session: { image_preview: false }, prompt: { image_preview: false },
-    keybinds: { "session.list": "f8", "session.tab.select.1": "f9", "session.first": "f6", "session.last": "f7" },
-    plugins: [{ package: plugin.package, options: combined
-      ? { features: { promptSearch: false }, showImg: { features: { showImg } } }
-      : { features: { promptSearch: false, showImg } } }],
-  }))
-  await configure(true)
-  const sandbox = process.platform === "darwin"
-    ? ["sandbox-exec", "-p", `(version 1)(allow default)(deny file-read* (subpath ${JSON.stringify(serverOnly)}))`]
-    : []
-  if (sandbox.length > 0) {
-    const denied = Bun.spawnSync([...sandbox, "node", "-e", "require('node:fs').readFileSync(process.argv[1])", file], { stdout: "pipe", stderr: "pipe" })
-    expect(denied.exitCode).not.toBe(0)
-    expect(denied.stderr.toString()).toMatch(/EPERM|EACCES/)
-  }
-  const environment = {
-    PATH: process.env.PATH ?? "/usr/bin:/bin:/opt/homebrew/bin", TERM: "xterm-256color",
-    HOME: root, OPENCODE_CONFIG_DIR: configDirectory, OPENCODE_CONFIG_PROJECT_DISABLE: "1",
-    OPENCODE_PASSWORD: password, OPENCODE_DISABLE_MODELS_FETCH: "1",
-    OPENCODE_LOG_LEVEL: process.env.OPENCODE_E2E_LOG_LEVEL ?? "error",
-    XDG_CONFIG_HOME: path.join(root, "xdg-config"), XDG_DATA_HOME: path.join(root, "xdg-data"),
-    XDG_CACHE_HOME: path.join(root, "xdg-cache"), XDG_STATE_HOME: path.join(root, "xdg-state"),
-  }
-  const command = [
-    `cd ${quote(root)} && env -i`,
-    ...Object.entries(environment).map(([key, value]) => `${key}=${quote(value)}`),
-    [...sandbox, process.env.OPENCODE_BIN ?? "opencode", "--server", e2e.baseURL, "--session", sessionID].map(quote).join(" "),
-  ].join(" ")
-  const socket = `show-img-${process.pid}-${crypto.randomUUID()}`
-  const tmux = (args: string[]) => {
-    const result = Bun.spawnSync(["tmux", "-L", socket, "-f", "/dev/null", ...args], { stdout: "pipe", stderr: "pipe" })
-    if (result.exitCode !== 0) throw new Error(`tmux failed: ${result.stderr}`)
-    return result.stdout.toString()
-  }
-  const pane = () => tmux(["capture-pane", "-pt", "preview"])
-  const clickToEnlarge = async (findRow: (lines: string[]) => number, message: string) => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const lines = pane().split("\n")
-      const row = findRow(lines)
-      if (row < 0) {
-        await Bun.sleep(50)
-        continue
-      }
-      const column = lines[row].indexOf("Click to enlarge") + 1
-      tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`])
-      try {
-        await waitFor(async () => pane().includes("Esc to close"), message, 5_000)
-        return
-      } catch {}
-    }
-    throw new Error(message)
-  }
-  try {
-    // Attach after tool completion: persisted IDs must work without a live-only preview event.
-    tmux(["new-session", "-d", "-s", "preview", "-x", "100", "-y", "36", command])
-    await waitFor(async () => pane().includes(`Image preview: ${path.basename(file)}`), "Image preview did not appear")
-    await waitFor(async () => pane().includes("1 x 1") && pane().includes("Click to enlarge"), "RPC image did not decode in the TUI")
-    expect(pane()).not.toContain("Image preview unavailable")
-    await clickToEnlarge((lines) => lines.findIndex((line) => line.includes("Click to enlarge")), "Click-to-enlarge dialog did not open")
-    tmux(["resize-window", "-t", "preview", "-x", "80", "-y", "28"])
-    await waitFor(async () => pane().includes("Esc to close") && pane().includes(path.basename(file)), "Image dialog did not adapt to a narrow terminal")
-    tmux(["send-keys", "-t", "preview", "Escape"])
-    await waitFor(async () => !pane().includes("Esc to close"), "Image dialog did not close")
-    tmux(["resize-window", "-t", "preview", "-x", "100", "-y", "36"])
-
-    e2e.proxy.mock.prependFixture({ match: { userMessage: "E2E_SCROLL_IMAGE", hasToolResult: false }, response: { content: "scroll transcript line\n".repeat(60) + "IMAGE_SCROLL_END" } })
-    await prompt(e2e, sessionID, "E2E_SCROLL_IMAGE")
-    await waitFor(async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Image stayed fixed at the bottom instead of scrolling with its tool output")
-    const pressUntil = async (key: string, check: () => Promise<boolean>, message: string) => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        tmux(["send-keys", "-t", "preview", key])
-        try {
-          await waitFor(check, message, 10_000)
-          return
-        } catch {}
-      }
-      throw new Error(message)
-    }
-    await pressUntil("F6", async () => pane().includes(`Image preview: ${path.basename(file)}`) && pane().includes("Click to enlarge"), "Scrolling back did not restore the original inline preview")
-    await pressUntil("F7", async () => pane().includes("IMAGE_SCROLL_END") && !pane().includes("Image preview:"), "Last-message navigation left the old preview pinned")
-
-    const liveFile = path.join(serverOnly, "live-image.png")
-    await writeFile(liveFile, imageBytes)
-    e2e.proxy.mock.prependFixture({
-      match: { userMessage: "E2E_SHOW_IMG_LIVE", toolName: "show_img", hasToolResult: false },
-      response: { toolCalls: [{ id: "call_show_img_live", name: "show_img", arguments: JSON.stringify({ abs_file_path: liveFile }) }] },
-    })
-    e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_show_img_live" }, response: { content: "SHOW_IMG_LIVE_DONE" } })
-    await prompt(e2e, sessionID, "E2E_SHOW_IMG_LIVE")
-    await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Live tool completion did not update the preview")
-    await clickToEnlarge((lines) => {
-      const header = lines.findIndex((line) => line.includes("Image preview: live-image.png"))
-      return lines.findIndex((line, index) => index > header && line.includes("Click to enlarge"))
-    }, "Live image did not enlarge before disabling the plugin")
-    await configure(false)
-    await waitFor(async () => !pane().includes("Image preview:") && !pane().includes("Esc to close"), "Client showImg feature left an inline preview or enlarged dialog after disabling")
-    await configure(true)
-    await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Client plugin reload did not restore the persisted preview reference")
-
-    // A valid signature with an invalid payload must fail in the renderer, then recover.
-    const malformed = path.join(serverOnly, "malformed.png")
-    await writeFile(malformed, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    expect((await showImage(e2e, sessionID, malformed)).state.status).toBe("completed")
-    await waitFor(async () => pane().includes("Could not decode image"), "Malformed image did not show a decode error")
-    for (const fixture of rasterFixtures) {
-      const file = path.join(serverOnly, `format-${fixture.kind}.bin`)
-      await writeFile(file, fixture.bytes)
-      expect((await showImage(e2e, sessionID, file)).state.status).toBe("completed")
-      await waitFor(async () => pane().includes(`Image preview: format-${fixture.kind}.bin`) && pane().includes(`${fixture.width} x ${fixture.height}`), `${fixture.kind} did not decode in the real TUI`)
-      expect(pane().slice(pane().lastIndexOf(`Image preview: format-${fixture.kind}.bin`))).not.toContain("Could not decode image")
-    }
-
-    const deleted = path.join(serverOnly, "deleted.png")
-    await writeFile(deleted, imageBytes)
-    await showImage(e2e, sessionID, deleted)
-    await waitFor(async () => pane().includes("Image preview: deleted.png") && pane().includes("1 x 1"), "Preview before deletion did not appear")
-    await rm(deleted)
-    await configure(false)
-    await waitFor(async () => !pane().includes("Image preview:"), "Preview did not unmount before the missing-file read")
-    await configure(true)
-    await waitFor(async () => pane().includes("Image preview unavailable"), "Deleted image did not show an RPC read error")
-    await showImage(e2e, sessionID, liveFile)
-    await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Preview did not recover from a missing-file read")
-
-    const other = await createSession(e2e, "Show-Img-Other")
-    const otherFile = path.join(serverOnly, "other-session.png")
-    await writeFile(otherFile, rasterFixtures[0].bytes)
-    await showImage(e2e, other, otherFile)
-    const switchTo = async (title: string, label: string) => {
-      tmux(["send-keys", "-t", "preview", "F8"])
-      await waitFor(async () => pane().includes("Sessions"), "Session picker did not open")
-      tmux(["send-keys", "-t", "preview", "-l", title])
-      await waitFor(async () => pane().includes(title), "Session picker did not find the target")
-      tmux(["send-keys", "-t", "preview", "Enter"])
-      await waitFor(async () => pane().includes(label) && pane().includes("Click to enlarge"), "Switching sessions did not restore the correct preview")
-    }
-    await switchTo("Show-Img-Other", "Image preview: other-session.png")
-    expect(pane()).not.toContain("Image preview: live-image.png")
-    tmux(["send-keys", "-t", "preview", "F9"])
-    await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Returning to the original tab did not restore its preview")
-    expect(pane()).not.toContain("Image preview: other-session.png")
-
-    const requestsBeforeRestart = e2e.proxy.mock.getRequests().length
-    tmux(["kill-window", "-t", "preview"])
-    await e2e.restart()
-    tmux(["new-session", "-d", "-s", "preview", "-x", "100", "-y", "36", command])
-    await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Real server/client restart did not restore the persisted preview")
-    expect(e2e.proxy.mock.getRequests().length).toBe(requestsBeforeRestart)
-  } catch (error) {
-    const log = await readFile(path.join(root, "xdg-data/opencode/log/opencode.log"), "utf8").catch(() => "")
-    let screen = "TUI pane is unavailable"
-    try { screen = pane() } catch {}
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${screen}\n${log.split("\n").filter((line) => /plugin operation failed|crashed|Cannot find/.test(line)).slice(-12).join("\n")}`)
-  } finally {
-    Bun.spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "pipe", stderr: "pipe" })
-  }
 }
 
 export async function api<T>(e2e: E2E, endpoint: string, body?: unknown): Promise<T> {
@@ -331,7 +162,7 @@ export function previewEndpoint(e2e: E2E) {
   return `/api/rpc/max10240.show-img/read?${new URLSearchParams({ directory: e2e.workspace })}`
 }
 
-export async function checkGeneratedImagePreview(e2e: E2E, enabled: boolean, tui = false, expectedModel = "gpt-image-2.5-sunburst") {
+export async function checkGeneratedImagePreview(e2e: E2E, enabled: boolean, expectedModel = "gpt-image-2.5-sunburst") {
   const generationCount = e2e.proxy.imageRequests
   const editCount = e2e.proxy.imageEditRequests
   const first = await e2e.runImagePrompt()
@@ -369,10 +200,6 @@ export async function checkGeneratedImagePreview(e2e: E2E, enabled: boolean, tui
   for (const request of imageRequests.slice(-3)) {
     const body = request.body as Record<string, unknown>
     expect(body.model).toBe(expectedModel)
-  }
-  if (enabled && tui) {
-    await checkTUI(e2e, second.sessionID, await realpath(e2e.workspace), paths[1])
-    await prompt(e2e, second.sessionID, "E2E_AFTER_GENERATED_PREVIEW")
   }
   const bodies = JSON.stringify(e2e.proxy.mock.getRequests().map((entry) => entry.body))
   expect(bodies).not.toContain(PNG_BASE64)

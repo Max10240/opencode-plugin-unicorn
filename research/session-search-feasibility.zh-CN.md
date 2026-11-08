@@ -61,7 +61,7 @@ bun run check
 
 | OpenCode | 命令 | 结果 |
 | --- | --- | --- |
-| v2.1.0 | `bun run check:fresh` | 267 项通过、0 失败 |
+| v2.1.0 | `bun run check:release (formerly check:fresh)` | 267 项通过、0 失败 |
 | v2.0.21（隔离 binary） | `OPENCODE_BIN=<v2.0.21 binary> bun run check` | 267 项通过、0 失败 |
 
 两轮均包含七包构建/类型检查、单元/headless、真实 server/TUI E2E、七包 npm 归档干净安装及 UI 验证。

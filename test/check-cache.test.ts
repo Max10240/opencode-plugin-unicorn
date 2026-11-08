@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { cacheKey, distHash, packageHash, pruneCache, readMarker, snapshotRepository, testDependencies, writeMarker } from "../scripts/check-cache.mjs"
+import { cacheKey, distHash, packageHash, pruneCache, readMarker, snapshotRepository, writeMarker } from "../scripts/check-cache.mjs"
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = await mkdtemp(path.join(os.tmpdir(), "unicorn-check-cache-"))
@@ -80,32 +80,6 @@ test("cache markers are keyed and missing markers stay misses", async () => {
     expect(await readMarker(root, "unit", key)).toMatchObject({ file: "test.ts" })
     expect(await readMarker(root, "unit", cacheKey(["x", 2]))).toBeUndefined()
   } finally { await rm(root, { recursive: true, force: true }) }
-})
-
-test("test dependencies follow actual imports and package paths without annotations", async () => {
-  await fixture(async (root) => {
-    const packages = [
-      { directory: path.join(root, "packages/a"), manifest: { name: "a", dependencies: {} } },
-      { directory: path.join(root, "packages/b"), manifest: { name: "b", dependencies: { a: "1.0.0" } } },
-    ]
-    const rootTest = path.join(root, "test", "root.test.ts")
-    await writeFile(rootTest, 'import { value } from "../packages/a/src/index.js"\nimport "../scripts/tool.mjs"\nconst manifest = "packages/b/package.json"\nconst name = "opencode-plugin-b"\n')
-    const rootDependencies = await testDependencies(rootTest, packages)
-    expect(Object.fromEntries(rootDependencies.packages)).toEqual({ a: "source" })
-    expect(rootDependencies.files).toContain(path.join(root, "scripts", "tool.mjs"))
-
-    const packageTest = path.join(root, "packages/b/test/unit.test.ts")
-    await writeFile(packageTest, 'import { value } from "../../a/src/index.js"\nconst companion = "opencode-plugin-a"\n')
-    expect(Object.fromEntries((await testDependencies(packageTest, packages)).packages)).toEqual({ a: "source", b: "all" })
-
-    const helperTest = path.join(root, "packages/b/test/e2e.test.ts")
-    await mkdir(path.join(root, "packages/a/test"), { recursive: true })
-    await writeFile(path.join(root, "packages/a/test/helper.ts"), "export {}")
-    await writeFile(helperTest, 'import { helper } from "../../a/test/helper.js"\n')
-    const helperDependencies = await testDependencies(helperTest, packages)
-    expect(Object.fromEntries(helperDependencies.packages)).toEqual({ b: "all" })
-    expect(helperDependencies.files).toEqual([path.join(root, "packages/a/test/helper.ts")])
-  })
 })
 
 test("cache pruning keeps recent markers and removes old orphaned archives", async () => {
