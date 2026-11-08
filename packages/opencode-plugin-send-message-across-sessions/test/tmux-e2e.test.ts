@@ -21,7 +21,7 @@ test("sends a user-style message across different cwd sessions through tmux", as
   const artifacts = await mkdtemp(path.join(os.tmpdir(), "send-session-archives-"))
   try {
     const archives = await packWorkspace(artifacts)
-    for (const mode of ["standalone", "unicorn", "unicorn-disabled"] as const) await runScenario(mode, archives)
+    await Promise.all((["standalone", "unicorn", "unicorn-disabled"] as const).map((mode) => runScenario(mode, archives)))
   } finally { tmux(["kill-server"], false); await rm(artifacts, { recursive: true, force: true }) }
 })
 
@@ -260,14 +260,20 @@ async function runScenario(mode: Mode, archives: Archive[]) {
       )
     }
 
-    const bodies = proxy.mock.getRequests().map((entry) => JSON.stringify(entry.body))
-    const targetRequest = (marker: string) =>
-      bodies.findIndex(
-        (body) => !body.includes("E2E_SEND_") && !body.includes("E2E_LIST_SESSIONS") && body.includes(marker),
-      )
-    const initial = targetRequest("E2E_TARGET_BUSY")
-    const steered = targetRequest(steerMessage)
-    const queued = targetRequest(queueMessage)
+    const deliveryOrder = () => {
+      const bodies = proxy.mock.getRequests().map((entry) => JSON.stringify(entry.body))
+      const targetRequest = (marker: string) =>
+        bodies.findIndex(
+          (body) => !body.includes("E2E_SEND_") && !body.includes("E2E_LIST_SESSIONS") && body.includes(marker),
+        )
+      return { bodies, initial: targetRequest("E2E_TARGET_BUSY"), steered: targetRequest(steerMessage), queued: targetRequest(queueMessage) }
+    }
+    await waitFor(async () => {
+      const { bodies, initial, steered, queued } = deliveryOrder()
+      return initial >= 0 && steered > initial && queued > steered &&
+        !bodies[steered].includes(queueMessage) && bodies[queued].includes(steerMessage)
+    }, "delivery request order did not settle", 60_000)
+    const { bodies, initial, steered, queued } = deliveryOrder()
     // steer is promoted at the next step boundary, while queue waits for the turn to end.
     expect(initial).toBeGreaterThanOrEqual(0)
     expect(steered).toBeGreaterThan(initial)

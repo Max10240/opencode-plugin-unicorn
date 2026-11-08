@@ -134,7 +134,7 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     PATH: process.env.PATH ?? "/usr/bin:/bin:/opt/homebrew/bin", TERM: "xterm-256color",
     HOME: root, OPENCODE_CONFIG_DIR: configDirectory, OPENCODE_CONFIG_PROJECT_DISABLE: "1",
     OPENCODE_PASSWORD: password, OPENCODE_DISABLE_MODELS_FETCH: "1",
-    OPENCODE_LOG_LEVEL: "DEBUG",
+    OPENCODE_LOG_LEVEL: process.env.OPENCODE_E2E_LOG_LEVEL ?? "error",
     XDG_CONFIG_HOME: path.join(root, "xdg-config"), XDG_DATA_HOME: path.join(root, "xdg-data"),
     XDG_CACHE_HOME: path.join(root, "xdg-cache"), XDG_STATE_HOME: path.join(root, "xdg-state"),
   }
@@ -150,17 +150,30 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     return result.stdout.toString()
   }
   const pane = () => tmux(["capture-pane", "-pt", "preview"])
+  const clickToEnlarge = async (findRow: (lines: string[]) => number, message: string) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const lines = pane().split("\n")
+      const row = findRow(lines)
+      if (row < 0) {
+        await Bun.sleep(50)
+        continue
+      }
+      const column = lines[row].indexOf("Click to enlarge") + 1
+      tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`])
+      try {
+        await waitFor(async () => pane().includes("Esc to close"), message, 5_000)
+        return
+      } catch {}
+    }
+    throw new Error(message)
+  }
   try {
     // Attach after tool completion: persisted IDs must work without a live-only preview event.
     tmux(["new-session", "-d", "-s", "preview", "-x", "100", "-y", "36", command])
     await waitFor(async () => pane().includes(`Image preview: ${path.basename(file)}`), "Image preview did not appear")
     await waitFor(async () => pane().includes("1 x 1") && pane().includes("Click to enlarge"), "RPC image did not decode in the TUI")
     expect(pane()).not.toContain("Image preview unavailable")
-    const lines = pane().split("\n")
-    const row = lines.findIndex((line) => line.includes("Click to enlarge")) + 1
-    const column = lines[row - 1].indexOf("Click to enlarge") + 1
-    tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`])
-    await waitFor(async () => pane().includes("Esc to close"), "Click-to-enlarge dialog did not open")
+    await clickToEnlarge((lines) => lines.findIndex((line) => line.includes("Click to enlarge")), "Click-to-enlarge dialog did not open")
     tmux(["resize-window", "-t", "preview", "-x", "80", "-y", "28"])
     await waitFor(async () => pane().includes("Esc to close") && pane().includes(path.basename(file)), "Image dialog did not adapt to a narrow terminal")
     tmux(["send-keys", "-t", "preview", "Escape"])
@@ -192,12 +205,10 @@ async function checkTUI(e2e: E2E, sessionID: string, serverOnly: string, file: s
     e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_show_img_live" }, response: { content: "SHOW_IMG_LIVE_DONE" } })
     await prompt(e2e, sessionID, "E2E_SHOW_IMG_LIVE")
     await waitFor(async () => pane().includes("Image preview: live-image.png") && pane().includes("1 x 1"), "Live tool completion did not update the preview")
-    const liveLines = pane().split("\n")
-    const liveHeader = liveLines.findIndex((line) => line.includes("Image preview: live-image.png"))
-    const liveRow = liveLines.findIndex((line, index) => index > liveHeader && line.includes("Click to enlarge")) + 1
-    const liveColumn = liveLines[liveRow - 1].indexOf("Click to enlarge") + 1
-    tmux(["send-keys", "-t", "preview", "-l", `\x1b[<0;${liveColumn};${liveRow}M\x1b[<0;${liveColumn};${liveRow}m`])
-    await waitFor(async () => pane().includes("Esc to close"), "Live image did not enlarge before disabling the plugin")
+    await clickToEnlarge((lines) => {
+      const header = lines.findIndex((line) => line.includes("Image preview: live-image.png"))
+      return lines.findIndex((line, index) => index > header && line.includes("Click to enlarge"))
+    }, "Live image did not enlarge before disabling the plugin")
     await configure(false)
     await waitFor(async () => !pane().includes("Image preview:") && !pane().includes("Esc to close"), "Client showImg feature left an inline preview or enlarged dialog after disabling")
     await configure(true)

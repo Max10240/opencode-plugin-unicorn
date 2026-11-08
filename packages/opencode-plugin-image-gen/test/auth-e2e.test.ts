@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test"
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test"
 import { createHmac } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -14,6 +14,24 @@ const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQU
 const providerID = "research-auth-provider"
 const signingKey = "synthetic-research-signing-key"
 const packageRoot = path.resolve(import.meta.dir, "..")
+const workers: any[] = []
+const waiters: Array<(worker: any) => void> = []
+let created = 0
+async function acquire() {
+  const worker = workers.pop()
+  if (worker) return worker
+  if (created < 4) {
+    created++
+    return await createOpenCodeE2E({ plugin: "image-gen", pluginPackage: path.join(packageRoot, "dist") })
+  }
+  return new Promise<any>((resolve) => waiters.push(resolve))
+}
+function release(worker: any) {
+  const waiter = waiters.shift()
+  if (waiter) waiter(worker)
+  else workers.push(worker)
+}
+afterAll(async () => { await Promise.all(workers.map((worker) => worker.close())) })
 type Captured = { url: string; headers: Record<string, string>; body: Record<string, any>; raw: string }
 
 for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "inline-key", "anonymous", "declared-env", "saved-key", "variant", "signed-hook", "organization", "implicit-default"] as const) {
@@ -54,46 +72,45 @@ for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "
     })
     const origin = server.url.origin
     const hasSavedKey = ["saved-key", "variant", "signed-hook", "organization"].includes(mode)
-    const e2e = await createOpenCodeE2E({
-      plugin: "image-gen", pluginPackage: path.join(packageRoot, "dist"),
-      configure(config) {
-        upstream = config.providers.openai.settings.baseURL
-        config.providers = {
-          [providerID]: {
-            package: mode === "organization" ? "@opencode/ai/providers/openai/chat" : "@opencode/ai/providers/openai-compatible",
-            env: mode === "declared-env" ? ["OPENCODE_RESEARCH_PROVIDER_KEY"] : [],
-            settings: {
-              baseURL: `${origin}/provider/v1`,
-              ...(mode === "inline-key" || mode === "implicit-default" ? { apiKey: "synthetic-inline-key" } : mode === "saved-key" ? { apiKey: "synthetic-shadowed-inline-key" } : {}),
-              ...(mode === "organization" ? { organization: "research-org", project: "research-project" } : {}),
-              queryParams: { tenant: "provider" },
-            },
-            headers: { "X-Provider": "provider", "X-Layer": "provider", ...(headerOnly ? { Authorization: "Basic synthetic-header-auth", "X-API-Key": "synthetic-header-key" } : {}) },
-            body: { research_layer: "provider", research_nested: { provider: true } },
-            models: {
-              "test-model": {
-                modelID: "research-wire-model",
-                limit: { context: 200_000, input: 200_000, output: 30_000 },
-                settings: { ...(mode === "variant" ? { baseURL: `${origin}/model/v1` } : {}) },
-                headers: { "x-layer": "model", "X-Model": "model" },
-                body: { research_layer: "model", research_nested: { model: true } },
-                variants: [{ id: "premium", settings: { baseURL: `${origin}/variant/v1`, queryParams: { tenant: "variant" } }, headers: { "x-layer": "variant", "x-variant": "variant" }, body: { research_layer: "variant" } }],
-              },
+    const e2e = await acquire()
+    const root = e2e.root
+    const providerID = `research-auth-${mode}`
+    const probeDirectory = path.join(root, `probe-${mode}`)
+    await mkdir(probeDirectory, { recursive: true })
+    upstream = e2e.proxy.baseURL
+    const config = await e2e.config()
+    const basePlugin = config.plugins.find((plugin: any) => String(plugin.package).includes("opencode-plugin-image-gen")) ?? config.plugins[0]
+    config.plugins = [basePlugin, { package: probeDirectory }]
+    const configure = (config: any) => {
+      config.providers = {
+        [providerID]: {
+          package: mode === "organization" ? "@opencode/ai/providers/openai/chat" : "@opencode/ai/providers/openai-compatible",
+          env: mode === "declared-env" ? ["OPENCODE_RESEARCH_PROVIDER_KEY"] : [],
+          settings: {
+            baseURL: `${origin}/provider/v1`,
+            ...(mode === "inline-key" || mode === "implicit-default" ? { apiKey: "synthetic-inline-key" } : mode === "saved-key" ? { apiKey: "synthetic-shadowed-inline-key" } : {}),
+            ...(mode === "organization" ? { organization: "research-org", project: "research-project" } : {}),
+            queryParams: { tenant: "provider" },
+          },
+          headers: { "X-Provider": "provider", "X-Layer": "provider", ...(headerOnly ? { Authorization: "Basic synthetic-header-auth", "X-API-Key": "synthetic-header-key" } : {}) },
+          body: { research_layer: "provider", research_nested: { provider: true } },
+          models: {
+            "test-model": {
+              modelID: "research-wire-model",
+              limit: { context: 200_000, input: 200_000, output: 30_000 },
+              settings: { ...(mode === "variant" ? { baseURL: `${origin}/model/v1` } : {}) },
+              headers: { "x-layer": "model", "X-Model": "model" },
+              body: { research_layer: "model", research_nested: { model: true } },
+              variants: [{ id: "premium", settings: { baseURL: `${origin}/variant/v1`, queryParams: { tenant: "variant" } }, headers: { "x-layer": "variant", "x-variant": "variant" }, body: { research_layer: "variant" } }],
             },
           },
-          ...(mode === "implicit-default" ? { openai: { settings: { baseURL: `${origin}/fallback/v1`, apiKey: "synthetic-fallback-key" } } } : {}),
-        }
-        config.agents["compaction-e2e"].model = `${providerID}/test-model`
-      },
-    }).catch((error) => {
-      server.stop(true)
-      throw error
-    })
-    try {
-        const root = e2e.root
-        const probeDirectory = path.join(root, "probe-plugin")
-        await mkdir(probeDirectory)
-        await writeFile(path.join(probeDirectory, "index.js"), `
+        },
+        ...(mode === "implicit-default" ? { openai: { settings: { baseURL: `${origin}/fallback/v1`, apiKey: "synthetic-fallback-key" } } } : {}),
+      }
+      config.agents["compaction-e2e"].model = `${providerID}/test-model`
+    }
+    configure(config)
+    await writeFile(path.join(probeDirectory, "index.js"), `
           import { writeFile } from "node:fs/promises"
           import { createHmac } from "node:crypto"
           export default { id: "research.request-probe", async setup(context) {
@@ -121,13 +138,16 @@ for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "
             return async () => { for (const hook of hooks.reverse()) await hook.dispose() }
           } }
         `)
-        const config = await e2e.config()
-        config.plugins.push({ package: probeDirectory })
-        await writeFile(e2e.configPath, JSON.stringify(config))
-        await waitFor(async () => {
-          const plugins = await api<{ data: Array<{ id: string; state: { status: string } }> }>(e2e, `/api/plugin?${new URLSearchParams({ directory: e2e.workspace })}`)
-          return plugins.data.some((item) => item.id === "research.request-probe" && item.state.status === "active")
-        }, "Research probe did not activate")
+    await writeFile(e2e.configPath, JSON.stringify(config))
+    await waitFor(async () => {
+      const plugins = await api<{ data: Array<{ id: string; state: { status: string } }> }>(e2e, `/api/plugin?${new URLSearchParams({ directory: e2e.workspace })}`)
+      const models = await api<{ data: Array<{ providerID: string; id: string }> }>(e2e, `/api/model?${new URLSearchParams({ directory: e2e.workspace })}`)
+      return plugins.data.some((item) => item.id === "research.request-probe" && item.state.status === "active") &&
+        models.data.some((item) => item.providerID === providerID && item.id === "test-model")
+    }, "Research provider and probe did not activate")
+    await rm(path.join(e2e.workspace, "proof.png"), { force: true })
+    await rm(path.join(e2e.workspace, "reference.png"), { force: true })
+    try {
       if (hasSavedKey) {
         await waitFor(async () => {
           const integrations = await api<{ data: Array<{ id: string }> }>(e2e, `/api/integration?${new URLSearchParams({ directory: e2e.workspace })}`)
@@ -241,7 +261,7 @@ for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "
           expect(JSON.stringify(part.state)).toContain("research request signature missing")
         }
       }
-    } finally { try { await e2e.close() } finally { server.stop(true) } }
+    } finally { try { release(e2e) } finally { server.stop(true) } }
   })
 }
 

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import os from "node:os"
 import path from "node:path"
 import { buildFingerprint, buildLevels, mapLimit } from "../scripts/workspace.mjs"
-import { BUILD_MANIFEST, executeWorkflow, isTestFile, testGroup, testSuites } from "../scripts/workflow.mjs"
+import { BUILD_MANIFEST, executeWorkflow, FRESH_ONLY, isTestFile, testGroup, testSuites } from "../scripts/workflow.mjs"
 import { ensureBuilt, packWorkspace, verifyBuild } from "../scripts/test-artifacts.mjs"
 
 async function fixture(run: (root: string) => Promise<void>) {
@@ -94,8 +94,8 @@ test("full check builds exactly once, runs every test once, and deletes the buil
   expect(calls.filter((call) => call.args.join(" ") === "bun run build").map((call) => path.basename(call.cwd))).toEqual(["a", "b"])
   const tests = calls.filter((call) => call.args[1] === "test")
   const files = tests.flatMap((call) => call.args.filter((arg) => arg.endsWith(".test.ts") || arg.endsWith(".test.tsx")))
-  expect(files).toHaveLength(9)
-  expect(new Set(files).size).toBe(9)
+  expect(files).toHaveLength(8)
+  expect(new Set(files).size).toBe(8)
   expect(packs).toBe(1)
   expect(tests.filter((call) => call.args.includes("--conditions=browser"))).toHaveLength(2)
   const lease = tests[0].lease!
@@ -237,3 +237,11 @@ test("cross-process archive leases copy current bytes and reject corruption with
   await writeFile(archives[0].file, "corrupt")
   await expect(packWorkspace(path.join(root, "next"), options)).rejects.toThrow("changed after packing")
 }))
+
+test("fresh-only entries all exist and fresh covers every E2E file", async () => {
+  const root = path.resolve(import.meta.dir, "..")
+  const e2e = (await testSuites(root)).e2e.flat()
+  for (const suffix of FRESH_ONLY) expect(e2e.some((file) => file.endsWith(suffix))).toBe(true)
+  const fast = e2e.filter((file) => ![...FRESH_ONLY].some((suffix) => file.endsWith(suffix)))
+  expect(new Set([...fast, ...e2e]).size).toBe(e2e.length)
+})

@@ -34,10 +34,19 @@ bun run check
 | `bun run check:fast` | One build, typecheck all workspaces, unit/render tests; no network install |
 | `bun run test:e2e` | One build, source-level server/TUI E2E |
 | `bun run test` | Unit, render, and source E2E; excludes packaged installation |
-| `bun run test:packaged` | Fresh installation of this round's npm archives plus import and dependency validation |
-| `bun run check` / `check:full` | Full check with all test suites |
-| `bun run check:fresh` | Full check with forced dependency resolution; use before publishing |
-| `bun run test:packaged:fresh` | Packaged validation with forced dependency resolution |
+| `bun run test:packaged` | Tarball structure, manifest, exports, and file-list validation; no installation |
+| `bun run check` | Incremental full check; unchanged work is reused from the content-addressed cache |
+| `bun run check:full` | All source tests with cache reuse, including long real-TUI scenarios |
+| `bun run check:fresh` | Full check with no cache reuse; use before publishing |
+
+`bun run check` stores successful build, typecheck, test-file, and packaged results keyed by source, test, toolchain, and
+environment hashes. Test invalidation is derived on every run from each file's actual local imports and package path
+references; there are no hand-written dependency annotations to expire. Unicorn's own E2E also depends on every workspace
+package's built output, so any child change revalidates the assembled plugin. Other plugin suites are scoped to their own
+package, imported helpers, and packages they explicitly reference. `check:fresh` bypasses all caches and runs every suite
+together, so cross-plugin regressions are always checked before publishing. Releases call `check:fresh`, then run the
+pack-only tarball check, and never run `npm install`. Packed tarballs are reused per package when their inputs are
+unchanged. Regular `check` skips packaged validation.
 
 Workspace artifacts are built and packed exactly once per round, in workspace dependency order. Source and packaged
 tests use isolated copies and never reuse test results, servers, databases, HOME, or TUI state. A build or archive
@@ -45,22 +54,15 @@ hash mismatch fails the run instead of using stale output. Build, typecheck, and
 E2E schedules long TUI files separately from wide API files to avoid oversubscription. Each phase reports its actual
 duration.
 
-Packaged tests create a clean `node_modules` every time. After the first dependency resolution, the lockfile and npm
-downloads are cached. Cache hits still run a real `npm ci --offline`, and local plugin integrity is refreshed from
-this round's archives, so code changes under the same version are tested. Corrupt caches or missing offline
-dependencies trigger a clean reinstall; installation failures still fail the test.
+Packaged validation only runs `npm pack` and inspects the resulting tarballs: allowed file list, manifest version,
+exports, and expected dist files. It never creates a consumer `node_modules` or runs `npm install`. Routine checks do
+not run it automatically; release runs this pack-only check explicitly.
 
-The cache key includes external dependency declarations, Node/npm/Bun versions, platform, and architecture. Local
-package versions and code bytes are excluded, so a version bump reuses the same third-party resolution while local
-integrities are refreshed from this round's archives. The default directory is
-`opencode/unicorn-test-cache` under the system temporary directory. Set `UNICORN_TEST_CACHE_DIR` to a writable
-directory and cache it in CI. Use `check:fresh` to check for new versions within dependency ranges; it bypasses the
-cached lockfile but can still use npm's download cache. The installer uses an isolated npm configuration, preserves
-proxy/CA settings, and never reads user npm credentials or preload scripts. Unicorn is also installed separately:
-child packages are re-resolved from a local registry with tarball integrity checks, so installing seven packages at
-once cannot hide a dependency error. Regular checks reuse the third-party dependency lockfile; `fresh` resolves a new
-set of third-party versions once, and the Unicorn-only installation reuses that result. The local registry also
-verifies that `latest` does not point to a stale child package.
+The content-addressed check cache includes external dependency declarations, Node/npm/Bun versions, platform, and
+architecture. Local package versions and code bytes are excluded from resolution identity, while local source and
+build hashes determine whether work reruns. The default cache directory is `opencode/unicorn-test-cache` under the
+system temporary directory; set `UNICORN_TEST_CACHE_DIR` to a writable directory and cache it in CI. Use
+`check:fresh` for an uncached full run. The check workflow never reads user npm credentials or preload scripts.
 
 Production `npm pack` / `npm publish` still runs the prepack build and rules sync; Unicorn also syncs internal
 dependency versions. Only test archives that already validated this round's build skip repeated lifecycle scripts.
@@ -87,10 +89,11 @@ overwritten. Command collection reads the `commands` field from the source JSONC
 templates, and same-name user commands are not overwritten.
 
 All packages compile NodeNext source into the Git-ignored `dist/`. npm tarballs contain only `package.json`,
-`README.md`, `README.zh-CN.md`, and `dist/**/*.js`; they never publish `.ts`, `.tsx`, or declaration files. Full checks pack and install
-every package for real and validate it in isolated OpenCode servers. TUI plugins run in their own tmux sockets to
-check interaction, reactive filtering, and cross-filesystem image previews. The release script runs `check:fresh`
-before changing versions or uploading.
+`README.md`, `README.zh-CN.md`, and `dist/**/*.js`; they never publish `.ts`, `.tsx`, or declaration files.
+`check:full` runs all source tests with cache reuse. `check:fresh` runs the same complete suite without cache reuse
+and remains the authoritative release gate. TUI plugins run in
+their own tmux sockets to check interaction, reactive filtering, and cross-filesystem image previews. The release script
+runs `check:fresh` and the pack-only `test:packaged` check before changing versions or uploading.
 
 ### Publishing
 

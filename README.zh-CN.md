@@ -34,92 +34,26 @@ bun run check
 | `bun run check:fast` | 构建一次、全部 workspace 类型检查、单元/渲染测试；不联网安装依赖 |
 | `bun run test:e2e` | 构建一次、源码 server/TUI E2E |
 | `bun run test` | 单元、渲染和源码 E2E，不包含安装包验证 |
-| `bun run test:packaged` | 本轮 npm 归档的全新安装及导入、依赖解析验证 |
-| `bun run check` / `check:full` | 完整检查，保留全部测试 |
-| `bun run check:fresh` | 完整检查，强制重新解析安装依赖；发布前使用 |
-| `bun run test:packaged:fresh` | 仅运行强制重新解析依赖的安装包验证 |
+| `bun run test:packaged` | 本轮 npm 归档的 tarball 结构、manifest、exports 和文件列表验证；不执行安装 |
+| `bun run check` | 增量完整检查；未变化的工作直接复用内容寻址缓存 |
+| `bun run check:full` | 运行全部源码测试（含长真实 TUI 场景），复用缓存 |
+| `bun run check:fresh` | 完整检查，不复用缓存；发布前使用 |
+
+`bun run check` 会按源码、测试、工具链和环境哈希缓存成功的构建、类型检查、测试文件和打包结果，只重跑受影响的部分。
+测试依赖每次从文件的实际本地 import 和包路径引用推导，没有需要手工维护、可能过期的依赖注解。
+Unicorn 自身的 E2E 还依赖所有 workspace 包的构建产物，任何子包变化都会重新验证组装后的插件；
+其他插件测试只依赖自身包、导入的 helper 和显式引用的包。`check:fresh` 完全绕过缓存并一起运行全部套件，
+因此发布前总会检查跨插件回归。发布流程调用 `check:fresh`，然后执行 pack-only 的 tarball 检查；
+安装包 tarball 未变化时按包复用，任何流程都不运行 `npm install`。
 
 工作区产物只统一构建一次、每包统一打包一次，按 workspace 依赖顺序构建。源码和安装包用例使用归档的独立副本，
 不复用测试结果、server、数据库、HOME 或 TUI 状态。构建和归档的内容哈希不匹配时会失败，不会使用过期产物。
 构建、类型检查和单元测试按 CPU 数量并行；E2E 将长 TUI 文件与宽 API 文件分组调度，避免过度并发。每阶段输出实际耗时。
 
-安装包测试每次创建干净的 `node_modules`。首次解析依赖后缓存锁文件和 npm 下载内容；命中后执行真正的
-`npm ci --offline`，并用本轮归档更新本地插件的完整性校验，因此同版本代码变化也会被测试。
-缓存损坏或离线依赖缺失会清理部分安装并重新安装；安装失败仍会使测试失败。
+安装包验证只执行 `npm pack` 并检查 tarball 的文件列表、manifest 版本、exports 和预期 dist 文件；
+不会创建消费者 `node_modules`，也不会运行 `npm install`。日常检查不运行它；发布流程会显式执行这个 pack-only 检查。
 
-缓存键包含外部依赖声明、Node/npm/Bun 版本、平台及架构；本地包版本和代码字节不参与，因此版本升级会复用同一份第三方解析结果，同时从本轮归档刷新本地完整性。默认目录为系统临时目录下的
-`opencode/unicorn-test-cache`，可用 `UNICORN_TEST_CACHE_DIR` 指定可写目录并在 CI 中缓存。
-需要检查依赖范围内的新版本时运行 `check:fresh`；该入口不使用缓存锁，但仍可利用 npm 下载缓存。
-安装器使用独立 npm 配置，保留网络代理/CA 设置，不读取用户的 npm 认证配置或预加载脚本。
-Unicorn 另做单包安装：子包始终通过本地 registry 重新解析并校验本轮 tarball 完整性，避免七包同时安装掩盖依赖问题。
-普通检查复用第三方依赖锁；`fresh` 入口重新解析一轮第三方版本，Unicorn 单包安装复用本轮结果，不重复联网解析。本地 registry 同时验证 `latest` 指向旧子包的情况。
-
-正式 `npm pack` / `npm publish` 的 prepack 仍执行构建和规则同步，Unicorn 还会同步内部依赖版本；只有验证了本轮构建的测试打包才跳过重复生命周期脚本。
-
-也可以只运行指定 workspace：
-
-```bash
-bun run --cwd packages/opencode-plugin-unicorn test
-bun run --cwd packages/opencode-plugin-unicorn typecheck
-```
-
-workspace 配置位于根目录 `package.json` 的 `workspaces` 字段。每个 package 保留自己的入口、依赖、测试和发布配置。
-
-所有插件包使用同一个版本号，新增插件也与 Unicorn 当前版本对齐。`bun run check:versions` 可单独检查；
-构建和完整检查会自动校验，包版本不一致或内部依赖未精确固定到同版本时立即失败；统一升版后用 `bun run sync:versions` 同步依赖。
-
-推荐规则模板使用全局 `AGENTS.md` 的硬链接。`bun install` 安装 pre-commit hook，commit 和 prepack 前重新同步；
-`bun run sync:rules` 可手动同步。已有 Git hook 不会被覆盖。命令收集源 JSONC 的 `commands` 和同目录 `.commands/`、
-`command/`、`commands/` 下的 Markdown，不收录完整配置、不执行模板；同名用户命令不覆盖。
-
-发布时所有 package 都从 NodeNext 源码编译到被 Git 忽略的 `dist/`。npm tarball 仅包含 `package.json`、`README.md`、`README.zh-CN.md` 和 `dist/**/*.js`，不会发布 `.ts`、`.tsx` 或声明文件。完整检查会真实打包、安装所有包，并分别在隔离的 OpenCode 服务中验证插件；TUI 插件会用独立 tmux socket 检查交互、响应式过滤和跨文件系统图片预览。发布脚本会在改版本号、上传前执行 `check:fresh`。
-
-### 发布
-
-只有一个发布入口，必须显式指定发布类型：
-
-```sh
-npm run release -- --release-type=<type> [--version=<spec>]
-```
-
-`--release-type` 取值：
-
-| 类型 | 行为 | 2FA |
-|---|---|---|
-| `local-publish` | 本机构建并直接发布 | 浏览器 security key |
-| `local-stage` | 本机构建并 stage，之后在 npm 网站 Approve | Approve 时 2FA |
-| `ci-publish` | 本地 commit + push，GitHub Actions 构建并发布 | OIDC |
-| `ci-stage` | 本地 commit + push，GitHub Actions 构建并 stage | Approve 时 2FA |
-
-`--version` 默认 `patch`，也可以是 `minor`、`major` 或具体版本 `1.2.3`。目标版本必须严格大于每个包的 registry latest，并且不能低于本地版本。
-
-脚本会依次：
-
-1. 校验全部参数
-2. 要求工作区干净（只允许 `rules/` 同步文件未提交）
-3. 跑完整 `npm run check`
-4. 统一 bump 到目标版本并同步内部依赖
-5. 按 release-type 发布或触发 CI
-
-本地发布：
-
-```sh
-npm run release -- --release-type=local-publish
-npm run release -- --release-type=local-stage --version=minor
-```
-
-本地发布会通过伪终端运行 npm；需要登录或某个包需要网页验证时，脚本会打印 npm 的认证链接，浏览器批准后自动继续。
-每个链接只打印一次，可直接复制。发布后的 registry 校验遇到临时网络错误会自动重试。
-
-CI 发布：
-
-```sh
-npm run release -- --release-type=ci-publish
-npm run release -- --release-type=ci-stage --version=1.2.0
-```
-
-`ci-*` 模式会提交版本变更并推送 `main`，commit message 包含 `[release]` 或 `[release:stage]`。CI 不再 bump 版本。
-
-staged 审核入口是 `https://www.npmjs.com/settings/~/staged-packages`，也可以用 `npm stage list` 和 `npm stage approve <stage-id>`。
-
-本地发布成功后，提交版本变更和同步文件；`ci-*` 会自动提交并推送。新包首次发布不能用 OIDC，请使用 `local-publish` 或 `local-stage`。
+内容寻址检查缓存包含外部依赖声明、Node/npm/Bun 版本、平台和架构；本地包版本和代码字节不作为解析身份，
+本地源码和构建哈希决定是否重跑。默认缓存目录为系统临时目录下的 `opencode/unicorn-test-cache`，
+可用 `UNICORN_TEST_CACHE_DIR` 指定可写目录并在 CI 中缓存。需要无缓存全量验证时使用 `check:fresh`。
+检查流程不读取用户 npm 认证配置或预加载脚本。

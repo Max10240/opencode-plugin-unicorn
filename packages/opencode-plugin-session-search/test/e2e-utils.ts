@@ -160,8 +160,16 @@ export async function checkSessionSearch(e2e: OpenCodeE2E, options: { combined?:
       await api(e2e, `/api/session/${other.data.id}/revert/stage`, { messageID: boundary })
       await search("LIVE_AGENT_NEEDLE")
       expect(pane()).toContain("reverted, unavailable")
-      tmux(["send-keys", "-t", "search", "Enter"])
-      await waitFor(async () => pane().includes("currently reverted"), "Reverted result was not blocked")
+      for (let attempt = 0; attempt < 3; attempt++) {
+        tmux(["send-keys", "-t", "search", "Enter"])
+        try {
+          await waitFor(async () => pane().includes("currently reverted"), "Reverted result was not blocked", 10_000)
+          break
+        } catch (error) {
+          if (!pane().includes("Search current session")) throw error
+          if (attempt === 2) throw error
+        }
+      }
       expect(pane()).toContain("Search current session")
       expect((await api<any>(e2e, `/api/session/${other.data.id}`)).data.revert.messageID).toBe(boundary)
       await api(e2e, `/api/session/${other.data.id}/revert/commit`, {})

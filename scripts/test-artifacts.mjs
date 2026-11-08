@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { CHECK_CACHE_VERSION, cacheKey, checkRuntime, packageHash, readMarker, writeMarker } from "./check-cache.mjs"
 import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -33,7 +34,7 @@ export async function ensureBuilt(root = repository, { env = process.env, run = 
   return manifest
 }
 
-export async function packWorkspace(destination, { root = repository, run = runCommand, env = process.env } = {}) {
+export async function packWorkspace(destination, { root = repository, run = runCommand, env = process.env, cache = false, cacheRoot, snapshot, distHashes } = {}) {
   const build = await ensureBuilt(root, { env, run })
   await mkdir(destination, { recursive: true })
   if (build.archives) {
@@ -49,11 +50,40 @@ export async function packWorkspace(destination, { root = repository, run = runC
     await verifyBuild(root, build)
     return copied
   }
+  const runtime = checkRuntime(env)
   const archives = await mapLimit(await workspacePackages(root), concurrency, async (item) => {
+    const key = cache && snapshot
+      ? cacheKey([
+          CHECK_CACHE_VERSION, "pack", snapshot.root, packageHash(snapshot, path.basename(item.directory), "build"),
+          distHashes?.get(item.manifest.name), item.manifest.version, snapshot.supportHash, runtime.npm,
+        ])
+      : undefined
+    if (key) {
+      const stored = await readMarker(cacheRoot, "pack", key)
+      if (stored?.file && stored?.packed) {
+        try {
+          const bytes = await readFile(stored.file)
+          if (typeof stored.sha256 !== "string" || digest(bytes) !== stored.sha256) throw new Error("Invalid cached archive")
+          if (stored.packed?.name !== item.manifest.name || stored.packed?.version !== item.manifest.version) throw new Error("Invalid cached archive metadata")
+          const file = path.join(destination, path.basename(stored.file))
+          await writeFile(file, bytes)
+          return { ...item, file, packed: stored.packed }
+        } catch { /* A missing or invalid archive falls back to npm pack. */ }
+      }
+    }
     const output = await run(["npm", "pack", "--ignore-scripts", "--json", "--pack-destination", destination], { cwd: item.directory, capture: true })
     const packed = JSON.parse(output)
     if (packed.length !== 1 || packed[0].version !== item.manifest.version || path.basename(packed[0].filename) !== packed[0].filename) throw new Error(`Invalid archive: ${item.manifest.name}`)
-    return { ...item, file: path.join(destination, packed[0].filename), packed: packed[0] }
+    const file = path.join(destination, packed[0].filename)
+    if (key) {
+      const directory = path.join(cacheRoot, "pack", key)
+      await mkdir(directory, { recursive: true })
+      const cached = path.join(directory, packed[0].filename)
+      const bytes = await readFile(file)
+      await writeFile(cached, bytes)
+      await writeMarker(cacheRoot, "pack", key, { file: cached, packed: packed[0], sha256: digest(bytes) })
+    }
+    return { ...item, file, packed: packed[0] }
   })
   await verifyBuild(root, build)
   return archives

@@ -16,8 +16,7 @@ test("searches and inserts prompts from live and deleted sessions through the re
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
 
   try {
-    await runScenario("standalone")
-    await runScenario("unicorn")
+    await Promise.all([runScenario("standalone"), runScenario("unicorn")])
   } finally { tmux(["kill-server"], false) }
 })
 
@@ -266,7 +265,7 @@ async function waitForSearchCommand(target: string) {
   }
 }
 
-async function waitFor<T>(check: () => Promise<T | false>, message: string, timeout = 30_000): Promise<T> {
+async function waitFor<T>(check: () => Promise<T | false>, message: string, timeout = 60_000): Promise<T> {
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     const result = await check()

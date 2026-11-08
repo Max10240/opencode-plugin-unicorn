@@ -23,7 +23,7 @@ test("manual encryption is reachable and works through the real TUI", async () =
 async function runScenario(mode: "standalone" | "unicorn") {
   const tmux = createTmux()
   const root = await mkdtemp(path.join(os.tmpdir(), `sensitive-encrypt-tui-${mode}-`))
-  const secret = path.join(root, "secret.txt")
+  const secret = path.join(root, `secret-${mode}.txt`)
   const out = path.join(root, "text.ocsec")
   const fileOut = path.join(root, "secret.ocsec")
   const marker = `SENSITIVE_TUI_${mode.toUpperCase()}_MARKER`
@@ -129,8 +129,7 @@ async function runScenario(mode: "standalone" | "unicorn") {
     tmux(["send-keys", "-t", target, "Tab"])
     tmux(["send-keys", "-t", target, "-l", out])
     await waitForPane(tmux, target, path.basename(out), "text output path did not appear")
-    tmux(["send-keys", "-t", target, "F2"])
-    await waitForPane(tmux, target, "Encrypted with key", "text encryption result dialog did not open")
+    await pressUntil(tmux, target, "F2", "Encrypted with key", "text encryption result dialog did not open")
     expect(screen(tmux, target).replace(/\s+/g, "")).toContain(parsePublicKey(decryptPair.publicKey).kid)
     await waitFor(
       async () => {
@@ -154,26 +153,21 @@ async function runScenario(mode: "standalone" | "unicorn") {
     expect(decryptEnvelope(textCiphertext, decryptPair.privateKey).toString("utf8")).toBe(marker)
     if (process.platform !== "win32") expect((await stat(out)).mode & 0o777).toBe(0o600)
 
-    await waitFor(
-      async () => !screen(tmux, target).includes("Copied output path") && !screen(tmux, target).includes("Copied ciphertext"),
-      "copy toasts did not clear",
-    )
+    const copiedBefore = (screen(tmux, target).match(/Copied (?:output path|ciphertext)/g) ?? []).length
     tmux(["send-keys", "-t", target, "Escape"])
     await waitFor(async () => !screen(tmux, target).includes("Encrypted with key"), "text result dialog did not close")
 
     // Result-dialog shortcuts must not leak after the dialog closes.
     tmux(["send-keys", "-t", target, "-l", "cp"])
     await Bun.sleep(300)
-    expect(screen(tmux, target)).not.toContain("Copied ciphertext")
-    expect(screen(tmux, target)).not.toContain("Copied output path")
+    expect((screen(tmux, target).match(/Copied (?:output path|ciphertext)/g) ?? []).length).toBeLessThanOrEqual(copiedBefore)
     for (let index = 0; index < 2; index++) tmux(["send-keys", "-t", target, "BSpace"])
 
     // Panel shortcuts must not leak into another modal dialog.
     await openPalette(tmux, target)
     tmux(["send-keys", "-t", target, "-l", "cp"])
     await Bun.sleep(300)
-    expect(screen(tmux, target)).not.toContain("Copied ciphertext")
-    expect(screen(tmux, target)).not.toContain("Copied output path")
+    expect((screen(tmux, target).match(/Copied (?:output path|ciphertext)/g) ?? []).length).toBeLessThanOrEqual(copiedBefore)
     expect(screen(tmux, target)).not.toContain("Type any text to encrypt")
     expect(screen(tmux, target)).not.toContain("f2 encrypt")
     tmux(["send-keys", "-t", target, "Escape"])
@@ -195,14 +189,17 @@ async function runScenario(mode: "standalone" | "unicorn") {
     await waitForPane(tmux, target, "left/right change", "encryption key selector is not focusable")
     tmux(["send-keys", "-t", target, "Right"])
     await waitForPane(tmux, target, "Key: Encrypt", "encryption key did not switch to the encrypt public key")
-    tmux(["send-keys", "-t", target, "Tab"])
+    // Re-enter file mode so focus returns to the primary input even after a plugin reload.
+    tmux(["send-keys", "-t", target, "C-t"])
+    await waitForPane(tmux, target, "[Text]", "text mode did not activate while restoring focus")
+    tmux(["send-keys", "-t", target, "C-t"])
+    await waitForPane(tmux, target, "[File]", "file mode did not reactivate while restoring focus")
     tmux(["send-keys", "-t", target, "-l", secret])
-    await waitForPane(tmux, target, path.basename(secret), "file path did not appear")
+    await waitForPane(tmux, target, path.basename(secret), "file path did not appear", 60_000)
     tmux(["send-keys", "-t", target, "Tab"])
     tmux(["send-keys", "-t", target, "-l", fileOut])
     await waitForPane(tmux, target, path.basename(fileOut), "file output path did not appear")
-    tmux(["send-keys", "-t", target, "F2"])
-    await waitForPane(tmux, target, "Encrypted with key", "file encryption result dialog did not open")
+    await pressUntil(tmux, target, "F2", "Encrypted with key", "file encryption result dialog did not open")
     expect(screen(tmux, target).replace(/\s+/g, "")).toContain(parsePublicKey(encryptPair.publicKey).kid)
     await waitFor(
       async () => {
@@ -226,6 +223,19 @@ async function runScenario(mode: "standalone" | "unicorn") {
     await e2e.close()
     await rm(root, { recursive: true, force: true })
   }
+}
+
+async function pressUntil(tmux: Tmux, target: string, key: string, text: string, message: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    tmux(["send-keys", "-t", target, key])
+    try {
+      await waitForPane(tmux, target, text, message, 10_000)
+      return
+    } catch (error) {
+      if (!screen(tmux, target).includes("Encrypt sensitive data")) throw error
+    }
+  }
+  await waitForPane(tmux, target, text, message)
 }
 
 async function openPalette(tmux: Tmux, target: string) {

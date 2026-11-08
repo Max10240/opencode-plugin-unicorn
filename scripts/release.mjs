@@ -365,7 +365,8 @@ export async function release({
     }
   }
 
-  await run(["npm", "run", "check"], { cwd: root })
+  await run(["npm", "run", "check:fresh"], { cwd: root })
+  await run(["npm", "run", "test:packaged"], { cwd: root })
   await assertCleanWorkspace({ root, run })
   await bumpVersion({ root, target: resolved.target })
   await assertCleanWorkspace({ root, run, allowVersion: true })

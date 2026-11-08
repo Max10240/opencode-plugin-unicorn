@@ -216,8 +216,14 @@ export async function createOpenCodeE2E(
 
   const stopServer = async () => {
     if (server.exitCode === null) server.kill()
-    await Promise.race([server.exited, Bun.sleep(5_000)])
-    if (server.exitCode === null) server.kill(9)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(true), 5_000) })
+    const timedOut = await Promise.race([server.exited.then(() => false), timeout])
+    if (timer) clearTimeout(timer)
+    if (timedOut) {
+      server.kill(9)
+      await server.exited
+    }
     await Promise.allSettled([stdout, stderr, server.exited])
   }
   const close = async () => {

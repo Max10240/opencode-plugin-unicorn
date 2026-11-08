@@ -22,9 +22,8 @@
     "test:e2e": "node scripts/workflow.mjs e2e",
     "typecheck": "node scripts/workflow.mjs typecheck",
     "test:packaged": "node scripts/workflow.mjs packaged",
-    "test:packaged:fresh": "node scripts/workflow.mjs packaged --fresh",
     "check:fast": "node scripts/workflow.mjs fast",
-    "check:full": "node scripts/workflow.mjs check",
+    "check:full": "node scripts/workflow.mjs check --all",
     "check:fresh": "node scripts/workflow.mjs check --fresh",
     "check": "node scripts/workflow.mjs check",
     "release": "node scripts/release.mjs"
