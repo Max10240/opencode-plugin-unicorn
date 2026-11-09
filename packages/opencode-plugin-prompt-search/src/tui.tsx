@@ -26,7 +26,20 @@ export function setupPromptSearch(context: Context) {
     }, 500)
   }
   const stopEvents = context.data.listen(({ details }) => {
-    if (details.type === "session.created" || details.type === "session.execution.succeeded") scheduleRefresh()
+    if (details.type === "session.created" || details.type === "session.execution.succeeded") {
+      scheduleRefresh()
+      return
+    }
+    if (
+      details.type === "session.inbox.enqueued" ||
+      details.type === "session.inbox.delivered" ||
+      details.type === "session.inbox.cancelled" ||
+      details.type === "session.inbox.delivery.changed"
+    ) {
+      const sessionID = (details.data as { sessionID?: string }).sessionID
+      if (sessionID) indexer.invalidate(sessionID)
+      scheduleRefresh()
+    }
   })
   void indexer.refresh()
 

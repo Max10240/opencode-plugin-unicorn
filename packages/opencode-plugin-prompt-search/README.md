@@ -40,8 +40,9 @@ TUI entry:
 }
 ```
 
-Results come from user prompts in all sessions visible to the OpenCode server. The index refreshes incrementally by
-session update time and is cached in TUI storage. Cached prompts remain searchable after their session disappears
+Results come from user prompts in all sessions visible to the OpenCode server, including queued or steering messages
+that are still pending in a session inbox. Delivered inbox messages are deduplicated by message ID after they enter the
+transcript. The index refreshes incrementally by session update time and inbox events, and is cached in TUI storage. Cached prompts remain searchable after their session disappears
 from the server, so deleted sessions can still be searched and the cache survives TUI restarts. If a session is
 deleted before the plugin indexes it, the OpenCode API can no longer export it and the index cannot be rebuilt.
 Selecting a result inserts the original prompt at the cursor without submitting it.

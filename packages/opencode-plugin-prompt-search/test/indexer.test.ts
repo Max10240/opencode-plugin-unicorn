@@ -4,7 +4,7 @@ import { DEFAULT_MAX_PROMPTS, PromptIndexer, resolveMaxPrompts, type PromptEntry
 
 type TestCache = {
   version: 1
-  sessions: Record<string, { updated: number; prompts: PromptEntry[]; truncatedAtMax?: number }>
+  sessions: Record<string, { updated: number; inbox?: string; exported?: boolean; prompts: PromptEntry[]; truncatedAtMax?: number }>
 }
 
 test("prompt limit defaults to 2000 and accepts non-negative integers", () => {
@@ -63,10 +63,135 @@ test("prunes older deleted prompts when a refresh adds newer prompts", async () 
   expect(cache.sessions.deleted).toBeUndefined()
 })
 
+test("indexes queued inbox prompts, ignores non-user items, and deduplicates delivered messages", async () => {
+  const cache: TestCache = { version: 1, sessions: {} }
+  let exportCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [{ id: "live", time: { updated: 3 }, title: "live", location: { directory: "/live" } }],
+      {
+        live: [{ id: "delivered", type: "user", text: "delivered prompt", time: { created: 2 } }],
+      },
+      undefined,
+      () => exportCalls++,
+      {
+        live: [
+          { id: "delivered", type: "user", payload: { text: "delivered prompt" }, delivery: "queue", time: { created: 2 } },
+          { id: "queued", type: "user", payload: { text: "queued prompt" }, delivery: "queue", time: { created: 4 } },
+          { id: "synthetic", type: "synthetic", payload: { text: "synthetic prompt" }, delivery: "queue", time: { created: 5 } },
+        ],
+      },
+    ),
+  )
+
+  await indexer.refresh()
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt", "delivered prompt"])
+  expect(exportCalls).toBe(1)
+  expect(cache.sessions.live?.inbox).toBeString()
+
+  await indexer.refresh()
+  expect(exportCalls).toBe(1)
+})
+
+test("removes a cancelled queued prompt after invalidating its session", async () => {
+  const cache: TestCache = { version: 1, sessions: {} }
+  const pending: Record<string, any[]> = {
+    live: [{ id: "queued", type: "user", payload: { text: "queued prompt" }, delivery: "queue", time: { created: 4 } }],
+  }
+  const indexer = new PromptIndexer(contextFor(cache, [{ id: "live", time: { updated: 3 } }], {}, undefined, undefined, pending))
+
+  await indexer.refresh()
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt"])
+
+  pending.live = []
+  indexer.invalidate("live")
+  await indexer.refresh()
+  expect(indexer.entries()).toEqual([])
+})
+
+test("retries the inbox after a transient inbox failure", async () => {
+  const cache: TestCache = { version: 1, sessions: {} }
+  let inboxCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [{ id: "live", time: { updated: 3 } }],
+      { live: [{ id: "exported", type: "user", text: "exported prompt", time: { created: 2 } }] },
+      undefined,
+      undefined,
+      { live: [{ id: "queued", type: "user", payload: { text: "queued prompt" }, delivery: "queue", time: { created: 4 } }] },
+      () => {
+        inboxCalls++
+        if (inboxCalls === 1) throw new Error("temporary inbox failure")
+      },
+    ),
+  )
+
+  await indexer.refresh()
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["exported prompt"])
+  expect(cache.sessions.live?.inbox).toBeUndefined()
+
+  await indexer.refresh()
+  expect(inboxCalls).toBe(2)
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt", "exported prompt"])
+  expect(cache.sessions.live?.inbox).toBeString()
+})
+
+test("keeps queued prompts visible when export fails and retries the transcript", async () => {
+  const cache: TestCache = { version: 1, sessions: {} }
+  let exportCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [{ id: "live", time: { updated: 3 } }],
+      { live: [{ id: "exported", type: "user", text: "exported prompt", time: { created: 2 } }] },
+      undefined,
+      () => {
+        exportCalls++
+        if (exportCalls === 1) throw new Error("temporary export failure")
+      },
+      { live: [{ id: "queued", type: "user", payload: { text: "queued prompt" }, delivery: "queue", time: { created: 4 } }] },
+    ),
+  )
+
+  await indexer.refresh()
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt"])
+  expect(cache.sessions.live?.exported).toBe(false)
+
+  await indexer.refresh()
+  expect(exportCalls).toBe(2)
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt", "exported prompt"])
+  expect(cache.sessions.live?.exported).toBe(true)
+})
+
+test("re-reads existing caches that predate inbox indexing", async () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: { live: { updated: 3, prompts: [entry("old", 1, "live")] } },
+  }
+  let exportCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [{ id: "live", time: { updated: 3 } }],
+      { live: [{ id: "old", type: "user", text: "old", time: { created: 1 } }] },
+      undefined,
+      () => exportCalls++,
+      { live: [{ id: "queued", type: "user", payload: { text: "queued prompt" }, delivery: "queue", time: { created: 4 } }] },
+    ),
+  )
+
+  await indexer.refresh()
+  expect(exportCalls).toBe(1)
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["queued prompt", "old"])
+  expect(cache.sessions.live?.inbox).toBeString()
+})
+
 test("does not re-export live sessions after all of their prompts are pruned", async () => {
   const cache: TestCache = {
     version: 1,
-    sessions: { live: { updated: 2, prompts: [entry("old", 1, "live")] } },
+    sessions: { live: { updated: 2, inbox: "", prompts: [entry("old", 1, "live")] } },
   }
   let exportCalls = 0
   const indexer = new PromptIndexer(
@@ -183,6 +308,8 @@ function contextFor(
   messages: Record<string, any[]> = {},
   onList?: () => void,
   onExport?: () => void,
+  pending: Record<string, any[]> = {},
+  onInbox?: () => void,
 ) {
   return {
     storage: {
@@ -197,6 +324,12 @@ function contextFor(
         export: async ({ sessionID }: { sessionID: string }) => {
           onExport?.()
           return { messages: messages[sessionID] ?? [] }
+        },
+        inbox: {
+          list: async ({ sessionID }: { sessionID: string }) => {
+            onInbox?.()
+            return pending[sessionID] ?? []
+          },
         },
       },
     },

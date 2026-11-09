@@ -17,6 +17,8 @@ export function resolveMaxPrompts(value: unknown) {
 
 type CachedSession = {
   updated: number
+  inbox?: string
+  exported?: boolean
   prompts: PromptEntry[]
   truncatedAtMax?: number
 }
@@ -35,6 +37,7 @@ export class PromptIndexer {
   private readonly updateCache: (mutation: (draft: Cache) => void) => Promise<void>
   private readonly maxPrompts: number
   private readonly normalizeCache: Promise<void>
+  private readonly dirty = new Set<string>()
   private refreshing: Promise<void> | undefined
 
   constructor(private readonly context: Context, maxPrompts: unknown = DEFAULT_MAX_PROMPTS) {
@@ -68,6 +71,10 @@ export class PromptIndexer {
       .sort((left, right) => right.score - left.score || right.entry.created - left.entry.created)
       .slice(0, limit)
       .map((item) => item.entry)
+  }
+
+  invalidate(sessionID: string) {
+    this.dirty.add(sessionID)
   }
 
   async refresh() {
@@ -116,27 +123,65 @@ export class PromptIndexer {
   private async readSession(session: any): Promise<[string, CachedSession, boolean]> {
     const updated = Number(session.time?.updated ?? session.time?.created ?? 0)
     const cached = this.cache.sessions[session.id]
+    const forced = this.dirty.has(session.id)
     if (
+      !forced &&
       cached?.updated === updated &&
+      cached.inbox !== undefined &&
+      cached.exported !== false &&
       (cached.truncatedAtMax === undefined || cached.truncatedAtMax >= this.maxPrompts)
     )
       return [session.id, cached, false]
 
+    let pending: SessionInboxEntry[] = []
+    let inboxFailed = false
+    try {
+      pending = await this.context.client.session.inbox.list({ sessionID: session.id }) as SessionInboxEntry[]
+    } catch {
+      inboxFailed = true
+    }
+    const inbox = inboxFailed ? undefined : inboxSignature(pending)
+    if (
+      !forced &&
+      !inboxFailed &&
+      cached?.updated === updated &&
+      cached.inbox === inbox &&
+      cached.exported !== false &&
+      (cached.truncatedAtMax === undefined || cached.truncatedAtMax >= this.maxPrompts)
+    )
+      return [session.id, cached, false]
+    if (inboxFailed && cached) return [session.id, cached, false]
+
+    const pendingPrompts = pending
+      .filter((item) => item.type === "user" && typeof item.payload?.text === "string")
+      .map((item) => ({
+        sessionID: session.id,
+        messageID: item.id,
+        text: item.payload!.text!.slice(0, MAX_PROMPT_CHARS),
+        title: session.title,
+        directory: session.location?.directory,
+        created: Number(item.time?.created ?? updated),
+      } satisfies PromptEntry))
     try {
       const exported = await this.context.client.session.export({ sessionID: session.id })
-      const prompts = (exported.messages ?? [])
-        .filter((message: any) => message.type === "user" && typeof message.text === "string")
-        .map((message: any) => ({
+      const prompts = new Map<string, PromptEntry>()
+      for (const message of exported.messages ?? []) {
+        if (message.type !== "user" || typeof message.text !== "string") continue
+        prompts.set(message.id, {
           sessionID: session.id,
           messageID: message.id,
           text: message.text.slice(0, MAX_PROMPT_CHARS),
           title: session.title,
           directory: session.location?.directory,
           created: Number(message.time?.created ?? updated),
-        }))
-      return [session.id, { updated, prompts }, true]
+        })
+      }
+      for (const prompt of pendingPrompts) if (!prompts.has(prompt.messageID)) prompts.set(prompt.messageID, prompt)
+      const result = [...prompts.values()].sort((left, right) => right.created - left.created)
+      this.dirty.delete(session.id)
+      return [session.id, { updated, inbox, exported: true, prompts: result }, true]
     } catch {
-      return [session.id, cached ?? { updated, prompts: [] }, false]
+      return [session.id, cached ?? { updated, inbox, exported: false, prompts: pendingPrompts }, false]
     }
   }
 }
@@ -163,6 +208,22 @@ function trimCache(
       session.truncatedAtMax = maxPrompts
     session.prompts = kept
   }
+}
+
+type SessionInboxEntry = {
+  readonly id: string
+  readonly type: string
+  readonly payload?: { readonly text?: string }
+  readonly delivery?: string
+  readonly time?: { readonly created?: number }
+}
+
+function inboxSignature(items: readonly SessionInboxEntry[]) {
+  return items
+    .filter((item) => item.type === "user")
+    .map((item) => [item.id, item.time?.created ?? 0, item.delivery ?? "", item.payload?.text?.length ?? 0].join(":"))
+    .sort()
+    .join("|")
 }
 
 async function listSessions(context: Context) {

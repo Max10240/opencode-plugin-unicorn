@@ -310,3 +310,44 @@ test("shows and enlarges a server image without exposing it to the model", async
   await tui.waitUntil(() => !tui.pane().includes("Esc to close"), "image dialog did not close")
   expect(JSON.stringify(e2e.proxy.requests)).not.toContain("iVBORw0KGgo")
 })
+test("indexes a queued prompt while its session is busy", async () => {
+  const queueSession = await createSession(e2e, "Prompt-Queue-Warm")
+  const releaseFile = path.join(e2e.workspace, "queue-release.marker")
+  const queuedMarker = "QUEUED_PROMPT_MARKER_WARM"
+  e2e.proxy.mock.prependFixture({
+    match: { userMessage: "E2E_QUEUE_BUSY", sequenceIndex: 0 },
+    response: {
+      toolCalls: [{
+        id: "call_queue_wait",
+        name: "shell",
+        arguments: JSON.stringify({ command: `for i in {1..300}; do [ -f ${releaseFile} ] && break; sleep 0.1; done` }),
+      }],
+    },
+  })
+  e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_queue_wait" }, response: { content: "QUEUE_RELEASED" } })
+
+  await api(e2e, `/api/session/${queueSession}/prompt`, { text: "E2E_QUEUE_BUSY", delivery: "queue" })
+  await waitFor(
+    async () => e2e.proxy.mock.getRequests().some((entry) => JSON.stringify(entry.body).includes("E2E_QUEUE_BUSY")),
+    "queue target did not start its busy turn",
+  )
+  await api(e2e, `/api/session/${queueSession}/prompt`, { text: queuedMarker, delivery: "queue" })
+  await waitFor(async () => {
+    const inbox = await api<{ data: Array<Record<string, any>> }>(e2e, `/api/session/${queueSession}/inbox`)
+    return inbox.data.some((item) => item.type === "user" && item.payload?.text === queuedMarker)
+  }, "queued prompt did not stay pending in the inbox")
+
+  tui.send(["F12"])
+  await tui.waitFor("Search previous prompts", "prompt search did not open for the queued prompt")
+  await Bun.sleep(50)
+  tui.type(queuedMarker)
+  await tui.waitFor(queuedMarker, "queued prompt was not indexed")
+  tui.send(["Escape"])
+  await tui.waitUntil(() => !tui.pane().includes("Search previous prompts"), "prompt search did not close after the queued prompt check")
+
+  await writeFile(releaseFile, "release")
+  await waitFor(async () => {
+    const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(e2e, `/api/experimental/session/${queueSession}/export`)
+    return exported.data.messages.some((message) => message.type === "user" && message.text === queuedMarker)
+  }, "queued prompt was not delivered after releasing the busy turn", 60_000)
+})

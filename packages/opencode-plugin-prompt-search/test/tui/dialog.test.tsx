@@ -123,7 +123,7 @@ test("registers only when enabled and requires an active session", async () => {
   const commands: any[] = []
   const context = {
     options: {},
-    client: { session: { list: async () => ({ data: [], cursor: {} }), export: async () => ({ messages: [] }) } },
+    client: { session: { list: async () => ({ data: [], cursor: {} }), export: async () => ({ messages: [] }), inbox: { list: async () => [] } } },
     storage: { store: () => [{ version: 1, sessions: {} }, async () => {}] },
     data: { listen: () => () => {} },
     renderer: { currentFocusedEditor: { insertText() {}, focus() {} } },

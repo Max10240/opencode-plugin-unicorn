@@ -39,8 +39,9 @@ TUI plugin 使用 V2 的 `cli.json` 配置：
 }
 ```
 
-搜索结果来自 OpenCode server 中所有可见 session 的 user prompts，索引按 session 更新时间增量刷新，并通过 TUI
-storage 缓存。已缓存的 prompt 会在对应 session 从 server 列表中消失后继续保留，因此删除 session 后仍可检索，TUI
+搜索结果来自 OpenCode server 中所有可见 session 的 user prompts，也包括仍在 session inbox 中排队的 queue / steer
+消息；这些消息投递进入对话后会按 message ID 去重。索引按 session 更新时间和 inbox 事件增量刷新，并通过 TUI storage
+缓存。已缓存的 prompt 会在对应 session 从 server 列表中消失后继续保留，因此删除 session 后仍可检索，TUI
 重启后也可用。若 session 在插件索引它之前就已删除，OpenCode API 已无法导出其对话，插件无法补建索引。选择结果后会
 把原 prompt 插入当前输入框的光标位置，不会自动提交。
 
