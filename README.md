@@ -125,6 +125,7 @@ The script:
 3. Runs the full `npm run check`.
 4. Bumps all packages to the target version and syncs internal dependencies.
 5. Publishes locally or triggers CI according to the release type.
+6. For `local-publish`, commits the package version changes after a successful npm publish.
 
 Local publishing:
 
@@ -133,9 +134,9 @@ npm run release -- --release-type=local-publish
 npm run release -- --release-type=local-stage --version=minor
 ```
 
-Local publishing runs npm through a pseudo-terminal, prints npm's web-auth link when login or a package needs
-verification, and continues automatically after the browser approval. Each link is printed once and can be copied.
-Transient registry failures during post-publish verification are retried.
+Local publishing runs npm through a pseudo-terminal and prints npm's web-auth link when login or the publish batch
+needs verification. `local-publish` trusts a successful npm publish and does not wait for registry propagation; after
+success it stages and commits the `package.json` version changes. `local-stage` leaves the version changes for review.
 
 CI publishing:
 
@@ -150,5 +151,6 @@ npm run release -- --release-type=ci-stage --version=1.2.0
 Staged releases can be reviewed at `https://www.npmjs.com/settings/~/staged-packages`, or with
 `npm stage list` and `npm stage approve <stage-id>`.
 
-After a successful local publish, commit the version changes and synced files. `ci-*` commits and pushes them
-automatically. The first publish of a new package cannot use OIDC; use `local-publish` or `local-stage`.
+`local-publish` commits the version changes automatically after npm reports success. `local-stage` does not commit;
+review the staged package and commit the version changes when ready. `ci-*` commits and pushes them automatically.
+The first publish of a new package cannot use OIDC; use `local-publish` or `local-stage`.

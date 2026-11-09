@@ -116,8 +116,9 @@ plugin only with `features.recommendedOpencodeConfig: true` must also set
 Run `bun run check` from the repository root. It uses real OpenCode, tmux, and isolated local mocks to validate each
 plugin and the npm packages. All plugins share one version, and internal dependencies are pinned exactly rather than
 using `^1`, so mismatched `latest` / `prerelease` tags cannot install stale child packages. After a unified version
-bump, run `bun run sync:versions`; the release command includes this step and does not create a Git commit or tag on
-its own. Version bumps do not reinstall workspace dependencies; internal dependencies are synced before the build.
+bump, run `bun run sync:versions`; the release command includes this step. `local-publish` commits the `package.json`
+version changes after npm reports success, `ci-*` commits and pushes them, and no release type creates a Git tag.
+Version bumps do not reinstall workspace dependencies; internal dependencies are synced before the build.
 
 `npm run release -- --release-type=...` is the only release entry point and runs `check:release` first.
 Use `bun run check` for the complete cached everyday gate and `bun run check:release` for the uncached release gate;

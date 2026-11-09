@@ -193,6 +193,37 @@ test("registry verification retries transient network failures", async () => {
   expect(calls).toBe(2)
 })
 
+test("local publish trusts npm publish and commits package versions", async () => {
+  const fx = await fixture()
+  try {
+    const calls: string[][] = []
+    const run = async (args: string[]) => {
+      calls.push([...args])
+      const command = args.join(" ")
+      if (command === "git diff --cached --name-only") return "packages/child/package.json\npackages/unicorn/package.json\n"
+      if (command === "git rev-parse --short HEAD") return "abc123\n"
+      return ""
+    }
+    const result = await release({
+      root: fx.root,
+      args: ["--release-type=local-publish"],
+      run,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      authRun: async (args: string[]) => { calls.push([...args]); return "" },
+      build: false,
+      log: () => {},
+    })
+    expect(result).toMatchObject({ version: "1.0.12", commit: "abc123", message: "release: v1.0.12 [local-publish]" })
+    const publish = calls.findIndex((args) => args[0] === "npm" && args[1] === "publish")
+    const commit = calls.findIndex((args) => args[0] === "git" && args[1] === "commit")
+    expect(publish).toBeGreaterThanOrEqual(0)
+    expect(commit).toBeGreaterThan(publish)
+    expect(calls[commit]).toEqual(["git", "commit", "-m", "release: v1.0.12 [local-publish]"])
+    expect(calls.some((args) => args[0] === "npm" && args[1] === "publish" && args[2] === "--workspace")).toBe(true)
+  } finally { await fx.cleanup() }
+})
+
 test("release dry run does not check, bump or publish", async () => {
   const fx = await fixture()
   try {

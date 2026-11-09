@@ -41,6 +41,7 @@ When developing plugins, use the OpenCode source tree to confirm APIs, runtime b
 - `--release-type` must be one of `local-publish`, `local-stage`, `ci-publish`, or `ci-stage`.
 - `--version` defaults to `patch` and also accepts `minor`, `major`, or an exact version.
 - The script validates arguments, requires a clean worktree, runs the full check, bumps all packages together, and
-  then publishes or triggers CI.
+  then publishes or triggers CI. `local-publish` commits the package version changes after npm reports success;
+  `ci-*` commits and pushes them.
 - The target version must be strictly greater than every package's registry `latest`.
 - Do not call `npm publish` directly. Never commit `~/.npmrc` or any npm token.

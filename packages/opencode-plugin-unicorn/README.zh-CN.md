@@ -105,7 +105,8 @@ Unicorn 不再读取顶层 `model`、`baseURL`、`integrationID`、`keybind`、`
 
 根目录运行 `bun run check`，使用真实 OpenCode、tmux 和隔离的本地 mock 验证各插件及 npm 安装包。
 所有插件版本一致，内部依赖精确固定到同版本，不使用 `^1`，避免 `latest` / `prerelease` 标签不同步时安装旧子包。
-统一升版后运行 `bun run sync:versions` 同步内部依赖；发布命令包含此步骤，不自动创建 Git commit/tag。
+统一升版后运行 `bun run sync:versions` 同步内部依赖；发布命令包含此步骤。`local-publish` 在 npm 发布成功后自动提交
+`package.json` 版本变更，`ci-*` 会提交并推送，任何发布类型都不创建 Git tag。
 升版阶段不重装 workspace 依赖，待版本及内部依赖同步完成后再构建。
 `npm run release -- --release-type=...` 是唯一发布入口，会先运行 `check:release`。
 日常使用 `bun run check`（完整缓存检查），发布前使用 `bun run check:release`（完整无缓存检查）；

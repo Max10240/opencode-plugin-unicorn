@@ -270,6 +270,23 @@ export async function planRelease({
   }
 }
 
+async function commitPackageVersions({ root = repository, target, run = runCommand, log = (...values) => console.error(...values) } = {}) {
+  const files = (await workspacePackages(root))
+    .filter((item) => item.manifest.private !== true)
+    .map((item) => path.relative(root, path.join(item.directory, "package.json")).split(path.sep).join("/"))
+  const expected = new Set(files)
+  await run(["git", "add", "--", ...files], { cwd: root })
+  const staged = (await run(["git", "diff", "--cached", "--name-only"], { cwd: root, capture: true })).trim()
+  if (!staged) return { commit: null, message: null }
+  const unexpected = staged.split("\n").filter(Boolean).filter((file) => !expected.has(file))
+  if (unexpected.length) throw new Error(`Refusing to commit non-package changes: ${unexpected.join(", ")}`)
+  const message = `release: v${target} [local-publish]`
+  await run(["git", "commit", "-m", message], { cwd: root })
+  const commit = (await run(["git", "rev-parse", "--short", "HEAD"], { cwd: root, capture: true })).trim()
+  log(`[release] committed ${commit} ${message}`)
+  return { commit, message }
+}
+
 export async function releasePackages({
   root = repository,
   registry = DEFAULT_REGISTRY,
@@ -404,8 +421,13 @@ export async function release({
     authRun,
     fetchImpl,
     log,
+    verify: options.releaseType !== "local-publish",
     ...overrides,
   })
+  if (options.releaseType === "local-publish") {
+    const committed = await commitPackageVersions({ root, target: resolved.target, run, log })
+    return { releaseType: options.releaseType, ...result, ...committed }
+  }
   return { releaseType: options.releaseType, ...result }
 }
 
