@@ -300,24 +300,36 @@ export async function releasePackages({
       return { dryRun: true, version: planned.version, stage, packages: planned.plan.map(({ file, integrity, ...item }) => item) }
     }
 
-    for (const item of planned.plan) {
-      if (item.action === "skip") {
-        log(`[release] skip ${item.name}@${item.version}`)
-        continue
+    if (stage) {
+      for (const item of planned.plan) {
+        if (item.action === "skip") {
+          log(`[release] skip ${item.name}@${item.version}`)
+          continue
+        }
+        log(`[release] staging ${item.name}@${item.version}`)
+        const command = ["npm", "stage", "publish", item.file, "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false"]
+        await authRun(command, { cwd: root })
       }
-      log(`[release] ${stage ? "staging" : "publishing"} ${item.name}@${item.version}`)
-      const command = stage
-        ? ["npm", "stage", "publish", item.file, "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false"]
-        : ["npm", "publish", item.file, "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false"]
+    } else if (published.length > 0) {
+      // One npm process and one web-auth challenge for all missing packages.
+      log(`[release] publishing ${published.map((item) => `${item.name}@${item.version}`).join(", ")}`)
+      const command = [
+        "npm", "publish",
+        ...published.flatMap((item) => ["--workspace", item.name]),
+        "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false",
+      ]
       try {
         await authRun(command, { cwd: root })
       } catch (error) {
         // npm's web-auth polling can report 404/E404 after the registry accepted the
-        // upload. Treat the package as published when the exact version exists.
-        if (stage) throw error
-        const remote = await fetchRegistryVersion(registry, item.name, item.version, { fetchImpl })
-        if (!remote) throw error
-        log(`[release] ${item.name}@${item.version} is present despite the CLI error; continuing`)
+        // upload. Treat the batch as published only when every exact version exists.
+        const missing = []
+        for (const item of published) {
+          const remote = await fetchRegistryVersion(registry, item.name, item.version, { fetchImpl })
+          if (!remote) missing.push(item.name)
+        }
+        if (missing.length) throw error
+        log(`[release] ${published.map((item) => item.name).join(", ")} are present despite the CLI error; continuing`)
       }
     }
 

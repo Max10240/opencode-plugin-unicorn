@@ -231,7 +231,7 @@ test("plan refuses the same version with different content", async () => {
   } finally { await fx.cleanup() }
 })
 
-test("release publishes leaves before Unicorn and never bumps versions", async () => {
+test("release publishes all missing workspaces in one npm invocation and never bumps versions", async () => {
   const fx = await fixture()
   try {
     const result = await releasePackages({
@@ -245,11 +245,11 @@ test("release publishes leaves before Unicorn and never bumps versions", async (
     })
     expect(result).toMatchObject({ version: "1.0.11", published: [CHILD, UNICORN] })
     const publishes = fx.calls.filter((args) => args[0] === "npm" && args[1] === "publish")
-    expect(publishes).toHaveLength(2)
-    expect(publishes.map((args) => args[2])).toEqual([
-      expect.stringContaining("show-img"),
-      expect.stringContaining("unicorn"),
-    ])
+    expect(publishes).toHaveLength(1)
+    expect(publishes[0]).toEqual(expect.arrayContaining([
+      "npm", "publish", "--workspace", CHILD, "--workspace", UNICORN,
+      "--access", "public", "--ignore-scripts", "--tag=latest",
+    ]))
     expect(fx.calls.some((args) => args.includes("version"))).toBe(false)
   } finally { await fx.cleanup() }
 })
