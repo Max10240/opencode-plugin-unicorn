@@ -45,7 +45,7 @@ export async function checkShowImg(e2e: E2E, enabled = true) {
   await prompt(e2e, sessionID, "E2E_SHOW_IMG")
   const requests = e2e.proxy.requests
   if (enabled && !requests.some((request) => request.tools.includes("show_img"))) {
-    const plugins = await api(e2e, `/api/plugin?${new URLSearchParams({ directory: e2e.workspace })}`)
+    const plugins = await api(e2e, `/api/plugin?${new URLSearchParams({ "location[directory]": e2e.workspace })}`)
     const log = await readFile(path.join(e2e.root, "xdg-data/opencode/log/opencode.log"), "utf8").catch(() => "")
     throw new Error(`show_img was not advertised: ${JSON.stringify(plugins)}\n${JSON.stringify(requests)}\n${log.split("\n").filter((line) => /plugin|rpc/.test(line)).slice(-15).join("\n")}`)
   }
@@ -66,10 +66,8 @@ export async function checkShowImg(e2e: E2E, enabled = true) {
   const reference = tool.state.metadata.imagePreview as { assetID: string; name: string }
   expect(Object.keys(reference).sort()).toEqual(["assetID", "name"])
   expect(reference.assetID).toMatch(/^[0-9a-f-]{36}$/)
-  const rpcURL = `/api/rpc/max10240.show-img/read?${new URLSearchParams({ directory: e2e.workspace })}`
-  const rpc = await api<{ output: { mime: string; data: string; name: string } }>(e2e, rpcURL, {
-    input: { sessionID, assetID: reference.assetID },
-  })
+  const rpcURL = previewEndpoint(e2e)
+  const rpc = await readImagePreview(e2e, sessionID, reference.assetID)
   expect(Buffer.from(rpc.output.data, "base64")).toEqual(imageBytes)
   expect(rpc.output.mime).toBe("image/png")
   for (const input of [{ sessionID: "other-session", assetID: reference.assetID }, { sessionID, assetID: "unknown" }]) {
@@ -159,7 +157,24 @@ export async function showImage(e2e: E2E, sessionID: string, file: string) {
 }
 
 export function previewEndpoint(e2e: E2E) {
-  return `/api/rpc/max10240.show-img/read?${new URLSearchParams({ directory: e2e.workspace })}`
+  return `/api/rpc/max10240.show-img/read?${new URLSearchParams({ "location[directory]": e2e.workspace })}`
+}
+
+// A cold location activates plugins asynchronously. The image-gen preview invokes
+// show_img before the first RPC can be reachable, so wait briefly for that window.
+export async function readImagePreview(e2e: E2E, sessionID: string, assetID: string, timeout = 5_000) {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    try {
+      return await api<{ output: { mime: string; data: string; name: string } }>(e2e, previewEndpoint(e2e), {
+        input: { sessionID, assetID },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes("RPC is unavailable: max10240.show-img") || Date.now() >= deadline) throw error
+      await Bun.sleep(25)
+    }
+  }
 }
 
 export async function checkGeneratedImagePreview(e2e: E2E, enabled: boolean, expectedModel = "gpt-image-2.5-sunburst") {
@@ -183,9 +198,7 @@ export async function checkGeneratedImagePreview(e2e: E2E, enabled: boolean, exp
     paths.push(metadata.out)
     if (enabled) {
       expect(metadata.imagePreview).toEqual({ assetID: expect.any(String), name: path.basename(metadata.out) })
-      const response = await api<{ output: { data: string; mime: string } }>(e2e, previewEndpoint(e2e), {
-        input: { sessionID: result.sessionID, assetID: metadata.imagePreview.assetID },
-      })
+      const response = await readImagePreview(e2e, result.sessionID, metadata.imagePreview.assetID)
       expect(response.output.mime).toBe("image/png")
       expect(Buffer.from(response.output.data, "base64")).toEqual(png)
     } else expect(metadata.imagePreview).toBeUndefined()

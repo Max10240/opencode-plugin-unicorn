@@ -132,6 +132,19 @@ function clearComposer(current: Tui, length: number) {
   current.send(["-N", String(length), "BSpace"])
 }
 
+async function submitSearch(current: Tui, message: string) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    current.send(["Enter"])
+    try {
+      await current.waitUntil(() => !current.pane().includes("Search current session"), message, 2_000)
+      return
+    } catch (error) {
+      if (attempt === 3) throw error
+      await Bun.sleep(100)
+    }
+  }
+}
+
 async function pressUntil(current: Tui, key: string, text: string, message: string, timeout = 5_000) {
   for (let attempt = 0; attempt < 4; attempt++) {
     current.send([key])
@@ -266,23 +279,32 @@ test("encrypts text through the panel and exposes the result shortcuts", async (
   clearComposer(tui, 2)
 })
 
-test("searches the current session dialogue and navigates to a match", async () => {
+test("searches the current session dialogue, toggles roles, copies and navigates", async () => {
   longTui.send(["F11"])
   await longTui.waitFor("Search current session", "session search dialog did not open")
+  await longTui.waitFor("user only", "session search did not default to user messages")
   await Bun.sleep(50)
-  longTui.type(`AGENT-ANCHOR-${LONG_MARKER}`)
-  await longTui.waitFor("1/1 matches", "session search did not finish indexing")
-  longTui.send(["Enter"])
-  await longTui.waitUntil(() => !longTui.pane().includes("Search current session") && longTui.pane().includes(`AGENT-ANCHOR-${LONG_MARKER}`), "session search did not navigate to the match")
+  longTui.type("AGENT-ANCHOR-02")
+  await longTui.waitFor("No matching dialogue", "agent text leaked into the default user-only search")
+  longTui.send(["Tab"])
+  await longTui.waitFor("10/10 matches", "session search did not reveal agent messages")
+  longTui.type("0")
+  await longTui.waitFor("1/1 matches", "session search input stopped working after toggling roles")
+  await submitSearch(longTui, "session search did not close after selecting the agent match")
+  await longTui.waitUntil(() => longTui.pane().includes(`AGENT-ANCHOR-${LONG_MARKER}`), "session search did not navigate to the match")
 
   longTui.send(["F11"])
   await longTui.waitFor("Search current session", "session search did not reopen for multi-result navigation")
+  await longTui.waitFor("user only", "session search did not reset to user messages")
   await Bun.sleep(50)
-  longTui.type("USER-ANCHOR-0")
-  await longTui.waitFor("30/30 matches", "multi-result search did not finish")
+  longTui.type("USER-ANCHOR-02")
+  await longTui.waitFor("10/10 matches", "multi-result search did not finish")
   longTui.send(["Down", "Down", "Down"])
-  longTui.send(["Enter"])
-  await longTui.waitUntil(() => !longTui.pane().includes("Search current session") && longTui.pane().includes("USER-ANCHOR-026"), "arrow selection did not navigate to a multi-result match")
+  longTui.send(["C-y"])
+  await longTui.waitFor("Copied user message", "copy shortcut did not report success")
+  await longTui.waitUntil(() => longTui.pane().includes("Search current session"), "copy closed the session search dialog")
+  await submitSearch(longTui, "session search did not close after selecting a copied result")
+  await longTui.waitUntil(() => longTui.pane().includes("USER-ANCHOR-026"), "arrow selection did not navigate to a multi-result match")
 
   longTui.send(["F11"])
   await longTui.waitFor("Search current session", "session search did not reopen before the prompt-search coexistence check")

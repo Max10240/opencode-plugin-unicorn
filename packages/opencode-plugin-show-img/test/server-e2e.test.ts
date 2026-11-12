@@ -3,7 +3,7 @@ import { mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
 import { MAX_PREVIEW_BYTES } from "../src/preview-assets.js"
-import { api, createSession, headers, previewEndpoint, showImage } from "./e2e-utils.js"
+import { api, createSession, headers, previewEndpoint, readImagePreview, showImage } from "./e2e-utils.js"
 import { rasterFixtures } from "./fixtures.js"
 
 setDefaultTimeout(180_000)
@@ -50,7 +50,7 @@ test("real RPC transports all raster formats and rejects malformed input and arb
       expect(part.state.status).toBe("completed")
       const { assetID } = part.state.metadata.imagePreview
       ids.add(assetID)
-      const result = await api<{ output: { mime: string; data: string } }>(e2e, previewEndpoint(e2e), { input: { sessionID, assetID } })
+      const result = await readImagePreview(e2e, sessionID, assetID)
       expect(result.output.mime).toBe(fixture.mime)
       expect(Buffer.from(result.output.data, "base64")).toEqual(fixture.bytes)
       expect(JSON.stringify(part)).not.toContain(fixture.bytes.toString("base64"))
@@ -82,7 +82,7 @@ test("IDs survive a real server restart and alias replacement; file changes and 
     await rm(alias)
     await writeFile(alias, "PRIVATE_REPLACED_ALIAS")
     await e2e.restart()
-    const result = await api<{ output: { data: string; name: string } }>(e2e, previewEndpoint(e2e), { input })
+    const result = await readImagePreview(e2e, sessionID, input.assetID)
     expect(Buffer.from(result.output.data, "base64")).toEqual(rasterFixtures[0].bytes)
     expect(result.output.name).toBe("original.png")
     const exported = await api<{ data: { messages: unknown[] } }>(e2e, `/api/experimental/session/${sessionID}/export`)
@@ -103,6 +103,6 @@ test("IDs survive a real server restart and alias replacement; file changes and 
       expect(error).not.toContain("PRIVATE_REPLACED_ALIAS")
     }
     await writeFile(file, rasterFixtures[0].bytes)
-    expect((await api<{ output: { data: string } }>(e2e, previewEndpoint(e2e), { input })).output.data).toBe(rasterFixtures[0].bytes.toString("base64"))
+    expect((await readImagePreview(e2e, sessionID, input.assetID)).output.data).toBe(rasterFixtures[0].bytes.toString("base64"))
   } finally { await e2e.close() }
 })

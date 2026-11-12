@@ -67,14 +67,22 @@ export class TranscriptIndex {
   entries() {
     return this.ordered ??= [...this.records.values()].flat().sort((a, b) => b.created - a.created || b.messageID.localeCompare(a.messageID) || (a.ordinal ?? 0) - (b.ordinal ?? 0))
   }
-  async search(query: string, signal?: AbortSignal, limit = 100, yieldWork = () => new Promise<void>((resolve) => setTimeout(resolve, 0))): Promise<SearchResult> {
+  async search(
+    query: string,
+    signal?: AbortSignal,
+    limit = 100,
+    yieldWork = () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+    roles?: readonly Entry["role"][],
+  ): Promise<SearchResult> {
     signal?.throwIfAborted()
     if (query.length > MAX_QUERY_CHARS) return { matches: [], total: 0, error: `Use at most ${MAX_QUERY_CHARS} query characters` }
     const terms = [...new Set(query.trim().toLowerCase().split(/\s+/).filter(Boolean))]
     const matches: Match[] = []
+    const allowed = roles ? new Set(roles) : undefined
     const entries = this.entries()
-    let total = terms.length ? 0 : entries.length
-    const candidates = terms.length ? entries : entries.slice(0, limit)
+    const scoped = allowed ? entries.filter((entry) => allowed.has(entry.role)) : entries
+    let total = terms.length ? 0 : scoped.length
+    const candidates = terms.length ? scoped : scoped.slice(0, limit)
     for (let index = 0; index < candidates.length; index++) {
       signal?.throwIfAborted()
       if (index && index % 256 === 0) { await yieldWork(); signal?.throwIfAborted() }

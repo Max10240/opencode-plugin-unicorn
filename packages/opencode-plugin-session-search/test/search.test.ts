@@ -48,6 +48,25 @@ test("unchanged text still updates its anchor when an empty text part shifts the
   expect(index.size).toBe(1)
 })
 
+test("scopes searches to the requested roles before applying the display limit", async () => {
+  const index = new TranscriptIndex()
+  for (let i = 0; i < 150; i++) {
+    index.upsert({ id: `u${i}`, type: "user", time: { created: i * 3 }, text: `common user ${i}` })
+    index.upsert({ id: `a${i}`, type: "assistant", time: { created: i * 3 + 1 }, content: [{ type: "text", text: `common agent ${i}` }] })
+  }
+  const users = await index.search("common", undefined, 100, undefined, ["user"])
+  expect(users.total).toBe(150)
+  expect(users.matches).toHaveLength(100)
+  expect(users.matches.every((match) => match.role === "user")).toBe(true)
+  const agents = await index.search("", undefined, 100, undefined, ["assistant"])
+  expect(agents.total).toBe(150)
+  expect(agents.matches).toHaveLength(100)
+  expect(agents.matches.every((match) => match.role === "assistant")).toBe(true)
+  const all = await index.search("common", undefined, 100)
+  expect(all.total).toBe(300)
+  expect((await index.search("common", undefined, 100, undefined, ["user", "assistant"])).total).toBe(300)
+})
+
 test("large searches yield work, count matches beyond the display limit and cancel obsolete queries", async () => {
   const index = new TranscriptIndex()
   for (let i = 0; i < 10_000; i++) index.upsert({ id: String(i), type: "user", text: `common message unique-${i}`, time: { created: i } })

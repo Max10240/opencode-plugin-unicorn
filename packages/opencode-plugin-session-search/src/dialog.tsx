@@ -6,25 +6,57 @@ import type { SessionNavigator } from "./navigation.js"
 import { queuedMessage, type Match, type SearchResult } from "./search.js"
 import { registerKeymap } from "./keymap.js"
 
-export function SessionSearchDialog(props: { context: Context; controller: SessionSearchController; navigator: SessionNavigator; sessionID: string; revision: () => number; lifetime: AbortController }) {
+// Copy feedback stays inside the dialog: a new copy restarts the timer, and changing the query or scope dismisses it.
+const NOTICE_DURATION = 2_500
+const USER_ROLES = ["user"] as const
+
+type Notice = { message: string; variant: "success" | "error" }
+
+export function SessionSearchDialog(props: {
+  context: Context
+  controller: SessionSearchController
+  navigator: SessionNavigator
+  sessionID: string
+  revision: () => number
+  lifetime: AbortController
+  noticeDuration?: number
+}) {
   const theme = props.context.theme.surface("dialog")
   const [query, setQuery] = createSignal("")
   const [result, setResult] = createSignal<SearchResult>({ matches: [], total: 0 })
   const [selected, setSelected] = createSignal<string>()
   const [searching, setSearching] = createSignal(false)
+  const [includeAgent, setIncludeAgent] = createSignal(false)
+  const [notice, setNotice] = createSignal<Notice>()
   const [input, setInput] = createSignal<InputRenderable>()
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   let generation = 0
   let selecting = false
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined
   const queued = (entry: Match) => queuedMessage(entry.messageID, props.context.data.session.pending.list(props.sessionID) ?? [])
+  const selectedEntry = () => result().matches.find((entry) => entry.key === selected())
+  const clearNotice = () => {
+    if (noticeTimer !== undefined) { clearTimeout(noticeTimer); noticeTimer = undefined }
+    setNotice(undefined)
+  }
+  const showNotice = (message: string, variant: Notice["variant"]) => {
+    if (noticeTimer !== undefined) clearTimeout(noticeTimer)
+    setNotice({ message, variant })
+    noticeTimer = setTimeout(() => { noticeTimer = undefined; setNotice(undefined) }, props.noticeDuration ?? NOTICE_DURATION)
+  }
+  const status = () => {
+    props.revision()
+    return props.controller.error ?? result().error ?? `${props.controller.loading || !props.controller.ready ? "Loading history · " : ""}${props.controller.index.size} text parts · ${result().matches.length}/${result().total} matches${result().total > 100 ? " · narrow your query" : ""}`
+  }
   createEffect(() => {
     props.revision()
     const value = query()
+    const roles = includeAgent() ? undefined : USER_ROLES
     const token = ++generation
     const request = new AbortController()
     setSearching(true)
     const timer = setTimeout(() => {
-      void props.controller.index.search(value, request.signal).then((next) => {
+      void props.controller.index.search(value, request.signal, 100, undefined, roles).then((next) => {
         if (generation !== token || request.signal.aborted) return
         setResult(next)
         setSelected((previous) => next.matches.some((entry) => entry.key === previous) ? previous : next.matches[0]?.key)
@@ -59,6 +91,20 @@ export function SessionSearchDialog(props: { context: Context; controller: Sessi
       if (!aborted) props.context.ui.toast.show({ message: error instanceof Error ? error.message : String(error), variant: "warning" })
     }
   }
+  const copy = (entry?: Match) => {
+    if (!entry) { showNotice("Select a message to copy", "error"); return }
+    try {
+      if (!props.context.renderer.copyToClipboardOSC52(entry.text)) throw new Error("Clipboard unavailable")
+      const count = entry.text.length
+      showNotice(`Copied ${entry.role === "user" ? "user" : "agent"} message · ${count} ${count === 1 ? "char" : "chars"}`, "success")
+    } catch {
+      showNotice("Could not copy to clipboard", "error")
+    }
+  }
+  const toggleRoles = () => {
+    clearNotice()
+    setIncludeAgent((value) => !value)
+  }
   const move = (delta: number) => {
     const entries = result().matches
     const at = entries.findIndex((entry) => entry.key === selected())
@@ -67,7 +113,9 @@ export function SessionSearchDialog(props: { context: Context; controller: Sessi
   registerKeymap(props.context, () => ({ mode: "modal", target: input, priority: 20, commands: [
     { bind: "up", title: "Previous result", run: () => move(-1) },
     { bind: "down", title: "Next result", run: () => move(1) },
-    { bind: "return", title: "Jump to message", run: () => void choose(result().matches.find((entry) => entry.key === selected())) },
+    { bind: "ctrl+y", title: "Copy selected message", run: () => copy(selectedEntry()) },
+    { bind: "tab", title: "Toggle agent messages", run: toggleRoles },
+    { bind: "return", title: "Jump to message", run: () => void choose(selectedEntry()) },
     { bind: "escape", title: "Close session search", run: () => props.context.ui.dialog.clear() },
   ] }))
   onMount(() => {
@@ -75,18 +123,18 @@ export function SessionSearchDialog(props: { context: Context; controller: Sessi
     input()?.focus()
     void props.controller.open(props.sessionID, props.lifetime.signal)
   })
-  onCleanup(() => props.lifetime.abort())
+  onCleanup(() => {
+    if (noticeTimer !== undefined) clearTimeout(noticeTimer)
+    props.lifetime.abort()
+  })
   return <box paddingLeft={2} paddingRight={2} gap={1}>
     <box flexDirection="row" justifyContent="space-between">
       <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Search current session</text>
-      <text fg={theme.text.muted}>esc close · enter jump</text>
+      <text fg={theme.text.muted}>{`${includeAgent() ? "user + agent" : "user only"} · esc close · enter jump`}</text>
     </box>
-    <input ref={setInput} onInput={(value) => { setSelected(undefined); setQuery(value) }} onSubmit={() => void choose(result().matches.find((entry) => entry.key === selected()))}
-      placeholder="Search user and agent messages..." placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.base} cursorColor={theme.text.formfield.base} />
-    <text fg={theme.text.muted}>{(() => {
-      props.revision()
-      return props.controller.error ?? result().error ?? `${props.controller.loading || !props.controller.ready ? "Loading history · " : ""}${props.controller.index.size} text parts · ${result().matches.length}/${result().total} matches${result().total > 100 ? " · narrow your query" : ""}`
-    })()}</text>
+    <input ref={setInput} onInput={(value) => { clearNotice(); setSelected(undefined); setQuery(value) }} onSubmit={() => void choose(selectedEntry())}
+      placeholder={includeAgent() ? "Search user and agent messages..." : "Search user messages..."} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.base} cursorColor={theme.text.formfield.base} />
+    <text fg={theme.text.muted}>{status()}</text>
     <scrollbox ref={setScroll} maxHeight={18} scrollbarOptions={{ visible: false }}>
       <Show when={result().matches.length} fallback={<text fg={theme.text.muted}>{searching() ? "Searching..." : "No matching dialogue"}</text>}>
         <For each={result().matches}>{(entry, index) => <box id={`session-search-result-${index()}`} paddingLeft={1} paddingRight={1} backgroundColor={entry.key === selected() ? theme.background.raised.high : undefined}>
@@ -95,5 +143,8 @@ export function SessionSearchDialog(props: { context: Context; controller: Sessi
         </box>}</For>
       </Show>
     </scrollbox>
+    <Show when={notice()} keyed fallback={<text fg={theme.text.muted}>{`↑/↓ select · ctrl+y copy · tab ${includeAgent() ? "user only" : "show agent"}`}</text>}>
+      {(current) => <text fg={current.variant === "error" ? theme.text.feedback.error.base : theme.text.feedback.success.base}>{current.message}</text>}
+    </Show>
   </box>
 }

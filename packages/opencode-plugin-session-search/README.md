@@ -16,9 +16,11 @@ Load it in the global `cli.json`; it can connect to a local or remote server ind
 ```
 
 The default shortcut is `Ctrl+Shift+F`; the command **Search current session** is also available in the command
-palette. Type to filter, use ↑/↓ to select, Enter to jump, and Esc to close. Press Esc during navigation to cancel.
-Matching is case-insensitive, and whitespace-separated words are combined with AND. Up to 100 matches are shown;
-continue typing to narrow the results.
+palette. Type to filter, use ↑/↓ to select, Enter to jump, and Esc to close. `Ctrl+Y` copies the selected message text
+without jumping. Only user messages are shown by default; `Tab` switches to user and agent messages. A copy
+confirmation appears inside the dialog and clears after a few seconds; another copy restarts the timer, and changing the
+query or message scope clears it immediately. Press Esc during navigation to cancel. Matching is case-insensitive, and
+whitespace-separated words are combined with AND. Up to 100 matches are shown; continue typing to narrow the results.
 
 Unicorn enables it by default and supports `features.sessionSearch:false`. Set the shortcut with
 `options.sessionSearch.keybind`; that object is passed to the plugin unchanged and is never mixed with
@@ -32,7 +34,8 @@ Unicorn enables it by default and supports `features.sessionSearch:false`. Set t
   than the latest compaction. Compaction summaries are not treated as original dialogue; hidden reasoning, tool
   output, and attachment bytes are not indexed.
 - Matches after a revert boundary are marked non-navigable. Navigation never cancels a revert or modifies the session.
-- Queued but undelivered prompts are marked non-navigable and are never sent by selecting a search result.
+- Queued but undelivered prompts are marked non-navigable and are never sent by selecting a search result. Copying does
+  not navigate, works for non-navigable matches, and never cancels a revert or sends a prompt.
 - Content deleted on the server cannot be recovered. Switching sessions, closing the TUI, or disabling the plugin
   cancels related work. The index is memory-only and is not persisted.
 

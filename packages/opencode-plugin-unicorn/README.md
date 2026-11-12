@@ -98,8 +98,9 @@ A remote client loads Unicorn in `cli.json`; server-only plugins do not run in t
 ```
 
 Prompt search defaults to `ctrl+shift+r` and caches up to 2000 prompts. Selecting a result inserts it without
-submitting. Current-session search defaults to `ctrl+shift+f` and jumps to a result without inserting text. It pages
-through saved history, including pre-compaction text; see the standalone
+submitting. Current-session search defaults to `ctrl+shift+f`, shows user messages by default, reveals agent messages
+with `Tab`, copies a selected result with `Ctrl+Y` without jumping, and jumps with Enter without inserting text. It
+pages through saved history, including pre-compaction text; see the standalone
 [session-search plugin](../opencode-plugin-session-search). Image previews render below the matching tool output and
 scroll with the conversation; click to enlarge, Esc to close. They do not depend on global image preview settings.
 
