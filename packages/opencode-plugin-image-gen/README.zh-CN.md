@@ -2,14 +2,49 @@
 
 [English](README.md) | **简体中文**
 
-使用目标 provider 的认证与部署配置生成或编辑一张图片，保存到文件；不覆盖已有文件，自动使用 `-v2` 等名称。
-插件可独立使用，不读取或猜测认证文件，也不把图片内容返回模型对话。
+**不离开对话，也能生成和编辑图片。**
 
-## 使用
+你在写 README，需要一张头图；你在做界面，想先看个 mockup；你有一张参考图，想试试换个风格。按以前的流程，得离开 OpenCode、
+打开图片工具、下载文件，再回来描述你拿到了什么。
+
+有了这个插件，直接开口就行。Agent 生成或编辑图片，保存到项目里；有预览能力时，还会在对话里显示出来。图片字节不会进入模型
+上下文，Agent 的注意力仍然在任务上，而不是像素上。
+
+## 什么时候需要它
+
+- 写作时需要插图、图标、mockup 或社交媒体图片。
+- 想通过描述来修改或重绘一张现有图片。
+- 想把生成的素材直接保存进仓库。
+- 不希望图片数据进入模型对话。
+- 已经在 OpenCode 里配置了 OpenAI 或其他支持的图片 provider。
+
+## 它能给你什么
+
+- **一句话，一张图。** 用自然语言告诉 Agent，它会替你调用工具。
+- **生成或编辑。** 不提供参考图就是新生成；提供参考图就是编辑。
+- **安全的文件处理。** 不覆盖已有文件，自动分配 `-v2` 之类的名称。
+- **内联预览。** 预览插件可用时，图片显示在工具输出下方，可以放大查看。
+- **复用现有 provider 配置。** 使用 OpenCode 里已经配置好的 provider 和凭据，不读取凭据文件，也不猜测密钥。
+- **图片字节不进对话。** 模型只拿到确认信息和文件引用，拿不到图片本身。
+
+## 快速开始
+
+在 server 配置中加载。默认模型是 `openai/gpt-image-2.5-sunburst`：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-image-gen",
+    "options": { "model": "openai/gpt-image-2.5-sunburst" }
+  }]
+}
+```
+
+如果要用网关或其他 provider，在同一个配置里声明：
+
+```jsonc
+{
   "plugins": [{
     "package": "@max10240/opencode-plugin-image-gen",
     "options": { "model": "gateway/gpt-image-2.5-sunburst" }
@@ -24,76 +59,63 @@
 }
 ```
 
+通过 Unicorn 使用时，生图默认开启：
+
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "imageGen": true, "showImg": true },
+      "imageGen": { "model": "openai/gpt-image-2.5-sunburst" }
+    }
+  }]
+}
+```
+
+## 使用
+
+直接说：
+
+> 给 README 生成一张极简风格的风筝插图，保存为 `docs/kite.png`。
+
+Agent 会调用 `image_gen`：
+
 ```json
 { "prompt": "A red kite", "out": "kite.png" }
 ```
 
-有参考图时增加 `images`，路径相对当前 session 目录；无参考图生成，有参考图编辑。
-可选字段 `model`、`quality`、`size`、`images` 均接受 `null`，与未提供相同，调用图片 API 前会移除。
-必填字段 `prompt`、`out` 仍只接受字符串。
-OpenAI-compatible endpoint 必须支持 `/images/generations` / `/images/edits`，能对话不代表能生图。
-支持 base64、图片 URL 和 data URL 结果；URL 下载不携带生成请求的认证头，也不会重复发起生图。
-OpenAI-compatible 响应的可选元数据接受 `null`；兼容解析仍校验字段类型，并拒绝损坏的 base64、空内容和 HTTP 错误，不重新生图。
-并发保存同一路径时以独占创建方式分配版本名，避免互相覆盖。
+要编辑现有图片，加上 `images`。路径相对于当前 session 目录。
 
-## 模型与配置
-
-优先级：工具参数 `model` → 插件 `options.model` → `openai/gpt-image-2.5-sunburst`。
-默认 provider 仍为 OpenAI，不自动跟随会话。其他 provider 应填写完整的 `provider/model`。
-
-- 可以使用不在语言模型 catalog 中的图像模型，继承目标 provider 的配置。
-- 支持 `provider/model#variant`。与当前 session 模型相同时，未指定 variant 会继承 session 的选择；
-  `#default` 使用基础配置。不存在的 variant 明确报错，不悄悄丢弃。
-- provider/model/variant 的 settings、headers、body 按 Core 的方式合并；header 名称不区分大小写。
-- 自定义 URL 推荐放在 provider settings；`options.baseURL` 是显式覆盖。`${NAME}` 未解析时拒绝请求。
-- 支持 GPT Image 2.5 Sunburst、Flare 及明确 snapshot。`quality` 可选 `low/medium/high/xhigh/max/auto`，
-  `xhigh/max` 需要目标模型支持。默认模型是维护时核对的值，不自动联网升级。
-
-## 认证
-
-- 使用 Core `integration.connection.active/resolve` 选择当前连接，包括 provider 声明的环境变量、保存的 key/OAuth
-  和刷新流程；凭据解析失败会传播错误，不降级换认证或换 endpoint。
-- 没有 active connection 时仍支持 `settings.apiKey`、配置认证 headers 和显式启用的匿名部署。
-- 已选凭据优先于配置 key。保留 key configuration；key metadata 可合入 body，OAuth metadata 不作为 body。
-- 先通过原生 provider 的 model 工厂准备认证和 HTTP 上下文，再用于图片协议；保留该工厂的 organization/project、
-  query 等映射，不把所有认证都重写为 Bearer，也不把自定义 provider 回退到环境中的 OpenAI key。
-- 支持原生 OpenAI、OpenAI-compatible、Google、xAI、Meta、ZAI 图片适配器，以及可加载并提供
-  `configure().image()` 的原生自定义工厂。常见已知 AISDK 名称可映射到原生实现；其他不支持的 package 明确报错，
-  不因存在 baseURL 就猜测 OpenAI 协议。自定义 package 必须能从插件加载，或使用 file URL。
-
-### 明确限制
-
-当前公开插件 API 不能触发其他插件的 session `model.request/http.request/http.response` hooks。
-**仅在这些 hooks 中提供的签名、路由或其他认证不会自动继承**；本次没有修改 Core，也不宣称此类部署已支持。
-原生 provider 工厂产生的 `Auth.Definition` 会用于图片的新 URL/body，合成动态签名已有测试覆盖。
-
-运行时提供工具 `signal` 时，取消会中止生成和图片下载；旧版 Promise 工具 API 未提供该信号时无法保证中止远端请求。
-
-未用真实云账号验证 ADC/AWS/Azure 等所有认证组合。目标 package 若没有图片适配器就拒绝调用，而不是套用
-不兼容协议。OpenAI 订阅路由沿用 Core 已解析的 provider URL 和 headers；账号的图像权限由服务端判断。
-
-## 可选预览与 Unicorn
-
-`show_img` 可用时，保存后直接调用它准备用户预览，只在 metadata 中携带 ID/文件名；不要求模型额外发起调用。
-缺失、关闭或预览失败均不影响生图结果，不会重试生图或删除输出。只加载 image-gen 仍可正常保存图片。
-
-Unicorn 的 `features.imageGen` / `features.showImg` 分别控制生图和预览；生图参数放在 `options.imageGen`，
-例如 `options.imageGen.model`、`options.imageGen.baseURL`，对象原样透传给独立插件。
-
-## 验证与证据
-
-```sh
-bun run --cwd packages/opencode-plugin-image-gen build
-bun run --cwd packages/opencode-plugin-image-gen test
-bun run check
-node research/run-image-gen-auth-parity.mjs
+```json
+{
+  "prompt": "把天空调暖一点，再加一朵小云",
+  "out": "kite-v2.png",
+  "images": ["kite.png"]
+}
 ```
 
-测试使用本地 mock，不调用收费模型。覆盖认证抓包、variant、生成/编辑、错误不降级、自定义工厂签名、可选预览，
-以及真实 npm 安装包和 Unicorn 集成。调研证据与修复状态见
-[`research/image-gen-auth-parity.md`](../../research/image-gen-auth-parity.zh-CN.md)。
-当前使用 `@opencode/ai >=2.2.0`，已在 OpenCode `v2.0.21` 和 `v2.1.0` 完成完整回归。
+可选字段：`model`、`quality`、`size`、`images`。`prompt` 和 `out` 必填。
 
-模型发现数据可参考 [models.dev](https://models.dev/api.json)、[OpenAI models API](https://developers.openai.com/api/reference/resources/models/methods/list)
-和 [OpenRouter](https://openrouter.ai/api/v1/models)。列表可能滞后，或只描述第三方路由；不能单纯按日期排序自动换默认模型，
-还需核对图像输出能力、协议、账号权限及参数兼容性。
+## 配置
+
+| 设置 | 优先级 | 说明 |
+| --- | --- | --- |
+| 模型 | 工具参数 → `options.model` → `openai/gpt-image-2.5-sunburst` | 非 OpenAI provider 使用 `provider/model` |
+| 质量 | 工具参数 | `low`、`medium`、`high`、`xhigh`、`max` 或 `auto`；`xhigh` 和 `max` 需要模型支持 |
+| 尺寸 | 工具参数 | 取决于 provider 支持范围 |
+| 参考图 | 工具参数 | 相对于 session 目录 |
+
+默认 provider 是 OpenAI，不会自动跟随当前对话模型。使用其他 provider 时，请写完整的 `provider/model`。你在 provider
+中配置的 headers、base URL 和 variant 会被沿用。
+
+## 注意事项
+
+- **Provider 必须支持图片接口。** OpenAI-compatible endpoint 需要实现 `/images/generations` 和 `/images/edits`；
+  能对话不代表能生图。
+- **生图和预览是分开的。** 预览缺失、关闭或失败，不会影响生成的文件，也不会触发第二次生成。
+- **图片是文件引用，不是聊天附件。** 图片保存在磁盘上，模型只拿到路径和预览引用。
+- **某些高级认证方式可能需要额外配置。** 如果 provider 依赖其他插件来签名请求或注入路由，那部分行为不在本插件控制范围内。
+- **图片权限由 provider 决定。** 凭据有效，不代表账号一定能使用图片模型。
+- **云平台认证可能需要额外验证。** AWS、Azure、Google ADC 等 provider 专属认证组合尚未使用真实云账号测试。
+- **不会在后台偷偷调用。** 只有 Agent 调用工具时才会请求图片 API。

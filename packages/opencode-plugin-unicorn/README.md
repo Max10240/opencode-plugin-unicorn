@@ -2,129 +2,149 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Unicorn assembles standalone plugins, exposes feature switches, and handles cleanup. It does not implement tools or
-modify global configuration itself.
+**One install. The whole OpenCode toolkit.**
 
-## Usage
+Unicorn bundles this repository's plugins into a single package, with one consistent set of options and independent
+switches for every feature. It is for people who want a noticeably better OpenCode without installing, versioning, and
+configuring each plugin separately.
+
+## Who it is for
+
+- You want more than one of the plugins below and would rather install them together.
+- You run OpenCode on several machines and want the same version and behavior everywhere.
+- You like the idea of a toolkit but want to turn individual features off.
+- You are setting up a new machine and do not want to assemble the stack by hand.
+
+## Why use Unicorn
+
+- **One package to install and upgrade.** Every feature moves together, so versions never drift apart.
+- **One configuration model.** Server and TUI features share the same option names and nested objects.
+- **Turn features off independently.** Disable one without touching the others.
+- **Start small.** Every bundled plugin also works standalone; Unicorn is a convenience, not a lock-in.
+- **Local and remote friendly.** Server features run on the server; TUI features run wherever the TUI runs.
+
+## Quick start
+
+Add Unicorn where the feature belongs:
+
+```jsonc
+// opencode.jsonc — server: image generation, image preview, session messaging, notes, security
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["@max10240/opencode-plugin-unicorn"]
+}
+```
+
+```jsonc
+// cli.json — TUI: search, notepad, auto-background, previews
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["@max10240/opencode-plugin-unicorn"]
+}
+```
+
+When the TUI connects to a remote server, install Unicorn on both sides: the server config controls server features,
+and the client's `cli.json` controls TUI features. Server-only plugins do not run in the client.
+
+Everything is enabled by default except the recommended-config plugin. To change a default, use the nested object with
+the same name:
 
 ```jsonc
 {
-  "$schema": "https://opencode.ai/config.json",
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": {
-        "sendMessageAcrossSessions": true,
-        "imageGen": true,
-        "notepad": true,
-        "showImg": true,
-        "promptSearch": true,
-        "sessionSearch": true,
-        "nonBlocking": true,
-        "recommendedOpencodeConfig": false
-      },
-      "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
-      "sendMessageAcrossSessions": {},
-      "showImg": {},
-      "sensitiveEncrypt": {
-        "publicKeyFileForEncrypt": "sensitive-encrypt/encrypt-public.pem",
-        "privateKeyFileForDecrypt": "sensitive-encrypt/decrypt-private.pem"
-      }
+      "features": { "imageGen": false },
+      "nonBlocking": { "thresholdMs": 5000 }
     }
   }]
 }
 ```
 
-`features.<name>: false` force-disables that subplugin without affecting others; when it is not `false`, the plugin
-may load. Every subplugin can also be loaded standalone.
+## What you get
 
-## Subplugin options
-
-Unicorn passes each same-name nested object to the subplugin as its `options` unchanged. It does not rename fields or
-mix in other subplugins or top-level settings. Missing objects are passed as an empty object, and each subplugin owns
-its defaults and validation. Server and TUI use the same rule. A subplugin's own disable option still applies, for
-example `showImg.features.showImg: false`; the outer `features.showImg: false` always wins.
-
-| Nested object | Purpose | Configuration |
+| Feature | Switch | What it does |
 | --- | --- | --- |
-| `recommendedOpencodeConfig` | Recommended rules and commands, such as `enabled` | `opencode.json(c)` |
-| `sendMessageAcrossSessions` | Cross-session messages | `opencode.json(c)` |
-| `imageGen` | Image generation, such as `model`, `baseURL`, `integrationID` | `opencode.json(c)` |
-| `notepad` | Folder-scoped and global notes, such as `keybind` | `opencode.json(c)` and `cli.json` |
-| `showImg` | Image preview | Server and client separately |
-| `sensitiveEncrypt` | Sensitive file encryption/decryption, such as `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` | `opencode.json(c)` |
-| `sensitiveProtection` | File protection/redaction, such as `blockReads`, `maxContentBytes` | `opencode.json(c)` |
-| `promptSearch` | Prompt search, such as `keybind`, `maxPrompts` | `cli.json` |
-| `sessionSearch` | Current-session search, such as `keybind` | `cli.json` |
-| `nonBlocking` | Long-running blocking tools, such as `thresholdMs` | `cli.json` |
+| Auto-background | `features.nonBlocking` | Moves long-running Bash and subagent work to the background so you can keep working |
+| Prompt search | `features.promptSearch` | Search prompts from all past sessions and insert one without sending it |
+| Session search | `features.sessionSearch` | Search the current conversation and jump to a matching message or copy it |
+| Cross-session messages | `features.sendMessageAcrossSessions` | Lets one session send a message to another session in a different working directory |
+| Image generation | `features.imageGen` | Generates or edits images and saves them as files |
+| Image preview | `features.showImg` | Shows images inline without adding image bytes to model context |
+| Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
+| Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
+| Sensitive protection | `features.sensitiveProtection` | Blocks reads of protected files and redacts their contents from model context |
+| Recommended config | `features.recommendedOpencodeConfig` | Adds curated global rules and commands, and sets OpenAI `store:false` |
 
-`recommendedOpencodeConfig` maps to the standalone
-[`@max10240/opencode-plugin-recomended-opencode-config`](../opencode-plugin-recomended-opencode-config).
-`features.recommendedOpencodeConfig: false` force-disables it; otherwise
-`recommendedOpencodeConfig.enabled` decides. Only when `enabled` is unset does it read the server environment's
-`IS_MAX_SELF`; a missing, empty, `0`, or `false` value disables it. For example,
-`"recommendedOpencodeConfig": { "enabled": true }` enables it explicitly, and Unicorn never converts the feature
-switch into `enabled`. The legacy `globalConfig` switch has been removed; Luna context limits and `share` are no
-longer modified. The recommended-config plugin fills missing inline commands from its inline and Markdown sources;
-existing same-name user commands are kept.
+## Feature configuration
 
-`features.sensitiveEncrypt` defaults to on; set it to `false` to disable. `sensitiveEncrypt` provides
-`encrypt_sensitive`, `decrypt_sensitive`, and `sensitive_key_info`. Encryption and decryption use independent keys,
-generated by role by default. `encrypt` / `decrypt` can be set to `false` or `null` independently. In the TUI, use
-`/encrypt-sensitive` or a keybind to open the encryption panel. It starts in Text mode, supports File mode with `ctrl+t`, defaults to the public key derived from the decrypt private key (switchable with Tab/Left/Right), encrypts text in memory without a plaintext file, and never exposes results to model context.
-`features.sensitiveProtection` defaults to on. When enabled, it registers encryption/decryption files automatically,
-blocks direct `read` of protected files, and replaces sensitive tool output with `[REDACTED:PROTECTED]`.
+Unicorn passes each same-name nested object to its plugin unchanged. A plugin owns its default values; Unicorn never
+renames fields or mixes objects together. Missing objects are passed as `{}`, so every plugin is safe with no options.
 
-The notepad is enabled by default. Press `ctrl+shift+n`, search **Open notepad** in the command palette, or type `/notepad` to open it. New notes default to the current folder; `g` moves a note between the current folder and Global. Server-side storage is shared by all sessions on the same server.
+| Feature | Nested object | Useful options |
+| --- | --- | --- |
+| Auto-background | `nonBlocking` | `thresholdMs` (default `10000`) |
+| Prompt search | `promptSearch` | `keybind` (default `ctrl+shift+r`), `maxPrompts` (default `2000`) |
+| Session search | `sessionSearch` | `keybind` (default `ctrl+shift+f`) |
+| Cross-session messages | `sendMessageAcrossSessions` | No required options |
+| Image generation | `imageGen` | `model`, `baseURL`, `integrationID` |
+| Image preview | `showImg` | Toggle with `features.showImg`; no required options |
+| Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
+| Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
+| Sensitive protection | `sensitiveProtection` | `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes` |
+| Recommended config | `recommendedOpencodeConfig` | `enabled` |
 
-The default image model is `openai/gpt-image-2.5-sunburst`. `options.imageGen.model` overrides it, and the per-call
-`image_gen` `model` argument has the highest priority. After generation/editing, `show_img` prepares a UI preview
-when available; absence or failure never affects generation and never returns image content to the model.
+`features.<name>: false` always wins and disables that feature without affecting the others. A plugin's own disable
+option still works, for example `showImg.features.showImg: false` or `notepad.enabled: false`.
 
-## TUI
+The recommended-config feature is special: `features.recommendedOpencodeConfig: false` force-disables it, but leaving
+the switch unset does not enable it. Turn it on with `"recommendedOpencodeConfig": { "enabled": true }`, or let the
+plugin read the server's `IS_MAX_SELF` environment variable.
 
-A remote client loads Unicorn in `cli.json`; server-only plugins do not run in the client:
+## Everyday recipes
 
-```json
+**Keep the agent moving.** Leave auto-background on and get your session back after ten seconds of a long build or
+subagent run:
+
+```jsonc
+{ "nonBlocking": { "thresholdMs": 10000 } }
+```
+
+**Make privacy the default.** Protect secrets, encrypt sensitive files, and stop OpenAI from storing requests:
+
+```jsonc
 {
-  "plugins": [{
-    "package": "@max10240/opencode-plugin-unicorn",
-    "options": {
-      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true },
-      "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
-      "sessionSearch": { "keybind": "ctrl+shift+f" },
-      "nonBlocking": { "thresholdMs": 10000 },
-      "showImg": {}
-    }
-  }]
+  "features": { "sensitiveProtection": true, "sensitiveEncrypt": true },
+  "recommendedOpencodeConfig": { "enabled": true }
 }
 ```
 
-Prompt search defaults to `ctrl+shift+r` and caches up to 2000 prompts. Selecting a result inserts it without
-submitting. Current-session search defaults to `ctrl+shift+f`, shows user messages by default, reveals agent messages
-with `Tab`, copies a selected result with `Ctrl+Y` without jumping, and jumps with Enter without inserting text. It
-pages through saved history, including pre-compaction text; see the standalone
-[session-search plugin](../opencode-plugin-session-search). Image previews render below the matching tool output and
-scroll with the conversation; click to enlarge, Esc to close. They do not depend on global image preview settings.
+**Use fewer shortcuts.** Turn off prompt search and session search, keep notepad and auto-background:
 
-## Migration from flat options
+```jsonc
+{ "features": { "promptSearch": false, "sessionSearch": false } }
+```
+
+## Upgrading from flat options
 
 Unicorn no longer reads top-level `model`, `baseURL`, `integrationID`, `keybind`, `shortcut`, `maxPrompts`, or
-`sessionSearchKeybind`. Image options move under `imageGen`; prompt-search options move under `promptSearch`;
-`sessionSearchKeybind` becomes `sessionSearch.keybind`. Configurations that previously enabled the recommended-config
-plugin only with `features.recommendedOpencodeConfig: true` must also set
+`sessionSearchKeybind`. Move image options under `imageGen`, prompt-search options under `promptSearch`, and
+`sessionSearchKeybind` to `sessionSearch.keybind`.
+
+If you previously enabled the recommended-config plugin with `features.recommendedOpencodeConfig: true`, also set
 `recommendedOpencodeConfig.enabled: true`. Standalone plugin configuration is unchanged.
 
-## Development
+## Learn more
 
-Run `bun run check` from the repository root. It uses real OpenCode, tmux, and isolated local mocks to validate each
-plugin and the npm packages. All plugins share one version, and internal dependencies are pinned exactly rather than
-using `^1`, so mismatched `latest` / `prerelease` tags cannot install stale child packages. After a unified version
-bump, run `bun run sync:versions`; the release command includes this step. `local-publish` commits the `package.json`
-version changes after npm reports success, `ci-*` commits and pushes them, and no release type creates a Git tag.
-Version bumps do not reinstall workspace dependencies; internal dependencies are synced before the build.
+Each feature has its own README with usage examples and edge cases:
 
-`npm run release -- --release-type=...` is the only release entry point and runs `check:release` first.
-Use `bun run check` for the complete cached everyday gate and `bun run check:release` for the uncached release gate;
-both execute every test, and neither runs `npm install`. Nothing publishes automatically or updates a running plugin
-installation without an explicit command.
+- [Auto-background](../opencode-plugin-non-blocking/README.md)
+- [Prompt search](../opencode-plugin-prompt-search/README.md)
+- [Session search](../opencode-plugin-session-search/README.md)
+- [Cross-session messages](../opencode-plugin-send-message-across-sessions/README.md)
+- [Image generation](../opencode-plugin-image-gen/README.md)
+- [Image preview](../opencode-plugin-show-img/README.md)
+- [Notepad](../opencode-plugin-notepad/README.md)
+- [Sensitive encryption](../opencode-plugin-sensitive-encrypt/README.md)
+- [Sensitive protection](../opencode-plugin-sensitive-protection/README.md)
+- [Recommended config](../opencode-plugin-recomended-opencode-config/README.md)

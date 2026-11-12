@@ -2,116 +2,145 @@
 
 [English](README.md) | **简体中文**
 
-Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现工具或修改全局配置。
+**一次安装，得到整套 OpenCode 增强工具。**
 
-## 使用
+Unicorn 把本仓库的插件打包成一个包：一套统一的配置方式、每个功能独立开关。适合想明显改善 OpenCode 使用体验，但不想逐个安装、
+逐个升级、逐个配置插件的人。
+
+## 适合谁
+
+- 你想用下面不止一个插件，更愿意一次装好。
+- 你在多台机器上使用 OpenCode，希望版本和行为保持一致。
+- 你喜欢“整套工具”的思路，但又想单独关掉某些功能。
+- 你正在配置新机器，不想手动拼装这一套插件。
+
+## 为什么用 Unicorn
+
+- **只装一个包。** 所有功能一起升级，版本不会互相错位。
+- **只学一套配置。** Server 端和 TUI 端使用同一套选项名和同名嵌套对象。
+- **可以独立关闭。** 关掉一个功能不会影响其他功能。
+- **随时可以拆开用。** 每个子插件都能独立安装；Unicorn 只是省事，不会把你锁死。
+- **本地和远程都适用。** Server 功能跑在 server 上，TUI 功能跑在 TUI 所在的一端。
+
+## 快速开始
+
+把 Unicorn 加到功能所属的配置里：
+
+```jsonc
+// opencode.jsonc — server：图片生成、图片预览、跨 session 消息、笔记、安全
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["@max10240/opencode-plugin-unicorn"]
+}
+```
+
+```jsonc
+// cli.json — TUI：检索、记事本、自动后台、预览
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["@max10240/opencode-plugin-unicorn"]
+}
+```
+
+TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 server 功能，client 的 `cli.json` 控制 TUI 功能。
+只在 server 运行的插件不会在 client 里执行。
+
+除了推荐配置插件，其他功能默认全部开启。想改默认值时，使用与功能同名的嵌套对象：
 
 ```jsonc
 {
-  "$schema": "https://opencode.ai/config.json",
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": {
-        "sendMessageAcrossSessions": true,
-        "imageGen": true,
-        "notepad": true,
-        "showImg": true,
-        "promptSearch": true,
-        "sessionSearch": true,
-        "nonBlocking": true,
-        "recommendedOpencodeConfig": false
-      },
-      "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
-      "sendMessageAcrossSessions": {},
-      "showImg": {},
-      "sensitiveEncrypt": {
-        "publicKeyFileForEncrypt": "sensitive-encrypt/encrypt-public.pem",
-        "privateKeyFileForDecrypt": "sensitive-encrypt/decrypt-private.pem"
-      }
+      "features": { "imageGen": false },
+      "nonBlocking": { "thresholdMs": 5000 }
     }
   }]
 }
 ```
 
-`features.<名称>: false` 强制关闭对应子插件，不影响其他插件；未设为 `false` 时允许加载。
-每个子插件也可独立加载。
+## 功能一览
 
-## 子插件配置
-
-Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不重命名字段、不混入其他子插件或顶层参数。
-未配置时传入空对象，默认值和参数处理由子插件负责。server 和 TUI 使用相同规则。
-子插件自身的关闭参数同样生效，例如 `showImg.features.showImg: false`；外层 `features.showImg: false` 始终优先关闭。
-
-| 嵌套对象 | 用途 | 配置位置 |
+| 功能 | 开关 | 作用 |
 | --- | --- | --- |
-| `recommendedOpencodeConfig` | 推荐规则与命令，如 `enabled` | `opencode.json(c)` |
-| `sendMessageAcrossSessions` | 跨 session 消息 | `opencode.json(c)` |
-| `imageGen` | 生图，如 `model`、`baseURL`、`integrationID` | `opencode.json(c)` |
-| `notepad` | 按文件夹或全局记录笔记，如 `keybind` | `opencode.json(c)` 和 `cli.json` |
-| `showImg` | 图片预览 | server 和 client 分别配置 |
-| `sensitiveEncrypt` | 敏感文件加密/解密，如 `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` | `opencode.json(c)` |
-| `sensitiveProtection` | 文件保护/脱敏，如 `blockReads`、`maxContentBytes` | `opencode.json(c)` |
-| `promptSearch` | prompt 检索，如 `keybind`、`maxPrompts` | `cli.json` |
-| `sessionSearch` | 当前对话检索，如 `keybind` | `cli.json` |
-| `nonBlocking` | 长时间阻塞工具自动后台，如 `thresholdMs` | `cli.json` |
+| 自动后台 | `features.nonBlocking` | 把长时间运行的 Bash 和 subagent 转入后台，让你继续工作 |
+| Prompt 检索 | `features.promptSearch` | 搜索所有历史 session 的 prompt，并插入而不发送 |
+| 当前对话检索 | `features.sessionSearch` | 搜索当前对话，跳转到匹配消息或复制原文 |
+| 跨 session 消息 | `features.sendMessageAcrossSessions` | 让一个 session 给另一个 cwd 的 session 发消息 |
+| 图片生成 | `features.imageGen` | 生成或编辑图片并保存成文件 |
+| 图片预览 | `features.showImg` | 在对话里显示图片，不把图片字节加入模型上下文 |
+| 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
+| 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
+| 敏感信息保护 | `features.sensitiveProtection` | 阻止读取保护文件，并从模型上下文中脱敏 |
+| 推荐配置 | `features.recommendedOpencodeConfig` | 补充精选全局规则和命令，并设置 OpenAI `store:false` |
 
-`recommendedOpencodeConfig` 对应独立的
-[`@max10240/opencode-plugin-recomended-opencode-config`](../opencode-plugin-recomended-opencode-config/README.zh-CN.md)。
-`features.recommendedOpencodeConfig: false` 强制关闭；否则由 `recommendedOpencodeConfig.enabled` 决定是否启用。
-`enabled` 未配置时才读取 server 环境中的 `IS_MAX_SELF`；变量缺失、为空、为 `0` 或 `false` 时关闭。
-例如 `"recommendedOpencodeConfig": { "enabled": true }` 显式启用；Unicorn 不会把 feature 开关转换为 `enabled`。
-旧 `globalConfig` 开关已移除，Luna 上下文限制和 `share` 不再自动修改。
-推荐配置插件会将源 inline 和 Markdown 命令补充到缺失的 inline commands；已有同名用户命令保持原样。
+## 功能配置
 
-`features.sensitiveEncrypt` 默认开启，设为 `false` 可关闭。`sensitiveEncrypt` 提供 `encrypt_sensitive`、`decrypt_sensitive` 和 `sensitive_key_info`；加密、解密各用独立密钥，默认按角色生成密钥对。
-`encrypt` / `decrypt` 可设为 `false` 或 `null` 单独关闭。TUI 可用 `/encrypt-sensitive` 或 keybind 打开加密面板；默认 Text，可按 `ctrl+t` 切到 File；默认使用解密私钥推导的公钥，可用 Tab/左右方向键切换；文本在内存中加密、不落明文文件，结果不会进入模型上下文。
-`features.sensitiveProtection` 默认开启；设为 `false` 可关闭。它会自动登记加解密文件，阻止直接 `read` 保护文件，并把工具输出中的敏感内容替换为 `[REDACTED:PROTECTED]`。
+Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插件自己决定，Unicorn 不重命名字段，也不把不同插件的配置混在一起。
+没有配置时传入 `{}`，所以不写任何参数也能正常使用。
 
-记事本默认开启。按 `ctrl+shift+n`、在命令面板搜索 **Open notepad**，或输入 `/notepad` 打开。新笔记默认归入当前文件夹；按 `g` 可在当前文件夹和全局之间切换。数据存储在同一 server 上，所有 session 共享。
+| 功能 | 嵌套对象 | 常用参数 |
+| --- | --- | --- |
+| 自动后台 | `nonBlocking` | `thresholdMs`（默认 `10000`） |
+| Prompt 检索 | `promptSearch` | `keybind`（默认 `ctrl+shift+r`）、`maxPrompts`（默认 `2000`） |
+| 当前对话检索 | `sessionSearch` | `keybind`（默认 `ctrl+shift+f`） |
+| 跨 session 消息 | `sendMessageAcrossSessions` | 无需配置 |
+| 图片生成 | `imageGen` | `model`、`baseURL`、`integrationID` |
+| 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
+| 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
+| 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
+| 敏感信息保护 | `sensitiveProtection` | `blockReads`、`redactContext`、`redactHttp`、`maxContentBytes` |
+| 推荐配置 | `recommendedOpencodeConfig` | `enabled` |
 
-图像模型默认 `openai/gpt-image-2.5-sunburst`。`options.imageGen.model` 可覆盖默认值，单次 `image_gen` 的 `model` 参数
-优先级最高。生成/编辑成功后，`show_img` 可用时自动准备 UI 预览；缺失或失败不影响生图，不向模型返回图片内容。
+`features.<名称>: false` 永远优先，会关闭对应功能，且不影响其他功能。子插件自己的关闭参数同样有效，例如
+`showImg.features.showImg: false` 或 `notepad.enabled: false`。
 
-## TUI
+推荐配置有一个特殊规则：`features.recommendedOpencodeConfig: false` 会强制关闭，但不设置开关并不会自动启用。
+需要显式写 `"recommendedOpencodeConfig": { "enabled": true }`，或者让插件读取 server 环境里的 `IS_MAX_SELF`。
 
-远程 client 在 `cli.json` 加载 Unicorn，server-only 插件不在 client 运行：
+## 常用组合
 
-```json
+**让 Agent 一直动起来。** 保留自动后台，长构建或 subagent 跑满十秒后就把控制权还给你：
+
+```jsonc
+{ "nonBlocking": { "thresholdMs": 10000 } }
+```
+
+**把隐私作为默认选项。** 保护敏感文件、加密密钥，并让 OpenAI 不保存请求：
+
+```jsonc
 {
-  "plugins": [{
-    "package": "@max10240/opencode-plugin-unicorn",
-    "options": {
-      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true },
-      "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
-      "sessionSearch": { "keybind": "ctrl+shift+f" },
-      "nonBlocking": { "thresholdMs": 10000 },
-      "showImg": {}
-    }
-  }]
+  "features": { "sensitiveProtection": true, "sensitiveEncrypt": true },
+  "recommendedOpencodeConfig": { "enabled": true }
 }
 ```
 
-历史 prompt 检索默认 `ctrl+shift+r`，最多缓存 2000 条。选择结果插入输入框，不自动提交。
-当前 session 检索默认 `ctrl+shift+f`，默认只显示用户消息，按 Tab 显示 Agent 消息，按 Ctrl+Y 复制选中结果而不跳转，
-Enter 滚动定位，不插入输入框。
-它按页读取保存的历史，包含压缩前原文；详见独立的 [session-search 插件](../opencode-plugin-session-search/README.zh-CN.md)。
-图片预览显示在对应工具输出下方，随会话正文滚动；点击放大，Esc 关闭，不依赖全局图片预览开关。
+**少用几个快捷键。** 关闭 Prompt 检索和当前对话检索，只保留记事本和自动后台：
 
-## 从扁平配置迁移
+```jsonc
+{ "features": { "promptSearch": false, "sessionSearch": false } }
+```
 
-Unicorn 不再读取顶层 `model`、`baseURL`、`integrationID`、`keybind`、`shortcut`、`maxPrompts`、`sessionSearchKeybind`。
-生图参数移入 `imageGen`；prompt 检索参数移入 `promptSearch`；`sessionSearchKeybind` 改为 `sessionSearch.keybind`。
-原先仅用 `features.recommendedOpencodeConfig: true` 显式启用的配置，需补充 `recommendedOpencodeConfig.enabled: true`。
-独立插件的配置格式不变。
+## 从扁平配置升级
 
-## 开发
+Unicorn 不再读取顶层的 `model`、`baseURL`、`integrationID`、`keybind`、`shortcut`、`maxPrompts` 或
+`sessionSearchKeybind`。图片参数移到 `imageGen`，Prompt 检索参数移到 `promptSearch`，`sessionSearchKeybind` 改为
+`sessionSearch.keybind`。
 
-根目录运行 `bun run check`，使用真实 OpenCode、tmux 和隔离的本地 mock 验证各插件及 npm 安装包。
-所有插件版本一致，内部依赖精确固定到同版本，不使用 `^1`，避免 `latest` / `prerelease` 标签不同步时安装旧子包。
-统一升版后运行 `bun run sync:versions` 同步内部依赖；发布命令包含此步骤。`local-publish` 在 npm 发布成功后自动提交
-`package.json` 版本变更，`ci-*` 会提交并推送，任何发布类型都不创建 Git tag。
-升版阶段不重装 workspace 依赖，待版本及内部依赖同步完成后再构建。
-`npm run release -- --release-type=...` 是唯一发布入口，会先运行 `check:release`。
-日常使用 `bun run check`（完整缓存检查），发布前使用 `bun run check:release`（完整无缓存检查）；
-两者都会执行全部测试，且都不运行 `npm install`。不会自动执行发布或更新正在运行的插件。
+如果以前用 `features.recommendedOpencodeConfig: true` 启用推荐配置，还需要补充
+`recommendedOpencodeConfig.enabled: true`。独立插件的配置格式没有变化。
+
+## 了解更多
+
+每个功能都有独立 README，包含使用方式、典型场景和注意事项：
+
+- [自动后台](../opencode-plugin-non-blocking/README.zh-CN.md)
+- [Prompt 检索](../opencode-plugin-prompt-search/README.zh-CN.md)
+- [当前对话检索](../opencode-plugin-session-search/README.zh-CN.md)
+- [跨 session 消息](../opencode-plugin-send-message-across-sessions/README.zh-CN.md)
+- [图片生成](../opencode-plugin-image-gen/README.zh-CN.md)
+- [图片预览](../opencode-plugin-show-img/README.zh-CN.md)
+- [记事本](../opencode-plugin-notepad/README.zh-CN.md)
+- [敏感信息加密](../opencode-plugin-sensitive-encrypt/README.zh-CN.md)
+- [敏感信息保护](../opencode-plugin-sensitive-protection/README.zh-CN.md)
+- [推荐配置](../opencode-plugin-recomended-opencode-config/README.zh-CN.md)

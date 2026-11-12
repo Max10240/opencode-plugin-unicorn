@@ -2,59 +2,94 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Search user and agent text in the current session and jump to the matching message or text part. It never inserts,
-submits, or resends a prompt.
+**Find anything you or the agent said, then jump straight to it.**
 
-## Usage
+A long OpenCode session can run for hours. The decision you need, the command that worked, or the error you are
+debugging slides thousands of lines up the scrollback. When OpenCode compacts the conversation, earlier messages
+disappear from view, even though they still exist in history.
 
-Load it in the global `cli.json`; it can connect to a local or remote server independently:
+Session search gives the current conversation a proper search box. Type what you remember, preview the matches, and
+press Enter to jump to the message. You can also copy the exact text without moving.
+
+## When to use it
+
+- You are deep in a long debugging, planning, or implementation session.
+- Compaction has hidden earlier messages that you still need.
+- You want to find a command, file path, decision, or error message from an hour ago.
+- You need to copy a previous instruction or answer without scrolling.
+- You want to search agent messages, not only your own prompts.
+
+## What you get
+
+- **Search the full saved history.** Not just the messages currently loaded or the model context.
+- **Works before and after compaction.** Real user and agent messages remain searchable; summaries are not treated as
+  original dialogue.
+- **Jump to the source.** Enter scrolls the conversation to the matching message or text part.
+- **Copy without jumping.** `Ctrl+Y` copies the selected text and leaves your place alone.
+- **Choose whose words to search.** User messages are shown by default; `Tab` adds agent messages.
+- **Never changes the conversation.** Searching, jumping, and copying never insert, submit, resend, or revert anything.
+
+## Quick start
+
+Load it in the TUI configuration:
 
 ```jsonc
 {
-  "plugins": [{ "package": "@max10240/opencode-plugin-session-search", "options": { "keybind": "ctrl+shift+f" } }]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-session-search",
+    "options": { "keybind": "ctrl+shift+f" }
+  }]
 }
 ```
 
-The default shortcut is `Ctrl+Shift+F`; the command **Search current session** is also available in the command
-palette. Type to filter, use ↑/↓ to select, Enter to jump, and Esc to close. `Ctrl+Y` copies the selected message text
-without jumping. Only user messages are shown by default; `Tab` switches to user and agent messages. A copy
-confirmation appears inside the dialog and clears after a few seconds; another copy restarts the timer, and changing the
-query or message scope clears it immediately. Press Esc during navigation to cancel. Matching is case-insensitive, and
-whitespace-separated words are combined with AND. Up to 100 matches are shown; continue typing to narrow the results.
+With Unicorn:
 
-Unicorn enables it by default and supports `features.sessionSearch:false`. Set the shortcut with
-`options.sessionSearch.keybind`; that object is passed to the plugin unchanged and is never mixed with
-`options.promptSearch.keybind`. The server entry has no side effects and does not require prompt-search.
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "sessionSearch": true },
+      "sessionSearch": { "keybind": "ctrl+shift+f" }
+    }
+  }]
+}
+```
 
-## History, compaction, and privacy
+## Using it
 
-- Reads all saved history for the current session page by page; the search scope is not limited to recently loaded
-  messages or model context.
-- Real compacted user/agent messages remain searchable and navigable. "Before compaction" means the message is older
-  than the latest compaction. Compaction summaries are not treated as original dialogue; hidden reasoning, tool
-  output, and attachment bytes are not indexed.
-- Matches after a revert boundary are marked non-navigable. Navigation never cancels a revert or modifies the session.
-- Queued but undelivered prompts are marked non-navigable and are never sent by selecting a search result. Copying does
-  not navigate, works for non-navigable matches, and never cancels a revert or sends a prompt.
-- Content deleted on the server cannot be recovered. Switching sessions, closing the TUI, or disabling the plugin
-  cancels related work. The index is memory-only and is not persisted.
+Press `ctrl+shift+f`, or choose **Search current session** from the command palette.
 
-## Performance and compatibility
+| Key | Action |
+| --- | --- |
+| Type | Filter matches; words are combined with AND, case-insensitively |
+| `↑` / `↓` | Select a match |
+| `Enter` | Jump to the matching message or text part |
+| `Ctrl+Y` | Copy the selected text without jumping |
+| `Tab` | Switch between user-only and user + agent messages |
+| `Esc` | Close the dialog, or cancel navigation while a jump is loading |
 
-The first open paginates the index with at most two concurrent requests; history is not fetched on every keystroke.
-An unchanged full index is reused, streaming updates merge the current message, and queries run in batches with stale
-results cancelled. Long text is indexed without truncation; previews and result counts are bounded.
+Up to 100 matches are shown at once. Keep typing to narrow them down. A copy confirmation appears in the dialog and
+fades after a few seconds; changing the query or message scope clears it immediately.
 
-Mounted targets are located after clearing the host navigation cursor, without loading everything. Older messages
-are loaded through built-in history navigation and located after mounting. The host has no public message-ID jump
-API; the plugin uses renderer message anchors and built-in navigation without modifying Core. The first jump to a
-distant message may require O(N) loading/mounting, and very long sessions do not guarantee constant latency. The
-plugin targets the start of a message or text part and does not promise exact character-line positioning inside long
-Markdown. If navigation support is missing, a message disappears, or the session changes, the operation is
-cancelled or reported and never restores or rewrites history.
+## Configuration
 
-Validated with OpenCode `v2.0.21` and `v2.1.0` in the real TUI and with npm packages; other versions are not yet
-verified.
+| Option | Default | What it does |
+| --- | --- | --- |
+| `keybind` | `ctrl+shift+f` | Shortcut that opens current-session search |
 
-Background evidence and real TUI validation are documented in
-[`research/session-search-feasibility.md`](../../research/session-search-feasibility.md).
+`features.sessionSearch: false` disables the plugin through Unicorn.
+
+## Good to know
+
+- **Jumping targets the start of a message or text part.** Long Markdown blocks may not scroll to the exact matching
+  character line.
+- **Distant jumps can take a moment.** Very old messages may need to be loaded first; very long sessions are not
+  guaranteed to feel instant.
+- **Content deleted on the server cannot be recovered.** Search only sees what OpenCode still stores.
+- **Queued prompts are marked, not jumped to.** Undelivered messages can be copied but not navigated to, and selecting
+  a result never sends them.
+- **Matches after a revert boundary are not navigable.** Search respects the revert instead of canceling it.
+- **The index is memory-only.** It is rebuilt as needed and is not written to disk.
+- **Verified with OpenCode `v2.0.21` and `v2.1.0`.** Other versions have not been validated.

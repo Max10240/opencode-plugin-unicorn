@@ -2,13 +2,38 @@
 
 [English](README.md) | **简体中文**
 
-独立合并推荐的全局规则和命令，并在已有 OpenAI 配置时设置 `providers.openai.settings.store:false`。
-不修改模型限制或 `share`，不注册工具，也不依赖 Unicorn。
+**从第一天起，就有一套更安全、更一致的 OpenCode 配置。**
 
-## 启用
+刚装好的 OpenCode 是一张白纸。你可以花几周时间自己调全局规则、补 review 和规划命令、慢慢摸索哪些默认值适合自己；也可以直接
+继承一套已经沉淀好的基线。
 
-显式 `enabled:true/false` 优先于环境变量；没有配置时，server 环境的 `IS_MAX_SELF` 必须非空，且不是 `0` 或
-`false` 才启用。比较前去掉两端空白，`false` 不区分大小写；其他情况默认关闭。
+这个插件把一组精选的全局规则和命令合并进你现有的配置。它只补缺失的规则和命令，不覆盖你写的规则或同名命令，并在已经配置
+OpenAI 时打开 `store:false`。
+
+它是有明确观点的：推荐内容来自维护这个仓库时使用的同一套规则，而不是通用模板。
+
+## 什么时候需要它
+
+- 你刚开始配置 OpenCode，想要一套合理的护栏，但不想自己写。
+- 你希望 Agent 在沟通方式、敏感数据和配置修改上保持一致的习惯。
+- 你想要现成的 review、commit、调查、规划和持续工作命令。
+- 你用 OpenAI，希望默认不保存请求。
+- 你有多台机器，想保持同一套基线。
+
+如果你已经有一套精心调过的全局配置，也不希望别人替你加观点，那可以跳过这个插件。
+
+## 它能给你什么
+
+- **推荐规则。** 在全局 `AGENTS.md` 中增加沟通风格、敏感数据、安全修改配置和本地测试习惯等规则。
+- **推荐命令。** 补充 review、commit、查看进度、先调查再动手、规划、持续推进等命令。
+- **OpenAI 隐私默认值。** 已配置 OpenAI 时设置 `providers.openai.settings.store:false`，不改变你的模型或 variant 选择。
+- **非破坏性合并。** 同名规则保留你的版本，同名命令不覆盖，JSONC 注释和无关设置原样保留。
+- **可重复执行。** 反复运行不会不断追加重复内容，也不会无意义地重写文件。
+- **不碰凭据。** 不会创建 OpenAI key，也不会把秘密写进规则或命令。
+
+## 快速开始
+
+在 server 配置中加载，并显式启用：
 
 ```jsonc
 {
@@ -20,44 +45,38 @@
 }
 ```
 
-Unicorn 将 `options.recommendedOpencodeConfig` 原样透传，例如 `{ "enabled": true }`。
-`options.features.recommendedOpencodeConfig: false` 强制关闭；其余情况遵循上述 `enabled` / 环境变量规则。
-关闭后不撤销已写入的规则或设置。
+通过 Unicorn 使用时：
 
-## 合并行为
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "recommendedOpencodeConfig": true },
+      "recommendedOpencodeConfig": { "enabled": true }
+    }
+  }]
+}
+```
 
-- 使用 Marked 解析 Markdown，规则数据为 `{ title, description? }`，不保存标题等级。
-- 在用户 `AGENTS.md` 的最高标题等级新增或复用 `Addtional Recommended Rules`，推荐规则放在其下。
-- 标题相同即跳过，不比较标题等级，不覆盖已有正文；代码块中的 `#` 不算标题。
-- 没有标题时用一级容器。容器已是六级时使用列表承载规则，不生成无效的七级标题。
-- 同步全局配置中的 inline 和 Markdown 命令。同名用户定义（包括全局 Markdown command）不覆盖；缺失时
-  新增到用户的 inline `commands`，保留 `template`、描述、agent、model 等元数据和参数占位符。
-- 没有 OpenAI key 时不创建它。只有缺少 commands 且无配置文件时才创建 `opencode.jsonc`。
-- 保留 JSONC 注释和无关设置，重复运行不改文件时间。provider 设置不覆盖模型或 variant 的显式设置。
-- 更新失败只警告，不阻止其他 Unicorn 插件启动。
-- 未闭合的代码/HTML 块无法安全合并时跳过规则写入，不反复追加，也不阻止 commands 和 `store` 更新。
-  配置使用软链接时更新目标而保留软链接。
+这个插件默认不启用。如果没写 `enabled`，只有当 server 环境里的 `IS_MAX_SELF` 非空、且不是 `0` 或 `false` 时才会开启。
+写 `enabled: false` 可以强制关闭。
 
-全局目录遵循 `OPENCODE_CONFIG_DIR`，其次 `$XDG_CONFIG_HOME/opencode`，默认 `~/.config/opencode`。
+## 它会改什么
 
-## 推荐模板与硬链接
+| 范围 | 行为 |
+| --- | --- |
+| 全局 `AGENTS.md` | 在最高标题层级新增或复用推荐规则章节，把推荐规则放在下面 |
+| 全局命令 | 补充推荐集合中缺失的斜杠命令；同名用户命令优先 |
+| OpenAI 设置 | 已配置 OpenAI 时设置 `providers.openai.settings.store:false`；显式模型和 variant 设置保持不变 |
+| `opencode.jsonc` | 保留 JSONC 注释和无关字段；只有缺少命令且没有配置文件时才创建 |
 
-仓库的 `rules/AGENTS.md` 与 `~/.config/opencode/AGENTS.md` 保持硬链接。
-`bun run sync:rules`、Git pre-commit 和每个包的 prepack 都会重新建立链接，并将 `opencode.jsonc` 的顶层 `commands`
-和同目录 `.commands/`、`command/`、`commands/` 下的 `.md` 命令收集到 `rules/commands.json`，不保存完整配置。
-Markdown 正文作为模板，保留 description、agent、model、subagent 等 frontmatter；嵌套文件 `team/review.md`
-变成 `team/review`。同步时不执行模板中的 shell。源内同名命令按 inline → `.commands/` → `command/` → `commands/` 覆盖。
-Markdown 中的 `{env:...}`、`{file:...}` 保持字面文本；原有 inline 命令仍遵循 Core 的配置变量展开规则。
-可用 `RECOMMENDED_RULES_SOURCE` / `RECOMMENDED_COMMANDS_SOURCE` 指定同步源，`RECOMMENDED_COMMANDS_DIR` 指定单独的 Markdown 目录。
-所有同步源均不存在时使用已提交的模板；源存在时会移除源已删除的推荐，解析失败则保留原快照并报错。
+全局目录依次遵循 `OPENCODE_CONFIG_DIR`、`$XDG_CONFIG_HOME/opencode`，最后是 `~/.config/opencode`。
 
-Git 保存文件内容而不是链接路径，clone 后需重新建立硬链接。发布包把推荐规则内容编入 JavaScript，不要求用户
-拥有该目录，也不收录任何完整 `opencode.json[c]`。不要在规则或命令模板中放凭据。
+## 注意事项
 
-根目录 `bun install` 为新仓库安装 `.githooks`。已有本地/全局 hooksPath 或 pre-commit 时只提示，不覆盖、不阻止
-依赖安装；此时需把 `scripts/sync-recommended-rules.mjs` 接入已有 hook，或提交前手动执行 `bun run sync:rules`。
-
-## 验证
-
-`bun run check` 包含 Markdown/JSONC 单测、硬链接和 prepack 测试、真实 OpenCode 的开关矩阵、配置热重载、
-重启幂等性、模型请求中的规则与 `store:false`，以及 npm tarball 安装。测试使用隔离目录和本地 mock。
+- **关闭不会撤销。** 关掉插件只会停止后续合并，已经写入的规则和设置不会自动删除。
+- **你的内容优先。** 同名规则会跳过，同名命令不会被覆盖。
+- **失败不会阻塞其他插件。** 无法安全合并时只给出警告，其他 Unicorn 插件照常启动。
+- **推荐内容是精选的，不是通用的。** 如果你对 Agent 的行为有强烈偏好，启用前先看看这些规则。
+- **不改模型配置。** 插件不会修改上下文限制、分享设置或你选择的模型。

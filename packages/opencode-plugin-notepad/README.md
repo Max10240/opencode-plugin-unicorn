@@ -2,10 +2,33 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Capture quick notes without interrupting the current OpenCode conversation. Notes are grouped by the current folder by
-default and can be shared globally across every session on the same OpenCode server.
+**A scratchpad that never interrupts the conversation.**
 
-## Usage
+You are in the middle of a task and remember something: a follow-up, a bug to check, a command to try later. Typing it
+into the chat competes with the agent's current instructions. Opening another app loses your flow. Dropping it in a
+temporary file leaves it buried in the repository.
+
+The notepad gives you a quick overlay for exactly these thoughts. It opens on top of the TUI, saves without disturbing
+the session, and keeps notes organized by folder or across everything.
+
+## When to use it
+
+- You want to capture follow-ups while the agent is busy.
+- You keep per-project reminders and want them to appear only in that project.
+- You maintain a personal checklist that should follow you across every session.
+- You need to copy a note back into the prompt without retyping it.
+- You do not want your notes to become part of the model conversation.
+
+## What you get
+
+- **No interruption.** Open the notepad, write, close, and the agent never notices.
+- **Folder-scoped notes by default.** Notes stay with the project they belong to.
+- **Global notes when you need them.** Press `g` to share a note across every folder and session on the same OpenCode
+  server.
+- **Full editing.** Add, edit, delete, search, copy, and move notes without leaving the overlay.
+- **Private by default.** Notes are text you keep for yourself; they are never added to model context.
+
+## Quick start
 
 Standalone, load the package in both the server and TUI configuration:
 
@@ -17,7 +40,7 @@ Standalone, load the package in both the server and TUI configuration:
 }
 ```
 
-```json
+```jsonc
 // cli.json
 {
   "$schema": "https://opencode.ai/v2/cli.json",
@@ -25,7 +48,7 @@ Standalone, load the package in both the server and TUI configuration:
 }
 ```
 
-With Unicorn, `features.notepad` is enabled by default:
+With Unicorn, the notepad is enabled by default:
 
 ```jsonc
 {
@@ -39,16 +62,13 @@ With Unicorn, `features.notepad` is enabled by default:
 }
 ```
 
-## Opening
+## Opening it
 
-- Shortcut: `ctrl+shift+n`
-- Command palette: search **Open notepad**
-- Slash: `/notepad`
+- Press `ctrl+shift+n`.
+- Search for **Open notepad** in the command palette.
+- Type `/notepad`.
 
-The command uses `mode: "global"` and `palette: true`, so it remains reachable while the palette or slash autocomplete
-is active.
-
-## Interaction
+## Using it
 
 ```text
 Notepad — /path/to/current/folder
@@ -65,39 +85,35 @@ Global
 a add · e edit · d delete · c copy · g scope · tab search · esc close
 ```
 
-- `a`: add a note; it defaults to the current folder.
-- `e`: edit the selected note in a multiline editor. `f2` saves; `esc` cancels.
-- `d`: delete after confirmation.
-- `c`: copy the note text with OSC52 and show a toast.
-- `g`: move the selected note between the current folder and Global.
-- `Tab`: focus the search box; `Esc` or `Enter` returns to the list.
-- `↑` / `↓`: select notes.
-- `Esc`: close the notepad.
+| Key | Action |
+| --- | --- |
+| `a` | Add a note; it starts in the current folder |
+| `e` | Edit the selected note; `f2` saves, `esc` cancels |
+| `d` | Delete the selected note after confirmation |
+| `c` | Copy the note text and show a confirmation |
+| `g` | Move the note between the current folder and Global |
+| `Tab` | Focus the search box; `Enter` or `Esc` returns to the list |
+| `↑` / `↓` | Select a note |
+| `Esc` | Close the notepad |
 
 In the editor, `ctrl+g` changes the save target between **This folder** and **Global**.
 
-## Scope and storage
+## How notes are organized
 
-- New notes default to `folder` scope and are visible only in the exact current directory.
-- `global` notes are visible in every folder and session on the same server.
-- Different folders and worktrees do not see each other's folder-scoped notes.
-- Notes are stored by the server plugin and accessed by the TUI over RPC. Multiple TUI clients connected to the
-  same plugin host share the same data. Standalone notepad and Unicorn use separate server storage namespaces, so
-  choose one host mode consistently.
-- Storage contains text, scope, folder path, and timestamps. It never enters model context.
-- Limits: 5000 notes per server, 100 KiB per note.
+- **This folder** notes appear only in the exact folder where they were created. Different folders and worktrees do not
+  see each other's notes.
+- **Global** notes appear in every folder and session on the same OpenCode server.
+- Notes are shared by all TUI clients connected to the same server, so your laptop and another client see the same
+  data.
+- Notes are stored as plain text with a scope, folder path, and timestamp. They never enter model context.
+- Limits are generous but finite: 5000 notes per server, 100 KiB per note.
+
+If you switch between loading the notepad standalone and through Unicorn, each mode keeps its own note store. Pick one
+and stay with it.
 
 ## Configuration
 
-- `enabled` defaults to `true`; set `false` to disable.
-- `keybind` defaults to `ctrl+shift+n`; set `false` to remove the shortcut while keeping palette and slash access.
-
-## Verification
-
-```bash
-bun run --cwd packages/opencode-plugin-notepad test
-bun run check
-```
-
-Tests cover folder/global visibility, CRUD, validation, command registration, and a real isolated TUI flow for add,
-scope change, copy, edit, delete, persistence, command palette, and slash.
+| Option | Default | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | Set to `false` to turn the notepad off |
+| `keybind` | `ctrl+shift+n` | Change the shortcut; set to `false` to keep only the palette and `/notepad` entry |

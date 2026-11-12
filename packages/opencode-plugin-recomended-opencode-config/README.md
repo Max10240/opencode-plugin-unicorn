@@ -2,15 +2,44 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Merge recommended global rules and commands into an existing OpenCode configuration, and set
-`providers.openai.settings.store:false` when OpenAI is already configured. It does not change model limits or
-`share`, register tools, or depend on Unicorn.
+**A safer, more consistent OpenCode setup from day one.**
 
-## Enabling
+A fresh OpenCode installation is a blank slate. You can spend weeks tuning global rules, adding review and planning
+commands, and discovering which defaults you want. You can also inherit a baseline that already encodes those habits.
 
-An explicit `enabled:true/false` takes priority over the environment variable. When no option is set, the server
-environment's `IS_MAX_SELF` must be non-empty and not `0` or `false`. Values are trimmed before comparison and
-`false` is case-insensitive; every other case disables the plugin.
+This plugin merges a curated set of global rules and commands into your existing configuration. It adds what is
+missing, does not overwrite your rules or same-name commands, and turns on OpenAI's `store:false` setting when OpenAI
+is already configured.
+
+It is opinionated by design: the recommendations come from the same rules used to maintain this repository, not from a
+generic template.
+
+## When to use it
+
+- You are setting up OpenCode and want sensible guardrails without writing them yourself.
+- You want the agent to follow consistent habits around communication, sensitive data, and configuration changes.
+- You want ready-made commands for reviewing changes, committing, investigating, planning, and keeping work moving.
+- You use OpenAI and prefer not to have requests stored by default.
+- You maintain several machines and want the same baseline everywhere.
+
+If you already have a carefully tuned global configuration and do not want opinions added, skip this plugin.
+
+## What you get
+
+- **Recommended rules.** Adds a section to your global `AGENTS.md` covering communication style, sensitive data,
+  safe configuration edits, and local testing habits.
+- **Recommended commands.** Adds missing commands for review, commit, inspection, investigation, planning, and
+  sustained work.
+- **OpenAI privacy default.** Sets `providers.openai.settings.store:false` when OpenAI is configured, without changing
+  your model or variant choices.
+- **Non-destructive merging.** Existing rules with the same title are kept, same-name commands are not overwritten,
+  and comments and unrelated settings are preserved.
+- **Safe to run again.** Running it repeatedly does not keep appending duplicates or rewrite files unnecessarily.
+- **No credentials.** It never creates an OpenAI key and never includes secrets in rules or commands.
+
+## Quick start
+
+Load it in the server configuration and enable it explicitly:
 
 ```jsonc
 {
@@ -22,58 +51,40 @@ environment's `IS_MAX_SELF` must be non-empty and not `0` or `false`. Values are
 }
 ```
 
-Unicorn passes `options.recommendedOpencodeConfig` through unchanged, for example `{ "enabled": true }`.
-`options.features.recommendedOpencodeConfig: false` forces the plugin off; otherwise the rules above apply. Disabling
-the plugin does not remove rules or settings that were already written.
+With Unicorn:
 
-## Merge behavior
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "recommendedOpencodeConfig": true },
+      "recommendedOpencodeConfig": { "enabled": true }
+    }
+  }]
+}
+```
 
-- Markdown is parsed with Marked. Rule data is `{ title, description? }`; heading depth is not retained.
-- Recommended rules are added under `Addtional Recommended Rules`, created or reused at the highest heading level in
-  the user's `AGENTS.md`.
-- Equal titles are skipped without comparing depth or overwriting existing content; `#` inside code blocks is not a
-  heading.
-- With no headings, a level-one container is used. When the container is already level six, rules are represented as
-  a list instead of invalid level-seven headings.
-- Recommended inline and Markdown commands are synced. Same-name user commands (including global Markdown commands)
-  are not overwritten; missing commands are added to inline `commands` while preserving `template`, description,
-  agent, model, and argument placeholders.
-- No OpenAI key is created. `opencode.jsonc` is created only when commands are missing and no configuration file
-  exists.
-- JSONC comments and unrelated settings are preserved, and repeated runs do not change file timestamps. Provider
-  settings do not override explicit model or variant settings.
-- Update failures are warnings and do not prevent other Unicorn plugins from starting.
-- When an unclosed code or HTML block makes a safe merge impossible, rules are skipped without repeated appends;
-  commands and `store` updates continue. Symlinked configuration is updated at the target while preserving the link.
+This plugin is not enabled by default. If `enabled` is not set, it turns on only when the server environment's
+`IS_MAX_SELF` variable is non-empty and is not `0` or `false`. Set `enabled: false` to force it off.
+
+## What it changes
+
+| Area | Behavior |
+| --- | --- |
+| Global `AGENTS.md` | Adds the recommended rules under a dedicated section, creating or reusing it at the top heading level |
+| Global commands | Adds missing slash commands from the recommended set; same-name user commands win |
+| OpenAI settings | Sets `providers.openai.settings.store:false` when OpenAI is configured; explicit model and variant settings stay untouched |
+| `opencode.jsonc` | Preserves JSONC comments and unrelated fields; creates the file only if commands are missing and no config exists |
 
 The global directory follows `OPENCODE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/opencode`, then `~/.config/opencode`.
 
-## Recommended template and hard link
+## Good to know
 
-The repository `rules/AGENTS.md` is hard-linked to the global `~/.config/opencode/AGENTS.md` used for local
-maintenance. `bun run sync:rules`, the Git pre-commit hook, and each package's prepack re-create the link and collect
-top-level `commands` from `opencode.jsonc` plus Markdown commands under `.commands/`, `command/`, and `commands/` in
-the same directory into `rules/commands.json`. Full configuration is never stored. Markdown bodies become templates
-and preserve frontmatter such as description, agent, model, and subagent; nested files such as `team/review.md`
-become `team/review`. Shell commands in templates are not executed. Same-name commands are overridden in the order
-inline → `.commands/` → `command/` → `commands/`. `{env:...}` and `{file:...}` in Markdown remain literal; existing
-inline commands keep Core's configuration variable expansion.
-
-Set `RECOMMENDED_RULES_SOURCE` or `RECOMMENDED_COMMANDS_SOURCE` to change the sync source, and
-`RECOMMENDED_COMMANDS_DIR` for a separate Markdown directory. When every source is missing, the committed templates
-are used. When a source exists, recommendations removed from it are removed here; parse failures keep the previous
-snapshot and report an error.
-
-Git stores file contents, not link paths, so a fresh clone must re-create the hard link. Published packages embed
-recommended rule content in JavaScript; users do not need the repository directory, and no complete
-`opencode.json[c]` is included. Never place credentials in rules or command templates.
-
-`bun install` installs `.githooks` for new clones. Existing local/global `hooksPath` or pre-commit hooks are reported
-but never overwritten or blocked; in that case wire `scripts/sync-recommended-rules.mjs` into the existing hook or run
-`bun run sync:rules` before committing.
-
-## Verification
-
-`bun run check` covers Markdown/JSONC unit tests, hard-link and prepack tests, real OpenCode enable/disable matrices,
-configuration hot reload, restart idempotency, rules and `store:false` in model requests, and npm tarball
-installation. Tests use isolated directories and local mocks.
+- **Disabling does not undo.** Turning the plugin off stops future merges but does not remove rules or settings that
+  were already written.
+- **Your content wins.** Equal rule titles are skipped, and same-name commands are not overwritten.
+- **Failures are non-fatal.** If a merge cannot be completed safely, the plugin warns and lets other plugins start.
+- **The recommendations are curated, not universal.** Review them before enabling if you have strong opinions about
+  how an agent should behave.
+- **No model configuration changes.** The plugin does not change context limits, sharing, or your chosen models.

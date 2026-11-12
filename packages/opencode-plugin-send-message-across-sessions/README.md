@@ -2,49 +2,76 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Send user-style messages between OpenCode sessions in different working directories.
+**Let your OpenCode sessions talk to each other.**
 
-## Tools
+Real work rarely fits in one directory. You might run one session for the frontend and another for the backend, or keep
+separate worktrees for separate features. Each session has its own context, and you become the messenger: copy a finding
+from one, paste it into the other, repeat.
 
-- `list_online_sessions`: list sessions observed by the plugin, including session ID, title, working directory, and
-  status.
-- `send_message_across_sessions`: send a user-style message to another online OpenCode session. Use it only for
-  cross-session communication, never between a main agent and its subagents. The message is injected with this stable protocol format:
+This plugin gives the agent two tools for talking to other sessions. It can list who is online and send a message with
+the right timing, so parallel work stays coordinated without you relaying every detail.
 
-  ```text
-  来自<from_session_id>的消息: <message>
-  ```
+## When to use it
 
-`delivery` controls when the message is delivered:
+- Frontend and backend sessions need to agree on an API contract.
+- Two worktrees are changing related code and should share findings.
+- A research session discovers something that another implementation session needs.
+- You want to hand off a task to a different project without copying a long summary.
+- You run several agents in parallel and want them to ask each other questions.
 
-- `steer` (default): if the target is working, inject after its next tool call within the current turn; if idle,
-  start a new turn immediately.
-- `queue`: wait for the target's current turn to finish, then deliver in the next turn.
+## What you get
 
-If `target_session_id` is omitted, the send tool returns the selectable session list. The model should ask the user
-to choose and then call the tool again.
+- **Session discovery.** The agent can see other online sessions, their titles, working directories, and status.
+- **User-style messages.** The receiving session gets a normal message, marked with the sender, and responds in its own
+  context.
+- **Timing you control.** Choose whether a busy session should be interrupted after its next tool call or waited for.
+- **No copy-paste relays.** Findings, constraints, and handoffs move directly between sessions.
+- **Minimal setup.** Load the plugin once; there is nothing to configure.
 
-## Standalone configuration
+## Quick start
+
+Load it in the server configuration:
 
 ```jsonc
 {
-  "plugins": [
-    "@max10240/opencode-plugin-send-message-across-sessions",
-  ],
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["@max10240/opencode-plugin-send-message-across-sessions"]
 }
 ```
 
-The plugin is enabled by default. The session list is maintained from OpenCode server session events, so the target
-must start after the plugin begins observing and both must run in the same OpenCode server.
+With Unicorn, it is enabled by default:
 
-## E2E
-
-```bash
-bun test
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": { "features": { "sendMessageAcrossSessions": true } }
+  }]
+}
 ```
 
-Tests use a local `opencode` binary, a local OpenAI-compatible proxy, and tmux. Every scenario has its own HOME, XDG
-directories, configuration, and database. The plugin and its Unicorn dependencies are packed as local tarballs and
-loaded without contacting the plugin registry. Coverage includes the standalone plugin and Unicorn integration, and
-asserts that cross-directory sessions appear in the list and receive the user message. Set `OPENCODE_BIN` to choose
-the OpenCode executable.
+## Using it
+
+Just ask the agent in plain language:
+
+> Ask the backend session what shape the `/users` response will have, then adapt our client types.
+
+The agent uses `list_online_sessions` to find the target and `send_message_across_sessions` to deliver the message. If
+it does not know which session you mean, it returns the list and asks you to choose.
+
+### Delivery modes
+
+| Mode | Behavior | Good for |
+| --- | --- | --- |
+| `steer` (default) | If the target is busy, inject after its next tool call in the current turn; if idle, start a turn immediately | Time-sensitive coordination |
+| `queue` | Wait for the target's current turn to finish, then deliver in the next turn | Avoiding interruptions |
+
+## Good to know
+
+- **Both sessions must share one OpenCode server.** The plugin only sees sessions on the server where it runs.
+- **The target must have started after the plugin.** The online list is built from session events; a session that
+  existed before the plugin started is not retroactively discovered.
+- **This is for peer sessions, not parent and subagent.** Use OpenCode's built-in subagent tool for parent-child work.
+- **The receiving session sees a normal user message.** There is no hidden side channel; the message becomes part of
+  that session's conversation.
+- **No configuration is required.** Load it and ask.

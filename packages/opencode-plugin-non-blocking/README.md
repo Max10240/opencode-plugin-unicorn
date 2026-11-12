@@ -2,54 +2,85 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Move long-running blocking OpenCode tools to the background without waiting for the user to press Ctrl+B. The
-monitoring and timing logic runs entirely in the TUI; the server entry is a no-op.
+**Keep working while your agent runs long commands.**
 
-## Behavior
+A build takes two minutes. A test suite takes five. A subagent disappears to research a codebase. In every case, the
+session is tied up in the foreground, and the agent cannot start anything else until the tool finishes.
+OpenCode already has a manual escape hatch: press Ctrl+B and the work moves to the background. The problem is that you
+have to notice, stop what you are doing, and press it every time.
 
-- Watches foreground `shell` / `bash` and `subagent` / `task` tool calls in every session the TUI observes, including
-  subagent child sessions.
-- After a tool has been running for 10 seconds by default, calls the same `session.background` API as Ctrl+B for that
-  session.
-- The API is session-scoped. If several blocking tools are active in the same session, more than one may be moved to the
-  background together; this is intentional.
-- Every tool has its own deadline. A tool that finishes before its deadline is ignored.
-- Manually pressing Ctrl+B removes the affected tools from monitoring. They are never handled again by the plugin.
-- Tools started with `background: true` are already in the background and are ignored.
-- Other waiting tools such as MCP tools, custom tools, or questions are not backgroundable through the OpenCode API.
-  They are not monitored or actioned by this plugin.
-- No panel or persistent UI is added. If backgrounding still fails after retries, the TUI shows one warning toast for that session.
+This plugin presses it for you. After a configurable delay, long-running Bash and subagent calls move to the background
+automatically, and the agent is free to take your next instruction.
 
-## Configuration
+## When to use it
 
-Standalone:
+- You run long builds, test suites, linters, package installs, or data processing jobs.
+- You use subagents for research and want the parent session to stay responsive.
+- You often switch tasks while the agent works and do not want to wait for the current tool call.
+- You keep forgetting that Ctrl+B exists.
+
+If your commands usually finish in a second or two, you probably do not need this plugin.
+
+## What you get
+
+- **No more waiting at the keyboard.** Blocking work moves to the background after ten seconds by default.
+- **The agent gets to your next task sooner.** Queue the next request while the previous one runs in the background.
+- **Every tool has its own deadline.** A command that finishes in time is never touched.
+- **Manual control is respected.** If you press Ctrl+B yourself, the plugin forgets that tool and will not act on it
+  again.
+- **Subagents included.** Work inside subagent child sessions is monitored too.
+- **Nothing new to learn.** Backgrounded work behaves exactly like work you moved with Ctrl+B; you still get notified
+  when it completes.
+
+## Quick start
+
+The plugin is TUI-side. Load it in `cli.json`:
 
 ```jsonc
 {
-  "plugins": [
-    {
-      "package": "@max10240/opencode-plugin-non-blocking",
-      "options": { "thresholdMs": 10000 }
-    }
-  ]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-non-blocking",
+    "options": { "thresholdMs": 10000 }
+  }]
 }
 ```
 
-`thresholdMs` is the minimum foreground runtime before backgrounding. It defaults to `10000`.
+Using Unicorn? It is already enabled by default:
 
-Unicorn enables the plugin by default. Disable it independently with `features.nonBlocking: false`, or configure the
-threshold with `options.nonBlocking.thresholdMs`.
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "nonBlocking": true },
+      "nonBlocking": { "thresholdMs": 10000 }
+    }
+  }]
+}
+```
 
-## Performance
+Disable it with `features.nonBlocking: false`.
 
-- Event-driven state: no polling of session history.
-- One timer per running blocking tool.
-- Timers and listeners are removed when a tool settles, a session is deleted, or the plugin unloads.
-- The plugin does not render any UI.
-- Background calls are retried with backoff instead of tight polling.
+## Configuration
 
-## Compatibility
+| Option | Default | What it does |
+| --- | --- | --- |
+| `thresholdMs` | `10000` | How long a tool may run in the foreground before it is moved to the background |
 
-The plugin uses the existing `session.background` API and requires no OpenCode source changes. Because that API is
-session-scoped, it cannot select a single job when several blocking tools run together; the plugin therefore treats
-the session as the backgrounding unit.
+Pick a threshold that matches your patience and your workloads. `5000` feels responsive; `30000` only intervenes for
+genuinely long jobs.
+
+## Good to know
+
+- **Only Bash and subagents can be moved.** OpenCode's background support covers `shell` / `bash` and `subagent` /
+  `task`. Other waiting tools, such as MCP tools, custom tools, or questions, have no background equivalent and are not
+  handled.
+- **Backgrounding is per session.** If several blocking tools are running in the same session, more than one may move
+  together. This matches Ctrl+B behavior.
+- **Nothing is canceled.** A backgrounded command keeps running. You can check on it later just like any other
+  background job.
+- **Already-background work is ignored.** Tools started with `background: true` are left alone.
+- **Failures are quiet.** If OpenCode cannot move the work after a few retries, the TUI shows one warning instead of
+  nagging you.
+- **No new panel or badge.** The plugin stays out of the way; the existing background UI tells you what happened.

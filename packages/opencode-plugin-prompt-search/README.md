@@ -2,91 +2,90 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Cross-session prompt reverse search for the OpenCode TUI.
+**Stop retyping prompts you have already written.**
 
-## Usage
+Over a few weeks, OpenCode accumulates hundreds of prompts: a review checklist, a debugging brief, a migration plan, a
+carefully worded instruction that took you ten minutes to get right. When you need one again, it is buried in some
+session you half remember.
 
-TUI plugins are configured in the V2 `cli.json`:
+Prompt search gives you reverse search across every prompt OpenCode has seen, right from the TUI. Find the old prompt,
+press Enter, and it is inserted into your input box ready to edit.
 
-```jsonc
-{
-  "plugins": [
-    {
-      "package": "@max10240/opencode-plugin-prompt-search",
-      "options": {
-        "keybind": "ctrl+shift+r",
-      },
-    },
-  ],
-}
-```
+## When to use it
 
-The default shortcut is `ctrl+shift+r`, chosen to avoid OpenCode defaults. You can also load it through the Unicorn
-TUI entry:
+- You reuse the same review, test, refactor, or release prompts across projects.
+- You remember the wording of a prompt but not the session it came from.
+- You want to build a personal library of prompts without a separate note-taking tool.
+- You are onboarding to a project and want to reuse prompts a teammate or your past self wrote.
 
-```jsonc
-{
-  "plugins": [
-    {
-      "package": "@max10240/opencode-plugin-unicorn",
-      "options": {
-        "features": {
-          "promptSearch": true,
-        },
-        "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
-      },
-    },
-  ],
-}
-```
+## What you get
 
-Results come from user prompts in all sessions visible to the OpenCode server, including queued or steering messages
-that are still pending in a session inbox. Delivered inbox messages are deduplicated by message ID after they enter the
-transcript. The index refreshes incrementally by session update time and inbox events, and is cached in TUI storage. Cached prompts remain searchable after their session disappears
-from the server, so deleted sessions can still be searched and the cache survives TUI restarts. If a session is
-deleted before the plugin indexes it, the OpenCode API can no longer export it and the index cannot be rebuilt.
-Selecting a result inserts the original prompt at the cursor without submitting it.
+- **Search across sessions.** Every prompt visible to the OpenCode server is indexed, not just the current
+  conversation.
+- **Queued prompts included.** Messages still waiting in a session inbox are searchable too.
+- **Insert, do not send.** Selecting a result places it at the cursor; you decide whether to edit or submit.
+- **Survives restarts.** The index lives in local TUI storage, so history is available after a restart.
+- **Deleted sessions still searchable.** Prompts cached before a session disappeared remain in the index.
+- **Private.** The index is local; it is not sent to the model and does not modify your conversations.
 
-The cache keeps the latest 2000 user prompts by default; change it with the `maxPrompts` option. Deleting a source
-session does not immediately clean the cache, and there is no time-based expiry. When the plugin starts or refreshes
-the index above the limit, oldest prompts are evicted first. Setting `0` clears cached prompts and stops retaining
-them. Increasing the limit re-indexes sessions that still exist on the server and were previously truncated; prompts
-from deleted sessions that were already evicted cannot be recovered.
+## Quick start
 
-TUI storage is managed by OpenCode and defaults to `~/.local/state/opencode/<channel>/tui/`; it is not the session
-database. Standalone, the index file is
-`plugin.max10240.prompt-search.tui.prompt-search.index.json`; through Unicorn it is
-`plugin.max10240.unicorn.tui.prompt-search.index.json`. With `XDG_STATE_HOME`, the root becomes
-`$XDG_STATE_HOME/opencode`. The plugin reads and writes this file through `context.storage.store`.
+Load it in the TUI configuration:
 
 ```jsonc
 {
-  "plugins": [
-    {
-      "package": "@max10240/opencode-plugin-prompt-search",
-      "options": { "maxPrompts": 5000 },
-    },
-  ],
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-prompt-search",
+    "options": { "keybind": "ctrl+shift+r" }
+  }]
 }
 ```
 
-Plugin options and `keybind` in `cli.json` can be overridden per machine:
+With Unicorn:
 
 ```jsonc
 {
-  "plugins": [
-    {
-      "package": "@max10240/opencode-plugin-prompt-search",
-      "options": { "keybind": "alt+shift+r" },
-    },
-  ],
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "promptSearch": true },
+      "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 }
+    }
+  }]
 }
 ```
 
-## Testing
+## Using it
 
-```bash
-bun test
-```
+Press `ctrl+shift+r` or search for **Search previous prompts** in the command palette.
 
-Tests use a temporary OpenCode server and a mock provider; no real model is called.
+1. Type words from the prompt you remember.
+2. Use `↑` / `↓` to move through the results.
+3. Press `Enter` to insert the original prompt at the cursor.
+4. Edit it if needed, then send when you are ready.
+
+The shortcut is chosen to avoid OpenCode's built-in bindings. You can change it to anything that feels natural.
+
+## Configuration
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `keybind` | `ctrl+shift+r` | Shortcut that opens prompt search |
+| `maxPrompts` | `2000` | How many recent prompts to keep in the local index |
+
+`maxPrompts` is a storage budget, not a search limit. When the index grows past the budget, the oldest prompts are
+evicted first. Setting it to `0` clears the cache and stops retaining prompts. Raising it re-indexes sessions that are
+still available on the server, but prompts from deleted and already-evicted sessions cannot be recovered.
+
+## Good to know
+
+- **Search is local and cheap.** The index is refreshed incrementally as sessions change; typing does not scan the
+  whole server.
+- **Historical means saved.** If a session was deleted before the plugin ever indexed it, OpenCode can no longer export
+  it, so those prompts cannot be recovered.
+- **Deleting a session does not immediately delete its cached prompts.** They remain until the storage budget evicts
+  them.
+- **A prompt is inserted, never sent.** You always get the final say before it reaches the agent.
+- **The index is separate from the session database.** It is TUI storage, and uninstalling the plugin does not delete
+  your conversations.

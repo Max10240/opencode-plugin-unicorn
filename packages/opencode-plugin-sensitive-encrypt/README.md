@@ -2,68 +2,128 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Encrypt sensitive text or files with an independent public key and decrypt them with a separate private key.
-Plaintext and private keys never enter model context.
+**Handle secrets without putting them in the chat.**
 
-## Tools
+Sometimes the agent needs to work with a secret: an API key, a private config, a credential file. Pasting it into the
+conversation sends it to the model provider and leaves it in the transcript. Writing it to a plaintext file in the
+project is not much better. And if you need to back up or share the secret, a random text file is the last thing you
+want in Git.
 
-- `encrypt_sensitive`: encrypt a single file with `publicKeyForEncrypt` / `publicKeyFileForEncrypt`.
-- `decrypt_sensitive`: decrypt an `ocsec1` envelope with `privateKeyFileForDecrypt`. **It must write to `out`** and
-  never returns plaintext inline.
-- `sensitive_key_info`: show the encryption/decryption public keys and `kid`; private keys are never returned.
+This plugin gives you a simple encryption workflow built around two independent keys: encrypt with a public key,
+decrypt with a private key, and never return plaintext to the conversation. You can encrypt from the TUI or let the
+agent do it, and decryption always writes to a file.
 
-## Configuration
+## When to use it
+
+- You need to store a secret in a repository or backup without committing plaintext.
+- You want to hand an encrypted secret to an agent without revealing its contents.
+- You need to decrypt a secret to a local file for a command, but not into the chat.
+- You want a quick way to encrypt a block of text or a file from the TUI.
+- You already use the sensitive-protection plugin and want the two to work together.
+
+## What you get
+
+- **Separate keys for separate jobs.** Encryption uses a public key; decryption uses a private key. They can belong to
+  different people or purposes.
+- **Text and file encryption.** Encrypt multiline text in memory or encrypt a file on disk.
+- **Decrypt only to a file.** The decrypt tool never prints plaintext inline, so it does not leak into tool output.
+- **Agent-friendly tools.** The agent can encrypt a file, decrypt one to a destination, or inspect the public key
+  fingerprint.
+- **A TUI panel.** Open it with `/encrypt-sensitive` or a keybind; no need to ask the agent.
+- **Protection integration.** When sensitive-protection is enabled, the decryption key, encryption inputs, and decrypted
+  outputs are registered automatically.
+
+## Quick start
+
+Standalone, load the package in both the server and TUI configuration:
 
 ```jsonc
+// opencode.jsonc
 {
-  "sensitiveEncrypt": {
-    "encrypt": true,
-    "decrypt": true,
-    "publicKeyForEncrypt": "-----BEGIN PUBLIC KEY-----...",
-    "publicKeyFileForEncrypt": "sensitive-encrypt/encrypt-public.pem",
-    "privateKeyFileForDecrypt": "sensitive-encrypt/decrypt-private.pem",
-    "maxBytes": 1048576
-  }
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["@max10240/opencode-plugin-sensitive-encrypt"]
 }
 ```
 
-- `encrypt` / `decrypt` default to `true`; set either to `false` or `null` to disable it.
-- `maxBytes` defaults to 1 MiB with a hard limit of 64 MiB.
-- Encryption and decryption keys are independent; they are not derived from each other or checked as a pair.
-- The default directory is `<global config>/sensitive-encrypt/`, with separate `encrypt-*` and `decrypt-*` key pairs.
-- Legacy `publicKey` / `publicKeyFile` remain silently compatible and are equivalent to the new encrypt names.
+```jsonc
+// cli.json
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["@max10240/opencode-plugin-sensitive-encrypt"]
+}
+```
 
-## Key security
+With Unicorn, it is enabled by default:
 
-- Private key files must be regular files with mode `0600`; symlinks are rejected.
-- The private key is re-read for every decryption and is not cached long-term.
-- Decrypted output is written with mode `0600`, atomically replaced, and never overwrites the input or follows
-  symlinks.
-- Losing the private key makes existing ciphertext unrecoverable.
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": { "features": { "sensitiveEncrypt": true } }
+  }]
+}
+```
 
-## TUI
+By default, enabled key pairs are created automatically in `<global config>/sensitive-encrypt/` when the plugin first
+runs. Set `publicKeyFileForEncrypt` or `privateKeyFileForDecrypt` only when you already have keys. Paths in the
+configuration are relative to the global OpenCode config directory unless absolute.
 
-Run `/encrypt-sensitive` or a configured keybind to open the encryption panel. The panel starts in **Text** mode and
-switches to **File** mode with `ctrl+t`:
+## Using it
 
-- **Text**: type arbitrary multiline text. It is encrypted in memory through the plugin RPC, never written as a
-  plaintext file, and does not use the `encrypt_sensitive` tool. An optional ciphertext output path is available.
-- **File**: type the source file path manually and optionally an output path.
-- **Key**: defaults to the public key derived from the decryption private key, so `decrypt_sensitive` can decrypt
-  new output. `Tab` to the key selector and use Left/Right to switch to the configured encryption public key.
+### The TUI panel
 
-Press `f2` to encrypt, `ctrl+t` to switch Text/File, `Tab` to move through output/key, and `Esc` to close. The result
-dialog stays open and lets you copy the ciphertext or output path. Results never enter model context.
+Run `/encrypt-sensitive` or press the configured keybind.
 
-## Protection plugin integration
+- **Text mode** is the default. Type or paste multiline text; it is encrypted in memory and never written as a
+  plaintext file. You can optionally save the ciphertext to a path under `$TMPDIR`.
+- **File mode** (`ctrl+t`) encrypts a file under `$TMPDIR`. Enter the source path and an optional output path.
+- **Key selector** lets you choose which public key to encrypt for. It defaults to the public key derived from your
+  decryption key, so the plugin can decrypt the result.
 
-At startup and during decryption, the plugin discovers the `register_sensitive_file` tool at runtime and registers:
+Press `f2` to encrypt, `Tab` to move between output and key, and `Esc` to close. The result dialog stays open so you can
+copy the ciphertext or the output path.
 
-- the decryption private key: `privateKeyFileForDecrypt`, or the default
-  `<keyDirectory>/decrypt-private.pem` when it exists;
-- encryption input files;
-- decrypted output files.
+### The agent tools
 
-Once registered, the protection plugin blocks `read` on the private key and replaces private-key content in tool
-output and context with `[REDACTED:PROTECTED]`. The encryption plugin's own direct file reads are unaffected. If the
-protection plugin is absent, registration is skipped without affecting encryption or decryption.
+| Tool | What it does |
+| --- | --- |
+| `encrypt_sensitive` | Encrypts one file with the configured public key and writes an `ocsec1` envelope |
+| `decrypt_sensitive` | Decrypts an `ocsec1` file to the required `out` path; plaintext is never returned inline |
+| `sensitive_key_info` | Shows the public keys and fingerprints; private keys are never returned |
+
+To make files encrypted by the agent decryptable by this plugin, point `publicKeyFileForEncrypt` at
+`sensitive-encrypt/decrypt-public.pem`, the public half of your decryption key. The TUI panel already does this by
+default.
+
+## Configuration
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | Turn the whole plugin on or off |
+| `encrypt` | `true` | Enable or disable encryption |
+| `decrypt` | `true` | Enable or disable decryption |
+| `publicKeyForEncrypt` | generated | Inline public key (PEM or base64 DER) |
+| `publicKeyFileForEncrypt` | generated | Path to the public key used for encryption |
+| `privateKeyFileForDecrypt` | generated | Path to the private key used for decryption |
+| `maxBytes` | `1048576` | Maximum file size for encryption or decryption; hard limit `64 MiB` |
+
+Only one of `publicKeyForEncrypt` and `publicKeyFileForEncrypt` may be set. The legacy `publicKey` / `publicKeyFile`
+names are still accepted.
+
+## Good to know
+
+- **Lose the private key and the data is gone.** There is no recovery path. Back up your key files.
+- **Private keys stay on disk with strict permissions.** They must be regular files with mode `0600`; symlinks are
+  rejected.
+- **Decryption writes files, never chat messages.** The output is created with mode `0600`, never overwrites the input,
+  and does not follow symlinks.
+- **File paths stay under `$TMPDIR`.** Both the agent tools and the TUI File mode read and write only under the system
+  temporary directory; secret input files must also be readable only by you (`0600`). Stage a file there, encrypt it,
+  then move the ciphertext where you need it.
+- **Encryption is not a vault.** It protects stored data and lets the agent handle ciphertext without seeing plaintext,
+  but it does not stop the agent from reading a decrypted file with other tools. Pair it with sensitive-protection for
+  that.
+- **Encryption and decryption keys are independent.** The plugin does not check that they form a pair; use matching keys
+  when you want to decrypt your own output.
+- **The protection plugin is optional.** Without it, encryption and decryption still work, but automatic key/file
+  registration is skipped.

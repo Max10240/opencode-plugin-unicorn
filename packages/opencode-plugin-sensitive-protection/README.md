@@ -2,44 +2,102 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Register protected files and block or redact them before file reads or tool output reach model context. Works
-standalone and does not depend on the encryption plugin.
+**Keep secrets out of the model conversation.**
 
-## Capabilities
+Your repository contains a `.env`, a private key, a customer export, or a config file with a production token. The agent
+has shell access and can read any of them. Even a harmless request like "check the database settings" can send those
+contents to the model provider and leave them in the transcript.
 
-- `register_sensitive_file`: register a file by reading it into memory for matching; contents are never returned.
-- `/protect-sensitive-file <path>`: register a file through the server command.
-- `/protect-sensitive-file-ui` / keymap: prompt for a path in the TUI and register it.
-- Exact-path `read` calls on a protected file throw `Tool.Error`.
-- Sensitive spans in any tool output are replaced with `[REDACTED:PROTECTED]`.
-- Final redaction is applied to model request context and HTTP request bodies.
-- The registry persists entries by `kid`/path.
-- When the encryption plugin is present, its decryption private key is registered automatically.
+Sensitive protection lets you mark files as private. The plugin blocks direct reads and replaces matching content with
+`[REDACTED:PROTECTED]` before it reaches the model, whether it came from a read, a shell command, or another tool.
 
-Inputs to `grep`, `shell`, `edit`, and `write` are not blocked; their output is redacted.
+## When to use it
 
-## Configuration
+- Your project contains credentials, tokens, private keys, or customer data.
+- You use OpenCode on a shared machine or with a hosted model provider.
+- You want a safety net for accidental `cat .env` moments.
+- You want the agent to work in a repository without reading its secrets.
+- You use the sensitive-encrypt plugin and want its keys protected automatically.
+
+## What you get
+
+- **Block direct reads.** A `read` call on a protected file fails instead of returning its contents.
+- **Redact everything else.** Secrets that appear in tool output are replaced before the model sees them.
+- **Cover the final request.** Redaction is applied to the full model request, not only to the visible tool result.
+- **Register from anywhere.** Ask the agent, use a server command, or open a TUI prompt. The agent never receives the
+  file contents during registration.
+- **Remember across sessions.** The registry is persisted by file path, so protection survives restarts.
+- **Works with encryption.** When the encryption plugin is present, its decryption key and the files it handles are
+  protected automatically.
+
+## Quick start
+
+Standalone, load the package in the server configuration. Add the TUI entry too if you want the interactive
+registration command:
 
 ```jsonc
+// opencode.jsonc
 {
-  "sensitiveProtection": {
-    "enabled": true,
-    "blockReads": true,
-    "redactContext": true,
-    "redactHttp": true,
-    "maxContentBytes": 8388608
-  }
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["@max10240/opencode-plugin-sensitive-protection"]
 }
 ```
 
-- `enabled` defaults to `true`.
-- `blockReads` defaults to `true`.
-- `maxContentBytes` defaults to 8 MiB with a hard limit of 64 MiB.
-- Matching supports whole content, individual lines, JSON escaping, Base64/Base64URL, and hex.
+```jsonc
+// cli.json
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["@max10240/opencode-plugin-sensitive-protection"]
+}
+```
 
-## Escape hatch
+With Unicorn, it is enabled by default:
 
-Place this in the current project:
+```jsonc
+{
+  "plugins": [{
+    "package": "@max10240/opencode-plugin-unicorn",
+    "options": {
+      "features": { "sensitiveProtection": true },
+      "sensitiveProtection": {
+        "blockReads": true,
+        "redactContext": true,
+        "redactHttp": true
+      }
+    }
+  }]
+}
+```
+
+## Using it
+
+Register a file in whichever way fits your workflow:
+
+- Ask the agent to use `register_sensitive_file` with the path.
+- Run `/protect-sensitive-file <path>` on the server.
+- Run `/protect-sensitive-file-ui` or the configured keymap in the TUI and enter a path.
+
+After that, direct `read` calls on the file are blocked. If its contents show up in any tool output, the matching spans
+become `[REDACTED:PROTECTED]`.
+
+The plugin redacts output from `grep`, shell commands, `edit`, and `write`; it does not block their inputs. Reading the
+file through a shell command is therefore allowed, but the secret is removed before the model sees it.
+
+## Configuration
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | Turn protection on or off |
+| `blockReads` | `true` | Block exact-path `read` calls on protected files |
+| `redactContext` | `true` | Redact secrets from model request context |
+| `redactHttp` | `true` | Redact secrets from requests sent to the model provider |
+| `maxContentBytes` | `8388608` | Maximum file size loaded for matching; hard limit `64 MiB` |
+
+Matching covers whole content, individual lines, JSON-escaped text, Base64/Base64URL, and hex.
+
+## Project escape hatch
+
+If a particular project needs protection off, create:
 
 ```text
 .opencode/sensitive-protection.json
@@ -49,19 +107,13 @@ Place this in the current project:
 { "enabled": false }
 ```
 
-This disables protection only for the current project/location and does not affect the encryption plugin.
+This affects only the current project and does not disable the encryption plugin.
 
-## Data
+## Good to know
 
-The registry is stored at:
-
-```text
-<XDG_DATA_HOME or ~/.local/share>/opencode/sensitive-protection/registry.json
-```
-
-Only paths and metadata are stored, never file contents.
-
-## Limitations
-
-Plugin hooks cannot guarantee detection across every encoding, compression format, split, MCP operation, or
-subagent-internal operation. Strong isolation requires an OS sandbox or a separate user.
+- **This is a strong safety net, not a sandbox.** A determined agent, unusual encoding, compressed data, split output,
+  or an MCP/subagent operation may evade matching. For strong isolation, use an OS sandbox or a separate user.
+- **Only paths and metadata are stored.** The registry lives under
+  `<XDG_DATA_HOME or ~/.local/share>/opencode/sensitive-protection/registry.json`; file contents are not kept there.
+- **Registration is per file path.** Moving or renaming a protected file may require registering it again.
+- **The agent can still see that a file exists.** Protection hides content, not file names or metadata.
