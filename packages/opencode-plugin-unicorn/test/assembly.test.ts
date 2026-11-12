@@ -32,6 +32,40 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
   }
 })
 
+test("Unicorn wires OpenCode Go usage through its feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let rpc = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: enabled,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+        },
+      },
+      rpc: {
+        register: async () => {
+          rpc++
+          return { dispose: async () => { rpc-- } }
+        },
+      },
+      integration: {
+        get: async () => ({ data: { connections: [] } }),
+        connection: { active: async () => undefined, resolve: async () => undefined },
+      },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(rpc).toBe(enabled ? 1 : 0)
+    if (cleanup) await cleanup()
+    expect(rpc).toBe(0)
+  }
+})
+
 test("Unicorn exposes sensitive encryption by default and passes through nested key settings", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-sensitive-"))
   const secret = path.join(directory, "secret.txt")

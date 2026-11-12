@@ -24,6 +24,38 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
   }
 })
 
+test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let layers = 0
+    let subscriptions = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: enabled,
+          promptSearch: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          sessionSearch: false,
+          nonBlocking: false,
+        },
+      },
+      keymap: { layer: () => { layers++ } },
+      client: { rpc: () => ({ accounts: async () => ({ accounts: [] }), list: async () => ({ accounts: [] }) }) },
+      data: { on: () => { subscriptions++; return () => {} } },
+      ui: { dialog: { show: () => {}, set: () => {}, clear: () => {} } },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(layers).toBe(enabled ? 1 : 0)
+    expect(subscriptions).toBe(enabled ? 3 : 0)
+    if (cleanup) await cleanup()
+  }
+})
+
 test("non-blocking is wired through Unicorn's independent feature gate", async () => {
   for (const enabled of [false, true]) {
     let subscriptions = 0

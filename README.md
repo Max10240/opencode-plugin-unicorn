@@ -14,6 +14,7 @@ A Bun workspace monorepo for a collection of OpenCode plugins.
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen): generate or edit images through standard `/images/*` endpoints.
 - [`@max10240/opencode-plugin-notepad`](./packages/opencode-plugin-notepad): capture and manage folder-scoped or global notes without interrupting a session.
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img): preview server-side images by ID over a UI-only RPC without adding image content to model context.
+- [`@max10240/opencode-plugin-opencode-go-usage`](./packages/opencode-plugin-opencode-go-usage): show OpenCode Go 5-hour, weekly, and monthly usage for every signed-in account in the TUI.
 - [`@max10240/opencode-plugin-sensitive-encrypt`](./packages/opencode-plugin-sensitive-encrypt): encrypt files under `$TMPDIR` with a configured public key and decrypt them with a separate private key.
 - [`@max10240/opencode-plugin-sensitive-protection`](./packages/opencode-plugin-sensitive-protection): register protected files and block or redact them before they reach model context.
 - [`@max10240/opencode-plugin-recomended-opencode-config`](./packages/opencode-plugin-recomended-opencode-config): optionally add recommended global rules and inline commands, and set `store:false` on existing OpenAI configuration.

@@ -14,6 +14,7 @@
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen/README.zh-CN.md)：通过标准 `/images/*` endpoint 生成或编辑图片。
 - [`@max10240/opencode-plugin-notepad`](./packages/opencode-plugin-notepad/README.zh-CN.md)：不打断当前对话，按文件夹或全局记录和管理笔记。
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img/README.zh-CN.md)：通过 ID 和 UI 专用 RPC 预览 server 图片，不将图片内容加入模型上下文。
+- [`@max10240/opencode-plugin-opencode-go-usage`](./packages/opencode-plugin-opencode-go-usage/README.zh-CN.md)：在 TUI 中展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量。
 - [`@max10240/opencode-plugin-sensitive-encrypt`](./packages/opencode-plugin-sensitive-encrypt/README.zh-CN.md)：用配置的公钥加密、私钥解密 `$TMPDIR` 下的敏感文件。
 - [`@max10240/opencode-plugin-sensitive-protection`](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md)：登记保护文件，并在读取或工具输出进入模型上下文前阻断或脱敏。
 - [`@max10240/opencode-plugin-recomended-opencode-config`](./packages/opencode-plugin-recomended-opencode-config/README.zh-CN.md)：可选补充全局规则和 inline commands，并设置已有 OpenAI 的 `store:false`。

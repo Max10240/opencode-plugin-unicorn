@@ -9,6 +9,7 @@ export interface UnicornOptions {
   readonly sensitiveProtection?: Readonly<Record<string, unknown>>
   readonly sessionSearch?: Readonly<Record<string, unknown>>
   readonly nonBlocking?: Readonly<Record<string, unknown>>
+  readonly opencodeGoUsage?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
     readonly sendMessageAcrossSessions?: boolean
@@ -20,6 +21,7 @@ export interface UnicornOptions {
     readonly sensitiveProtection?: boolean
     readonly sessionSearch?: boolean
     readonly nonBlocking?: boolean
+    readonly opencodeGoUsage?: boolean
   }
 }
 
@@ -81,6 +83,11 @@ export function nonBlockingFeatureEnabled(options: Readonly<Record<string, unkno
 export function showImgFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.showImg !== false
+}
+
+export function opencodeGoUsageFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.opencodeGoUsage !== false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -20,6 +20,7 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
         "promptSearch": true,
         "sessionSearch": true,
         "nonBlocking": true,
+        "opencodeGoUsage": true,
         "recommendedOpencodeConfig": false
       },
       "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
@@ -55,6 +56,7 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 | `promptSearch` | prompt 检索，如 `keybind`、`maxPrompts` | `cli.json` |
 | `sessionSearch` | 当前对话检索，如 `keybind` | `cli.json` |
 | `nonBlocking` | 长时间阻塞工具自动后台，如 `thresholdMs` | `cli.json` |
+| `opencodeGoUsage` | 所有已登录账号的 OpenCode Go 用量，如 `keybind` | `opencode.json(c)` 和 `cli.json` |
 
 `recommendedOpencodeConfig` 对应独立的
 [`@max10240/opencode-plugin-recomended-opencode-config`](../opencode-plugin-recomended-opencode-config/README.zh-CN.md)。
@@ -67,6 +69,9 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 `features.sensitiveEncrypt` 默认开启，设为 `false` 可关闭。`sensitiveEncrypt` 提供 `encrypt_sensitive`、`decrypt_sensitive` 和 `sensitive_key_info`；加密、解密各用独立密钥，默认按角色生成密钥对。
 `encrypt` / `decrypt` 可设为 `false` 或 `null` 单独关闭。TUI 可用 `/encrypt-sensitive` 或 keybind 打开加密面板；默认 Text，可按 `ctrl+t` 切到 File；默认使用解密私钥推导的公钥，可用 Tab/左右方向键切换；文本在内存中加密、不落明文文件，结果不会进入模型上下文。
 `features.sensitiveProtection` 默认开启；设为 `false` 可关闭。它会自动登记加解密文件，阻止直接 `read` 保护文件，并把工具输出中的敏感内容替换为 `[REDACTED:PROTECTED]`。
+
+OpenCode Go 用量默认在当前 server 存在 `opencode` credential 时开启。输入 `/usage-opencode-go` 可查看所有已登录
+账号的 5 小时、每周和每月用量；默认不绑定快捷键。设置 `features.opencodeGoUsage: false` 可关闭。
 
 记事本默认开启。按 `ctrl+shift+n`、在命令面板搜索 **Open notepad**，或输入 `/notepad` 打开。新笔记默认归入当前文件夹；按 `g` 可在当前文件夹和全局之间切换。数据存储在同一 server 上，所有 session 共享。
 
@@ -82,10 +87,11 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true },
+      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true, "opencodeGoUsage": true },
       "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
       "sessionSearch": { "keybind": "ctrl+shift+f" },
       "nonBlocking": { "thresholdMs": 10000 },
+      "opencodeGoUsage": {},
       "showImg": {}
     }
   }]
