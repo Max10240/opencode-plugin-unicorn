@@ -45,6 +45,7 @@ beforeAll(async () => {
       notepad: true,
       sensitiveEncrypt: true,
       sensitiveProtection: true,
+      nonBlocking: false,
     },
     promptSearch: { keybind: "f12", maxPrompts: 2_000 },
     sessionSearch: { keybind: "f11" },

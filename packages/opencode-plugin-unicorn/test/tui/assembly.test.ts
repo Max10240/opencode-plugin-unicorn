@@ -10,7 +10,7 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
       let slots = 0
       const context = {
         options: {
-          features: { promptSearch: false, sessionSearch: false, showImg: feature },
+          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false },
           showImg: { features: { showImg: nested } },
         },
         ui: { slot: () => { slots++; return () => { slots-- } } },
@@ -21,6 +21,42 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
       if (cleanup) await cleanup()
       expect(slots).toBe(0)
     }
+  }
+})
+
+test("non-blocking is wired through Unicorn's independent feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let subscriptions = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          promptSearch: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          sessionSearch: false,
+          nonBlocking: enabled,
+        },
+      },
+      data: {
+        on: () => {
+          subscriptions++
+          return () => {}
+        },
+        session: { list: () => [], message: { list: () => [], get: () => undefined } },
+        shell: { get: () => undefined },
+      },
+      client: { session: { background: async () => {} } },
+      ui: { toast: { show: () => {} }, slot: () => () => {} },
+      keymap: { layer: () => {} },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(subscriptions).toBe(enabled ? 9 : 0)
+    if (cleanup) await cleanup()
   }
 })
 

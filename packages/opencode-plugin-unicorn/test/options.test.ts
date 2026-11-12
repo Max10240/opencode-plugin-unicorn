@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, imageGenFeatureEnabled, notepadFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -44,7 +44,7 @@ test("recommended config's feature gate does not rewrite its nested enabled opti
 })
 
 test("every child receives exactly its own options, including unknown nested fields", () => {
-  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch"]
+  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking"]
   const options = Object.freeze({
     features: Object.freeze({ imageGen: false }), model: "legacy-model", keybind: "legacy-key", maxPrompts: 99, sessionSearchKeybind: "legacy-search-key",
     ...Object.fromEntries(names.map((name) => [name, Object.freeze({ marker: name, future: { values: [1, 2] } })])),
@@ -85,11 +85,11 @@ test("scoping options preserves live host getters and does not change sibling co
 
 test("feature gates win over child options and remain independent", () => {
   const options = {
-    features: { imageGen: false, showImg: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false, notepad: false },
+    features: { imageGen: false, showImg: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false, notepad: false, nonBlocking: false },
     recommendedOpencodeConfig: { enabled: true }, imageGen: { enabled: true }, sessionSearch: { keybind: "f11" },
   }
   expect(recommendedConfigFeatureOption(options)).toBe(false)
-  for (const enabled of [imageGenFeatureEnabled, notepadFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled]) {
+  for (const enabled of [imageGenFeatureEnabled, notepadFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled, nonBlockingFeatureEnabled]) {
     expect(enabled(options)).toBe(false)
     expect(enabled({})).toBe(true)
   }
@@ -97,6 +97,13 @@ test("feature gates win over child options and remain independent", () => {
   expect(sensitiveEncryptFeatureEnabled({})).toBe(true)
   expect(sensitiveProtectionFeatureEnabled(options)).toBe(false)
   expect(sensitiveProtectionFeatureEnabled({})).toBe(true)
+})
+
+test("non-blocking is independently enabled and does not affect sibling features", () => {
+  expect(nonBlockingFeatureEnabled({})).toBe(true)
+  expect(nonBlockingFeatureEnabled({ features: { nonBlocking: false } })).toBe(false)
+  expect(nonBlockingFeatureEnabled({ features: { sessionSearch: false, showImg: false } })).toBe(true)
+  expect(sessionSearchFeatureEnabled({ features: { nonBlocking: false } })).toBe(true)
 })
 
 test("show_img can be enabled and disabled independently of image generation and prompt search", () => {

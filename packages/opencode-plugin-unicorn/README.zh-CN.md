@@ -19,6 +19,7 @@ Unicorn 只负责独立插件的配置开关、装配和清理，不直接实现
         "showImg": true,
         "promptSearch": true,
         "sessionSearch": true,
+        "nonBlocking": true,
         "recommendedOpencodeConfig": false
       },
       "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
@@ -53,6 +54,7 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
 | `sensitiveProtection` | 文件保护/脱敏，如 `blockReads`、`maxContentBytes` | `opencode.json(c)` |
 | `promptSearch` | prompt 检索，如 `keybind`、`maxPrompts` | `cli.json` |
 | `sessionSearch` | 当前对话检索，如 `keybind` | `cli.json` |
+| `nonBlocking` | 长时间阻塞工具自动后台，如 `thresholdMs` | `cli.json` |
 
 `recommendedOpencodeConfig` 对应独立的
 [`@max10240/opencode-plugin-recomended-opencode-config`](../opencode-plugin-recomended-opencode-config/README.zh-CN.md)。
@@ -80,9 +82,10 @@ Unicorn 将同名嵌套对象原样作为该子插件的 `options` 传入，不�
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true },
+      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true },
       "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
       "sessionSearch": { "keybind": "ctrl+shift+f" },
+      "nonBlocking": { "thresholdMs": 10000 },
       "showImg": {}
     }
   }]

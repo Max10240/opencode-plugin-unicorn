@@ -47,5 +47,6 @@ export {
   sensitiveEncryptFeatureEnabled,
   sensitiveProtectionFeatureEnabled,
   sessionSearchFeatureEnabled,
+  nonBlockingFeatureEnabled,
   showImgFeatureEnabled,
 } from "./options.js"

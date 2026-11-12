@@ -10,6 +10,7 @@ A Bun workspace monorepo for a collection of OpenCode plugins.
 - [`@max10240/opencode-plugin-send-message-across-sessions`](./packages/opencode-plugin-send-message-across-sessions): send messages between sessions in different working directories.
 - [`@max10240/opencode-plugin-prompt-search`](./packages/opencode-plugin-prompt-search): cross-session prompt reverse search for the TUI.
 - [`@max10240/opencode-plugin-session-search`](./packages/opencode-plugin-session-search): search user and agent messages in the current session and jump to a result, including saved pre-compaction history.
+- [`@max10240/opencode-plugin-non-blocking`](./packages/opencode-plugin-non-blocking): move long-running blocking Bash and subagent tool calls to the background.
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen): generate or edit images through standard `/images/*` endpoints.
 - [`@max10240/opencode-plugin-notepad`](./packages/opencode-plugin-notepad): capture and manage folder-scoped or global notes without interrupting a session.
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img): preview server-side images by ID over a UI-only RPC without adding image content to model context.

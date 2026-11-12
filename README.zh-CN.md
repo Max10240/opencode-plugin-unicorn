@@ -10,6 +10,7 @@
 - [`@max10240/opencode-plugin-send-message-across-sessions`](./packages/opencode-plugin-send-message-across-sessions/README.zh-CN.md)：跨 cwd 的 session 消息插件。
 - [`@max10240/opencode-plugin-prompt-search`](./packages/opencode-plugin-prompt-search/README.zh-CN.md)：TUI 跨 session prompt reverse-search 插件。
 - [`@max10240/opencode-plugin-session-search`](./packages/opencode-plugin-session-search/README.zh-CN.md)：搜索当前 session 的用户/agent 对话，回车自动滚动定位，包含已保存的压缩前历史。
+- [`@max10240/opencode-plugin-non-blocking`](./packages/opencode-plugin-non-blocking/README.zh-CN.md)：把长时间运行的 Bash 和 subagent 阻塞工具自动放入后台。
 - [`@max10240/opencode-plugin-image-gen`](./packages/opencode-plugin-image-gen/README.zh-CN.md)：通过标准 `/images/*` endpoint 生成或编辑图片。
 - [`@max10240/opencode-plugin-notepad`](./packages/opencode-plugin-notepad/README.zh-CN.md)：不打断当前对话，按文件夹或全局记录和管理笔记。
 - [`@max10240/opencode-plugin-show-img`](./packages/opencode-plugin-show-img/README.zh-CN.md)：通过 ID 和 UI 专用 RPC 预览 server 图片，不将图片内容加入模型上下文。

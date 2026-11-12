@@ -9,13 +9,14 @@ import { packWorkspace } from "../scripts/test-artifacts.mjs"
 setDefaultTimeout(360_000)
 
 const repository = path.resolve(fileURLToPath(import.meta.url), "../..")
-const tuiPackages = new Set(["unicorn", "prompt-search", "show-img", "session-search", "sensitive-encrypt", "sensitive-protection", "notepad"])
+const tuiPackages = new Set(["unicorn", "prompt-search", "show-img", "session-search", "sensitive-encrypt", "sensitive-protection", "notepad", "non-blocking"])
 const packages = [
   { directory: "opencode-plugin-send-message-across-sessions", kind: "send-message" },
   { directory: "opencode-plugin-image-gen", kind: "image-gen" },
   { directory: "opencode-plugin-notepad", kind: "notepad" },
   { directory: "opencode-plugin-prompt-search", kind: "prompt-search" },
   { directory: "opencode-plugin-session-search", kind: "session-search" },
+  { directory: "opencode-plugin-non-blocking", kind: "non-blocking" },
   { directory: "opencode-plugin-show-img", kind: "show-img" },
   { directory: "opencode-plugin-sensitive-encrypt", kind: "sensitive-encrypt" },
   { directory: "opencode-plugin-sensitive-protection", kind: "sensitive-protection" },

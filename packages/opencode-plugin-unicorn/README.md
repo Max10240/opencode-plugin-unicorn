@@ -20,6 +20,7 @@ modify global configuration itself.
         "showImg": true,
         "promptSearch": true,
         "sessionSearch": true,
+        "nonBlocking": true,
         "recommendedOpencodeConfig": false
       },
       "imageGen": { "model": "openai/gpt-image-2.5-sunburst" },
@@ -55,6 +56,7 @@ example `showImg.features.showImg: false`; the outer `features.showImg: false` a
 | `sensitiveProtection` | File protection/redaction, such as `blockReads`, `maxContentBytes` | `opencode.json(c)` |
 | `promptSearch` | Prompt search, such as `keybind`, `maxPrompts` | `cli.json` |
 | `sessionSearch` | Current-session search, such as `keybind` | `cli.json` |
+| `nonBlocking` | Long-running blocking tools, such as `thresholdMs` | `cli.json` |
 
 `recommendedOpencodeConfig` maps to the standalone
 [`@max10240/opencode-plugin-recomended-opencode-config`](../opencode-plugin-recomended-opencode-config).
@@ -88,9 +90,10 @@ A remote client loads Unicorn in `cli.json`; server-only plugins do not run in t
   "plugins": [{
     "package": "@max10240/opencode-plugin-unicorn",
     "options": {
-      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true },
+      "features": { "promptSearch": true, "sessionSearch": true, "showImg": true, "nonBlocking": true },
       "promptSearch": { "keybind": "ctrl+shift+r", "maxPrompts": 2000 },
       "sessionSearch": { "keybind": "ctrl+shift+f" },
+      "nonBlocking": { "thresholdMs": 10000 },
       "showImg": {}
     }
   }]

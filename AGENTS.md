@@ -2,7 +2,7 @@
 
 ## OpenCode Source Reference
 
-When developing plugins, use the OpenCode source tree to confirm APIs, runtime behavior, and implementation details.
+Before consulting OpenCode source, update the checkout at `/Users/max/daily/opencode` to the latest version and use that tree to confirm APIs and runtime behavior.
 
 ## Check Commands
 
