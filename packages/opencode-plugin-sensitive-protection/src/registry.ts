@@ -1,20 +1,29 @@
-import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import os from "node:os"
+import type { ReadPolicy, WritePolicy } from "./options.js"
 
 export const REDACTION_TOKEN = "[REDACTED:PROTECTED]"
 
-type Entry = {
+export type ProtectionSource = "manual" | "builtin" | "custom"
+
+export type ProtectionEntry = {
   readonly path: string
   readonly role: string
   readonly keyID?: string
   readonly label?: string
   readonly createdAt: number
+  readonly read: ReadPolicy
+  readonly write: WritePolicy
+  readonly source: ProtectionSource
+}
+
+type Entry = ProtectionEntry & {
   readonly patterns: readonly string[]
 }
 
-type StoredEntry = Omit<Entry, "patterns">
+type StoredEntry = ProtectionEntry
 
 export class ProtectionRegistry {
   private readonly entries = new Map<string, Entry>()
@@ -37,6 +46,13 @@ export class ProtectionRegistry {
     return this.entries.has(value)
   }
 
+  get(value: string): ProtectionEntry | undefined {
+    const entry = this.entries.get(value)
+    if (!entry) return
+    const { patterns: _patterns, ...publicEntry } = entry
+    return publicEntry
+  }
+
   async load() {
     const file = path.join(this.directory, "registry.json")
     let parsed: unknown
@@ -56,6 +72,9 @@ export class ProtectionRegistry {
           keyID: entry.keyID,
           label: entry.label,
           createdAt: entry.createdAt,
+          read: entry.read,
+          write: entry.write,
+          source: entry.source ?? "manual",
           persist: false,
         })
       } catch {
@@ -71,54 +90,83 @@ export class ProtectionRegistry {
       keyID?: string
       label?: string
       createdAt?: number
+      read?: ReadPolicy
+      write?: WritePolicy
+      source?: ProtectionSource
       persist?: boolean
     },
   ) {
     const resolved = await realpath(value)
     const info = await lstat(resolved)
-    if (info.isSymbolicLink()) throw new Error("Protected file must not be a symbolic link")
     if (!info.isFile()) throw new Error("Protected file must be a regular file")
     if (info.size > this.maxContentBytes) throw new Error(`Protected file exceeds the ${this.maxContentBytes} byte limit`)
 
     const content = await readFile(resolved)
-    const patterns = buildPatterns(content)
-    const entry: Entry = {
-      path: resolved,
-      role: input.role,
-      ...(input.keyID === undefined ? {} : { keyID: input.keyID }),
-      ...(input.label === undefined ? {} : { label: input.label }),
-      createdAt: input.createdAt ?? Date.now(),
-      patterns,
-    }
-    this.entries.set(resolved, entry)
-    this.patternsCache = undefined
-    this.directCache = undefined
-    this.shortCache = undefined
-    this.matcher = undefined
-    if (input.persist !== false) void this.queueSave()
-    return { path: resolved, bytes: content.length }
+    const result = this.setEntry(resolved, buildPatterns(content), {
+      ...input,
+      read: input.read ?? "block",
+      write: input.write ?? "allow",
+      source: input.source ?? "manual",
+    })
+    return { path: result.path, bytes: content.length }
+  }
+
+  async registerPatterns(
+    value: string,
+    patterns: readonly string[],
+    input: {
+      role: string
+      keyID?: string
+      label?: string
+      createdAt?: number
+      read?: ReadPolicy
+      write?: WritePolicy
+      source?: ProtectionSource
+      persist?: boolean
+    },
+  ) {
+    const resolved = await realpath(value)
+    const info = await lstat(resolved)
+    if (!info.isFile()) throw new Error("Protected file must be a regular file")
+    return this.setEntry(resolved, patterns, {
+      ...input,
+      read: input.read ?? "redact",
+      write: input.write ?? "block",
+      source: input.source ?? "custom",
+    })
+  }
+
+  remove(value: string) {
+    const removed = this.entries.delete(value)
+    if (!removed) return false
+    this.invalidate()
+    return true
   }
 
   redact(text: string) {
-    if (!text) return text
+    return this.redactWithCount(text).text
+  }
+
+  redactWithCount(text: string): { text: string; count: number } {
+    if (!text) return { text, count: 0 }
     const patterns = this.patternsCache ??= [...new Set([...this.entries.values()].flatMap((entry) => entry.patterns))]
-    if (patterns.length === 0) return text
-    // Huge whole-file/base64 patterns are cheapest with native includes. Keep them out of the
-    // combined regex so the regex program stays bounded.
+    if (patterns.length === 0) return { text, count: 0 }
     const direct = this.directCache ??= patterns.filter((pattern) => pattern.length > 256)
     const short = this.shortCache ??= patterns.filter((pattern) => pattern.length <= 256)
-    // Most outputs contain no protected text. One combined scan proves that without allocating or
-    // replacing anything, which is where the optimization pays off.
-    if (!direct.some((pattern) => text.includes(pattern)) && !this.matchesShort(text, short)) return text
-    // A replacement can create or destroy a later match, so anything that does match keeps the
-    // original registration-order replacement semantics exactly.
+    if (!direct.some((pattern) => text.includes(pattern)) && !this.matchesShort(text, short)) {
+      return { text, count: 0 }
+    }
     let value = text
+    let count = 0
     for (const entry of this.entries.values()) {
       for (const pattern of entry.patterns) {
-        if (pattern && value.includes(pattern)) value = value.split(pattern).join(REDACTION_TOKEN)
+        if (!pattern || !value.includes(pattern)) continue
+        const parts = value.split(pattern)
+        count += parts.length - 1
+        value = parts.join(REDACTION_TOKEN)
       }
     }
-    return value
+    return { text: value, count }
   }
 
   private matchesShort(text: string, patterns: readonly string[]) {
@@ -139,16 +187,18 @@ export class ProtectionRegistry {
     }
   }
 
-  redactValue(value: unknown): { value: unknown; changed: boolean } {
-    if (this.entries.size === 0) return { value, changed: false }
+  redactValue(value: unknown): { value: unknown; changed: boolean; count: number } {
+    if (this.entries.size === 0) return { value, changed: false, count: 0 }
     if (typeof value === "string") {
-      const next = this.redact(value)
-      return { value: next, changed: next !== value }
+      const result = this.redactWithCount(value)
+      return { value: result.text, changed: result.count > 0, count: result.count }
     }
     if (Array.isArray(value)) {
       let next: unknown[] | undefined
+      let count = 0
       for (let index = 0; index < value.length; index++) {
         const result = this.redactValue(value[index])
+        count += result.count
         if (result.changed) {
           if (!next) next = value.slice(0, index)
           next.push(result.value)
@@ -156,12 +206,14 @@ export class ProtectionRegistry {
           next.push(value[index])
         }
       }
-      return next ? { value: next, changed: true } : { value, changed: false }
+      return next ? { value: next, changed: true, count } : { value, changed: false, count }
     }
     if (value && typeof value === "object") {
       let next: Record<string, unknown> | undefined
+      let count = 0
       for (const [key, item] of Object.entries(value)) {
         const result = this.redactValue(item)
+        count += result.count
         if (result.changed) {
           if (!next) next = { ...(value as Record<string, unknown>) }
           next[key] = result.value
@@ -169,13 +221,51 @@ export class ProtectionRegistry {
           next[key] = item
         }
       }
-      return next ? { value: next, changed: true } : { value, changed: false }
+      return next ? { value: next, changed: true, count } : { value, changed: false, count }
     }
-    return { value, changed: false }
+    return { value, changed: false, count: 0 }
   }
 
   async flush() {
     await this.queueSave()
+  }
+
+  private setEntry(
+    resolved: string,
+    patterns: readonly string[],
+    input: {
+      role: string
+      keyID?: string
+      label?: string
+      createdAt?: number
+      read: ReadPolicy
+      write: WritePolicy
+      source: ProtectionSource
+      persist?: boolean
+    },
+  ) {
+    const entry: Entry = {
+      path: resolved,
+      role: input.role,
+      ...(input.keyID === undefined ? {} : { keyID: input.keyID }),
+      ...(input.label === undefined ? {} : { label: input.label }),
+      createdAt: input.createdAt ?? Date.now(),
+      read: input.read,
+      write: input.write,
+      source: input.source,
+      patterns: [...new Set(patterns)].sort((left, right) => right.length - left.length),
+    }
+    this.entries.set(resolved, entry)
+    this.invalidate()
+    if (input.persist !== false && entry.source === "manual") void this.queueSave()
+    return { path: resolved, bytes: entry.patterns.reduce((total, pattern) => total + pattern.length, 0) }
+  }
+
+  private invalidate() {
+    this.patternsCache = undefined
+    this.directCache = undefined
+    this.shortCache = undefined
+    this.matcher = undefined
   }
 
   private queueSave() {
@@ -187,9 +277,11 @@ export class ProtectionRegistry {
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
     const file = path.join(this.directory, "registry.json")
     const temporary = path.join(this.directory, `.registry.${randomUUID()}.tmp`)
-    const entries: StoredEntry[] = [...this.entries.values()].map(({ patterns: _patterns, ...entry }) => entry)
+    const entries: StoredEntry[] = [...this.entries.values()]
+      .filter((entry) => entry.source === "manual")
+      .map(({ patterns: _patterns, ...entry }) => entry)
     try {
-      await writeFile(temporary, JSON.stringify({ version: 1, entries }, null, 2), { mode: 0o600, flag: "wx" })
+      await writeFile(temporary, JSON.stringify({ version: 2, entries }, null, 2), { mode: 0o600, flag: "wx" })
       await rename(temporary, file)
     } finally {
       await unlink(temporary).catch(() => {})
@@ -235,6 +327,6 @@ export async function resolveProtectedPath(value: string, directory: string) {
 }
 
 export async function fileIsRegular(value: string) {
-  const info = await stat(value).catch(() => undefined)
+  const info = await lstat(value).catch(() => undefined)
   return info?.isFile() === true
 }

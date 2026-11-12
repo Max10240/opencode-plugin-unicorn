@@ -73,7 +73,7 @@ the same name:
 | Image preview | `features.showImg` | Shows images inline without adding image bytes to model context |
 | Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
-| Sensitive protection | `features.sensitiveProtection` | Blocks reads of protected files and redacts their contents from model context |
+| Sensitive protection | `features.sensitiveProtection` | Protects credential files by redacting secret values and blocking private keys |
 | Recommended config | `features.recommendedOpencodeConfig` | Adds curated global rules and commands, and sets OpenAI `store:false` |
 
 ## Feature configuration
@@ -91,7 +91,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
-| Sensitive protection | `sensitiveProtection` | `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes` |
+| Sensitive protection | `sensitiveProtection` | `builtins`, `disabledBuiltinGroups`, `customFiles`, `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes`, `notifications` |
 | Recommended config | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<name>: false` always wins and disables that feature without affecting the others. A plugin's own disable

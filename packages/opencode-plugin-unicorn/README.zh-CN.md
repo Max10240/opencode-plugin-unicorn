@@ -71,7 +71,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | 图片预览 | `features.showImg` | 在对话里显示图片，不把图片字节加入模型上下文 |
 | 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
 | 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
-| 敏感信息保护 | `features.sensitiveProtection` | 阻止读取保护文件，并从模型上下文中脱敏 |
+| 敏感信息保护 | `features.sensitiveProtection` | 保护凭据文件，脱敏 secret 值并阻断私钥 |
 | 推荐配置 | `features.recommendedOpencodeConfig` | 补充精选全局规则和命令，并设置 OpenAI `store:false` |
 
 ## 功能配置
@@ -89,7 +89,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
-| 敏感信息保护 | `sensitiveProtection` | `blockReads`、`redactContext`、`redactHttp`、`maxContentBytes` |
+| 敏感信息保护 | `sensitiveProtection` | `builtins`、`disabledBuiltinGroups`、`customFiles`、`blockReads`、`redactContext`、`redactHttp`、`maxContentBytes`、`notifications` |
 | 推荐配置 | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<名称>: false` 永远优先，会关闭对应功能，且不影响其他功能。子插件自己的关闭参数同样有效，例如

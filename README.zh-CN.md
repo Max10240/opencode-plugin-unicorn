@@ -59,7 +59,7 @@ prompt、在很长的对话里找不到某个决定、密钥不小心进了上�
 | [图片预览](./packages/opencode-plugin-show-img/README.zh-CN.md) | 在对话里直接预览图片，不把图片字节发给模型 | Agent 提到截图、图表或生成的图片，你想马上看到 |
 | [记事本](./packages/opencode-plugin-notepad/README.zh-CN.md) | 按文件夹或全局保存随手笔记 | 突然想到一个后续事项，不想打断当前 Agent |
 | [敏感信息加密](./packages/opencode-plugin-sensitive-encrypt/README.zh-CN.md) | 用公钥加密文本或文件，只解密到文件 | 需要保存、传递或交给 Agent 处理密钥，但不能暴露明文 |
-| [敏感信息保护](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md) | 阻止读取保护文件，并从模型上下文中脱敏 | 当前仓库里有凭据、私钥或客户数据 |
+| [敏感信息保护](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md) | 保护凭据文件，脱敏 secret 值并阻断私钥 | 机器上有凭据、token 或私钥 |
 | [推荐配置](./packages/opencode-plugin-recomended-opencode-config/README.zh-CN.md) | 补充精选规则和命令，并为 OpenAI 设置 `store:false` | 想要一套更安全、更一致的 OpenCode 基线，又不想自己写规则 |
 
 ## 只安装需要的插件

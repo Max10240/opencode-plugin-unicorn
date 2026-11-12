@@ -3,12 +3,14 @@ import type { Context } from "@opencode/plugin/promise/plugin"
 import { Error as ToolError } from "@opencode/plugin/promise/tool"
 import { parseProtectionOptions } from "./options.js"
 import { ProtectionRegistry, REDACTION_TOKEN, resolveProtectedPath } from "./registry.js"
+import { builtinFiles, customFiles as buildCustomFiles, ManagedFiles } from "./builtins.js"
+import { ProtectionRpc, type ProtectionHit } from "./rpc.js"
 
 export { REDACTION_TOKEN } from "./registry.js"
 
 export const REGISTER_TOOL_NAME = "register_sensitive_file"
 
-type PluginContext = Pick<Context, "options" | "location" | "tool" | "session" | "command">
+type PluginContext = Pick<Context, "options" | "location" | "tool" | "session" | "command"> & Partial<Pick<Context, "rpc">>
 
 export async function setupSensitiveProtection(context: PluginContext) {
   let options
@@ -23,6 +25,50 @@ export async function setupSensitiveProtection(context: PluginContext) {
   const registry = new ProtectionRegistry(options.dataDirectory, options.maxContentBytes)
   await registry.load()
 
+  let notifyHit: ((hit: ProtectionHit) => void) | undefined
+  let rpcDispose: (() => Promise<void> | void) | undefined
+  if (context.rpc && options.notifications) {
+    try {
+      const registration = await context.rpc.register(ProtectionRpc, {})
+      rpcDispose = () => registration.dispose()
+      notifyHit = (hit) => {
+        void registration.events.emit("hit", hit).catch(() => {})
+      }
+    } catch {
+      // Protection still works when the TUI does not host the RPC event channel.
+    }
+  }
+  const notify = (hit: ProtectionHit) => notifyHit?.(hit)
+  for (const error of options.customFileErrors) {
+    console.warn(`Sensitive protection config: ${error}`)
+    notify({ kind: "error", source: "parser", count: 0, label: error })
+  }
+  const notifyError = (error: { label: string; file: string; error: unknown }) => {
+    notify({
+      kind: "error",
+      source: "parser",
+      count: 0,
+      label: error.label,
+      file: error.file,
+    })
+  }
+
+  const managedFiles = [
+    ...buildCustomFiles({
+      files: options.customFiles,
+      maxContentBytes: options.maxContentBytes,
+      directory: context.location.directory,
+      onError: notifyError,
+    }),
+    ...(options.builtins
+      ? builtinFiles({
+          disabledGroups: options.disabledBuiltinGroups,
+          directory: context.location.directory,
+        })
+      : []),
+  ]
+  const manager = new ManagedFiles(registry, managedFiles, options.maxContentBytes, notifyError)
+
   const registerPath = async (value: string, input: { role?: string; keyID?: string; label?: string } = {}) => {
     const resolved = await resolveProtectedPath(value, context.location.directory)
     const result = await registry.register(resolved, {
@@ -35,6 +81,7 @@ export async function setupSensitiveProtection(context: PluginContext) {
 
   const disposals: Array<{ dispose: () => Promise<void> }> = []
   try {
+    await manager.start()
     disposals.push(await context.tool.transform((editor) => {
       editor.add({
         name: REGISTER_TOOL_NAME,
@@ -70,17 +117,33 @@ export async function setupSensitiveProtection(context: PluginContext) {
       })
     }))
 
-    if (options.blockReads) {
-      disposals.push(await context.tool.hook("execute.before", async (event) => {
-        if (event.tool !== "read" || !event.input || typeof event.input !== "object") return
-        const value = (event.input as { path?: unknown }).path
-        if (typeof value !== "string") return
-        const resolved = await resolveProtectedPath(value, context.location.directory).catch(() => undefined)
-        if (resolved && registry.has(resolved)) {
-          throw new ToolError({ message: "Blocked: this file is protected; use an approved viewer instead." })
-        }
-      }))
-    }
+    disposals.push(await context.tool.hook("execute.before", async (event) => {
+      if (event.tool !== "read" && event.tool !== "edit" && event.tool !== "write") return
+      const value = inputPath(event.input)
+      if (!value) return
+      const resolved = await resolveProtectedPath(value, context.location.directory).catch(() => undefined)
+      if (!resolved) return
+      const entry = registry.get(resolved)
+      if (!entry) return
+      const blocked =
+        (event.tool === "read" && options.blockReads && entry.read === "block") ||
+        (event.tool === "write" && entry.write === "block") ||
+        (event.tool === "edit" && entry.source !== "manual" && entry.read === "block")
+      if (!blocked) return
+      notify({
+        kind: "blocked",
+        source: event.tool === "read" ? "read" : "tool",
+        count: 1,
+        label: entry.label,
+        file: resolved,
+        tool: event.tool,
+      })
+      throw new ToolError({
+        message: event.tool === "read"
+          ? "Blocked: this file is protected; use an approved viewer instead."
+          : "Blocked: this protected file cannot be modified by the agent.",
+      })
+    }))
 
     disposals.push(await context.tool.hook("execute.after", async (event) => {
       if (registry.size === 0) return
@@ -88,9 +151,11 @@ export async function setupSensitiveProtection(context: PluginContext) {
         const error = event.error as { message: string; metadata?: unknown }
         const message = registry.redactValue(error.message)
         const metadata = registry.redactValue(error.metadata)
-        if (!message.changed && !metadata.changed) return
+        const count = message.count + metadata.count
+        if (count === 0) return
         if (message.changed) error.message = String(message.value)
         if (metadata.changed) error.metadata = metadata.value
+        notify({ kind: "redacted", source: "tool", count, tool: event.tool })
         return
       }
       const result = event.result as {
@@ -101,14 +166,17 @@ export async function setupSensitiveProtection(context: PluginContext) {
       const content = registry.redactValue(result.content)
       const output = registry.redactValue(result.output)
       const metadata = registry.redactValue(result.metadata)
-      if (!content.changed && !output.changed && !metadata.changed) return
+      const count = content.count + output.count + metadata.count
+      if (count === 0) return
       result.content = content.value
       result.output = output.value
       result.metadata = {
         ...(metadata.value && typeof metadata.value === "object" && !Array.isArray(metadata.value) ? metadata.value : {}),
         redacted: true,
         reason: "protected-sensitive-content",
+        redactedCount: count,
       }
+      notify({ kind: "redacted", source: "tool", count, tool: event.tool })
     }))
 
     if (options.redactContext) {
@@ -116,8 +184,11 @@ export async function setupSensitiveProtection(context: PluginContext) {
         if (registry.size === 0) return
         const messages = registry.redactValue((event as { messages?: unknown }).messages)
         const system = registry.redactValue((event as { system?: unknown }).system)
+        const count = messages.count + system.count
+        if (count === 0) return
         if (messages.changed) (event as { messages: unknown }).messages = messages.value
         if (system.changed) (event as { system: unknown }).system = system.value
+        notify({ kind: "redacted", source: "context", count })
       }))
     }
 
@@ -128,13 +199,14 @@ export async function setupSensitiveProtection(context: PluginContext) {
           const method = event.request.method.toUpperCase()
           if (method === "GET" || method === "HEAD") return
           const body = await event.request.clone().text()
-          const redacted = registry.redact(body)
-          if (redacted === body) return
+          const redacted = registry.redactWithCount(body)
+          if (redacted.count === 0) return
           event.request = new Request(event.request.url, {
             method: event.request.method,
             headers: event.request.headers,
-            body: redacted,
+            body: redacted.text,
           })
+          notify({ kind: "redacted", source: "http", count: redacted.count })
         } catch {
           // Never break the provider request because optional redaction failed.
         }
@@ -156,14 +228,24 @@ export async function setupSensitiveProtection(context: PluginContext) {
     }))
   } catch (error) {
     await Promise.allSettled(disposals.map((item) => item.dispose()))
+    await manager.stop()
+    await rpcDispose?.()
     console.warn(`Sensitive protection disabled: ${error instanceof Error ? error.message : "setup failed"}`)
     return async () => {}
   }
 
   return async () => {
     await Promise.allSettled(disposals.map((item) => item.dispose()))
+    await manager.stop()
+    await rpcDispose?.()
     await registry.flush()
   }
+}
+
+function inputPath(input: unknown) {
+  if (!input || typeof input !== "object") return
+  const value = (input as { path?: unknown }).path
+  return typeof value === "string" ? value : undefined
 }
 
 export default Plugin.define({

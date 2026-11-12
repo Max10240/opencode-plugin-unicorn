@@ -1,0 +1,52 @@
+import { expect, setDefaultTimeout, test } from "bun:test"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
+import { createSession, prompt } from "../../opencode-plugin-show-img/test/e2e-utils.js"
+import { createTui } from "../../../test/tui-support.js"
+
+setDefaultTimeout(180_000)
+
+test("shows a top-right toast when a protected read is blocked", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-protection-tui-"))
+  const secret = path.join(root, "secret.json")
+  await writeFile(secret, JSON.stringify({ token: "TUI_NOTIFY_TOKEN_123" }))
+  const pluginPackage = path.resolve(import.meta.dir, "../dist")
+  const options = {
+    builtins: false,
+    notifications: true,
+    customFiles: [{ path: secret, format: "json", fields: ["token"], read: "block" }],
+  }
+  const e2e = await createOpenCodeE2E({
+    plugin: "sensitive-protection",
+    pluginPackage,
+    pluginOptions: options,
+  })
+  try {
+    const sessionID = await createSession(e2e, "Sensitive-Protection-Toast")
+    await writeFile(path.join(e2e.configDirectory, "cli.json"), `${JSON.stringify({
+      plugins: [{ package: pluginPackage, options }],
+    }, null, 2)}\n`)
+    const tui = createTui(e2e, sessionID, "sensitive-protection-toast")
+    try {
+      await tui.waitFor("Sensitive-Protection-Toast", "TUI did not start")
+      e2e.proxy.mock.prependFixture({
+        match: { userMessage: "E2E_PROTECTION_TOAST", toolName: "read", hasToolResult: false },
+        response: {
+          toolCalls: [{ id: "call_protected_read", name: "read", arguments: JSON.stringify({ path: secret }) }],
+        },
+      })
+      e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_protected_read" }, response: { content: "TOAST_DONE" } })
+      await prompt(e2e, sessionID, "E2E_PROTECTION_TOAST")
+      await tui.waitFor("Sensitive protection", "protection toast did not appear")
+      await tui.waitFor("Blocked read", "protection toast did not identify the blocked read")
+      expect(tui.pane()).not.toContain("TUI_NOTIFY_TOKEN_123")
+    } finally {
+      await tui.close()
+    }
+  } finally {
+    await e2e.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})

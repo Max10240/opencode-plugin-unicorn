@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info } from "@opencode/plugin/promise/tool"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { setupSensitiveProtection } from "../src/index.js"
@@ -14,11 +14,25 @@ async function fixture(run: (value: {
 }) => Promise<void>) {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-protection-"))
   const data = path.join(root, "data")
+  const home = path.join(root, "home")
+  const config = path.join(root, "config")
   const file = path.join(root, "secret.txt")
+  await mkdir(home, { recursive: true })
+  await mkdir(config, { recursive: true })
   await writeFile(file, "TOPSECRET_LINE_123", { mode: 0o600 })
+  const previous = { HOME: process.env.HOME, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME }
+  process.env.HOME = home
+  process.env.XDG_DATA_HOME = data
+  process.env.XDG_CONFIG_HOME = config
   try {
-    await run({ root, data, file, options: { maxContentBytes: 1024 } })
-  } finally { await rm(root, { recursive: true, force: true }) }
+    await run({ root, data, file, options: { maxContentBytes: 1024, builtins: false } })
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await rm(root, { recursive: true, force: true })
+  }
 }
 
 async function setup(directory: string, data: string, options: Record<string, unknown>) {
@@ -75,6 +89,7 @@ test("registers a file, blocks read, and redacts tool output", async () => {
 
       await expect(hooks.get("execute.before")!({ tool: "read", input: { path: file } })).rejects.toThrow("Blocked")
       await expect(hooks.get("execute.before")!({ tool: "shell", input: { command: `cat ${file}` } })).resolves.toBeUndefined()
+      await expect(hooks.get("execute.before")!({ tool: "edit", input: { path: file } })).resolves.toBeUndefined()
 
       const after: any = {
         status: "completed",

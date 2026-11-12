@@ -22,7 +22,8 @@ export default Plugin.define({
       setupSensitiveEncryptTui(childContext(context, "sensitiveEncrypt"))
     }
     if (sensitiveProtectionFeatureEnabled(context.options)) {
-      setupSensitiveProtectionTui(childContext(context, "sensitiveProtection"))
+      const cleanup = setupSensitiveProtectionTui(childContext(context, "sensitiveProtection"))
+      if (cleanup) cleanups.push(cleanup)
     }
     return () => disposeAllSync(cleanups)
   },

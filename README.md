@@ -61,7 +61,7 @@ See the [Unicorn README](./packages/opencode-plugin-unicorn/README.md) for every
 | [Show image](./packages/opencode-plugin-show-img) | Preview images inline, without sending image bytes to the model | The agent mentions a screenshot, chart, or generated image and you want to see it |
 | [Notepad](./packages/opencode-plugin-notepad) | A scratchpad for folder-scoped and global notes | You think of a follow-up or reminder and do not want to derail the agent |
 | [Sensitive encrypt](./packages/opencode-plugin-sensitive-encrypt) | Encrypt text or files with a public key and decrypt only to a file | Secrets need to be stored, moved, or handed to an agent without exposing plaintext |
-| [Sensitive protection](./packages/opencode-plugin-sensitive-protection) | Block reads of protected files and redact their contents from model context | Credentials or private data live in the repository you are working in |
+| [Sensitive protection](./packages/opencode-plugin-sensitive-protection) | Protects credential files by redacting secret values and blocking private keys | Credentials, tokens, or private keys live on your machine |
 | [Recommended config](./packages/opencode-plugin-recomended-opencode-config) | Adds curated rules and commands, and sets OpenAI `store:false` | You want a safer, more consistent OpenCode setup without writing rules yourself |
 
 ## Install only what you need
