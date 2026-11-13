@@ -8,7 +8,7 @@ import { createTui } from "../../../test/tui-support.js"
 
 setDefaultTimeout(180_000)
 
-test("shows a top-right toast when a protected read is blocked", async () => {
+test("reports a blocked read in the toast, footer chip, and history dialog", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-protection-tui-"))
   const secret = path.join(root, "secret.json")
   await writeFile(secret, JSON.stringify({ token: "TUI_NOTIFY_TOKEN_123" }))
@@ -16,7 +16,7 @@ test("shows a top-right toast when a protected read is blocked", async () => {
   const options = {
     builtins: false,
     notifications: true,
-    customFiles: [{ path: secret, format: "json", fields: ["token"], read: "block" }],
+    customFiles: [{ path: secret, label: "Test credential", format: "json", fields: ["token"], read: "block" }],
   }
   const e2e = await createOpenCodeE2E({
     plugin: "sensitive-protection",
@@ -41,7 +41,22 @@ test("shows a top-right toast when a protected read is blocked", async () => {
       await prompt(e2e, sessionID, "E2E_PROTECTION_TOAST")
       await tui.waitFor("Sensitive protection", "protection toast did not appear")
       await tui.waitFor("Blocked read", "protection toast did not identify the blocked read")
+      await tui.waitFor("access blocked · details", "protection footer chip did not appear")
       expect(tui.pane()).not.toContain("TUI_NOTIFY_TOKEN_123")
+
+      tui.type("/protection-history")
+      await tui.waitFor("Review where protected values were blocked or redacted", "protection history slash command is missing")
+      tui.send(["Enter"])
+      await tui.waitFor("All sessions", "protection history dialog did not open")
+      await Bun.sleep(120)
+      tui.send(["s"])
+      await tui.waitFor("This session", "protection history scope toggle did not work")
+      await tui.waitFor("Test credential", "protection history did not identify the protected file")
+      await tui.waitFor("Sensitive-Protection-Toast", "protection history did not show the triggering session")
+      expect(tui.pane()).toContain("~/workspace")
+      expect(tui.pane()).not.toContain("TUI_NOTIFY_TOKEN_123")
+      tui.send(["Escape"])
+      await tui.waitUntil(() => !tui.pane().includes("↑/↓ select"), "protection history did not close")
     } finally {
       await tui.close()
     }

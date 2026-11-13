@@ -91,7 +91,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
-| 敏感信息保护 | `sensitiveProtection` | `builtins`、`disabledBuiltinGroups`、`customFiles`、`blockReads`、`redactContext`、`redactHttp`、`maxContentBytes`、`notifications` |
+| 敏感信息保护 | `sensitiveProtection` | `builtins`、`disabledBuiltinGroups`、`customFiles`、`blockReads`、`redactContext`、`redactHttp`、`maxContentBytes`、`allowCustomExtractors`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<名称>: false` 永远优先，会关闭对应功能，且不影响其他功能。子插件自己的关闭参数同样有效，例如

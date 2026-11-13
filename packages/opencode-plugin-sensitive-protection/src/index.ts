@@ -4,7 +4,8 @@ import { Error as ToolError } from "@opencode/plugin/promise/tool"
 import { parseProtectionOptions } from "./options.js"
 import { ProtectionRegistry, REDACTION_TOKEN, resolveProtectedPath } from "./registry.js"
 import { builtinFiles, customFiles as buildCustomFiles, ManagedFiles } from "./builtins.js"
-import { ProtectionRpc, type ProtectionHit } from "./rpc.js"
+import { ProtectionHistory } from "./history.js"
+import { ProtectionRpc, type ProtectionHit, type ProtectionHistoryResult, type ProtectionMatch } from "./rpc.js"
 
 export { REDACTION_TOKEN } from "./registry.js"
 
@@ -24,32 +25,58 @@ export async function setupSensitiveProtection(context: PluginContext) {
 
   const registry = new ProtectionRegistry(options.dataDirectory, options.maxContentBytes)
   await registry.load()
+  const history = new ProtectionHistory(options.historyLimit)
 
   let notifyHit: ((hit: ProtectionHit) => void) | undefined
+  let notifyCleared: (() => void) | undefined
   let rpcDispose: (() => Promise<void> | void) | undefined
-  if (context.rpc && options.notifications) {
+  if (context.rpc) {
     try {
-      const registration = await context.rpc.register(ProtectionRpc, {})
+      const registration = await context.rpc.register(ProtectionRpc, {
+        history: async (): Promise<ProtectionHistoryResult> => ({
+          hits: history.list(),
+          total: history.size,
+          limit: options.historyLimit,
+        }),
+        clear: async () => {
+          const cleared = history.clear()
+          notifyCleared?.()
+          return { cleared }
+        },
+      })
       rpcDispose = () => registration.dispose()
       notifyHit = (hit) => {
         void registration.events.emit("hit", hit).catch(() => {})
       }
-    } catch {
-      // Protection still works when the TUI does not host the RPC event channel.
+      notifyCleared = () => {
+        void registration.events.emit("cleared", {}).catch(() => {})
+      }
+    } catch (error) {
+      console.warn("Sensitive protection RPC unavailable:", error)
     }
   }
-  const notify = (hit: ProtectionHit) => notifyHit?.(hit)
+  const notify = (hit: Omit<ProtectionHit, "id" | "time" | "firstTime" | "occurrences">) => {
+    const recorded = history.record(hit)
+    notifyHit?.(recorded)
+  }
   for (const error of options.customFileErrors) {
     console.warn(`Sensitive protection config: ${error}`)
-    notify({ kind: "error", source: "parser", count: 0, label: error })
+    notify({ kind: "error", source: "parser", count: 0, label: error, detail: error })
   }
-  const notifyError = (error: { label: string; file: string; error: unknown }) => {
+  const notifyError = (error: { label: string; file: string; source?: ProtectionMatch["source"]; error: unknown }) => {
     notify({
       kind: "error",
       source: "parser",
       count: 0,
       label: error.label,
       file: error.file,
+      detail: safeErrorDetail(error.error),
+      matches: [{
+        file: error.file,
+        label: error.label,
+        ...(error.source === undefined ? {} : { source: error.source }),
+        count: 0,
+      }],
     })
   }
 
@@ -134,9 +161,16 @@ export async function setupSensitiveProtection(context: PluginContext) {
         kind: "blocked",
         source: event.tool === "read" ? "read" : "tool",
         count: 1,
-        label: entry.label,
+        ...(entry.label === undefined ? {} : { label: entry.label }),
         file: resolved,
         tool: event.tool,
+        sessionID: event.sessionID,
+        matches: [{
+          file: resolved,
+          ...(entry.label === undefined ? {} : { label: entry.label }),
+          source: entry.source,
+          count: 1,
+        }],
       })
       throw new ToolError({
         message: event.tool === "read"
@@ -147,15 +181,23 @@ export async function setupSensitiveProtection(context: PluginContext) {
 
     disposals.push(await context.tool.hook("execute.after", async (event) => {
       if (registry.size === 0) return
+      const collector = registry.createMatchCollector()
       if (event.status === "error") {
         const error = event.error as { message: string; metadata?: unknown }
-        const message = registry.redactValue(error.message)
-        const metadata = registry.redactValue(error.metadata)
+        const message = registry.redactValue(error.message, collector)
+        const metadata = registry.redactValue(error.metadata, collector)
         const count = message.count + metadata.count
         if (count === 0) return
         if (message.changed) error.message = String(message.value)
         if (metadata.changed) error.metadata = metadata.value
-        notify({ kind: "redacted", source: "tool", count, tool: event.tool })
+        notify({
+          kind: "redacted",
+          source: "tool",
+          count,
+          tool: event.tool,
+          sessionID: event.sessionID,
+          matches: registry.matchList(collector),
+        })
         return
       }
       const result = event.result as {
@@ -163,9 +205,9 @@ export async function setupSensitiveProtection(context: PluginContext) {
         output?: unknown
         metadata?: unknown
       }
-      const content = registry.redactValue(result.content)
-      const output = registry.redactValue(result.output)
-      const metadata = registry.redactValue(result.metadata)
+      const content = registry.redactValue(result.content, collector)
+      const output = registry.redactValue(result.output, collector)
+      const metadata = registry.redactValue(result.metadata, collector)
       const count = content.count + output.count + metadata.count
       if (count === 0) return
       result.content = content.value
@@ -176,19 +218,34 @@ export async function setupSensitiveProtection(context: PluginContext) {
         reason: "protected-sensitive-content",
         redactedCount: count,
       }
-      notify({ kind: "redacted", source: "tool", count, tool: event.tool })
+      notify({
+        kind: "redacted",
+        source: "tool",
+        count,
+        tool: event.tool,
+        sessionID: event.sessionID,
+        matches: registry.matchList(collector),
+      })
     }))
 
     if (options.redactContext) {
       disposals.push(await context.session.hook("context", async (event) => {
         if (registry.size === 0) return
-        const messages = registry.redactValue((event as { messages?: unknown }).messages)
-        const system = registry.redactValue((event as { system?: unknown }).system)
+        const collector = registry.createMatchCollector()
+        const contextEvent = event as { messages?: unknown; system?: unknown }
+        const messages = registry.redactValue(contextEvent.messages, collector)
+        const system = registry.redactValue(contextEvent.system, collector)
         const count = messages.count + system.count
         if (count === 0) return
-        if (messages.changed) (event as { messages: unknown }).messages = messages.value
-        if (system.changed) (event as { system: unknown }).system = system.value
-        notify({ kind: "redacted", source: "context", count })
+        if (messages.changed) contextEvent.messages = messages.value
+        if (system.changed) contextEvent.system = system.value
+        notify({
+          kind: "redacted",
+          source: "context",
+          count,
+          sessionID: event.sessionID,
+          matches: registry.matchList(collector),
+        })
       }))
     }
 
@@ -199,14 +256,21 @@ export async function setupSensitiveProtection(context: PluginContext) {
           const method = event.request.method.toUpperCase()
           if (method === "GET" || method === "HEAD") return
           const body = await event.request.clone().text()
-          const redacted = registry.redactWithCount(body)
+          const collector = registry.createMatchCollector()
+          const redacted = registry.redactWithCount(body, collector)
           if (redacted.count === 0) return
           event.request = new Request(event.request.url, {
             method: event.request.method,
             headers: event.request.headers,
             body: redacted.text,
           })
-          notify({ kind: "redacted", source: "http", count: redacted.count })
+          notify({
+            kind: "redacted",
+            source: "http",
+            count: redacted.count,
+            sessionID: event.sessionID,
+            matches: registry.matchList(collector),
+          })
         } catch {
           // Never break the provider request because optional redaction failed.
         }
@@ -246,6 +310,16 @@ function inputPath(input: unknown) {
   if (!input || typeof input !== "object") return
   const value = (input as { path?: unknown }).path
   return typeof value === "string" ? value : undefined
+}
+
+function safeErrorDetail(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+  if (/maxContentBytes|exceeds/i.test(message)) return "File exceeds the size limit"
+  if (/regular file/i.test(message)) return "Path is not a regular file"
+  if (/ENOENT|no such file|not found/i.test(message)) return "File is no longer available"
+  if (/Invalid custom extractor/i.test(message)) return "Custom extractor is invalid"
+  if (/parse|JSON|YAML|INI|TOML/i.test(message)) return "File could not be parsed"
+  return "File could not be read or parsed"
 }
 
 export default Plugin.define({

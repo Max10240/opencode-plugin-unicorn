@@ -93,7 +93,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
-| Sensitive protection | `sensitiveProtection` | `builtins`, `disabledBuiltinGroups`, `customFiles`, `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes`, `notifications` |
+| Sensitive protection | `sensitiveProtection` | `builtins`, `disabledBuiltinGroups`, `customFiles`, `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes`, `allowCustomExtractors`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<name>: false` always wins and disables that feature without affecting the others. A plugin's own disable

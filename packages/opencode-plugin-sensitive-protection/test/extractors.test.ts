@@ -10,57 +10,74 @@ import {
   patternsForValues,
 } from "../src/extractors.js"
 
+const values = (items: readonly { value: string }[]) => items.map((item) => item.value)
+
 test("extracts only confirmed JSON fields", () => {
-  const values = extractByFormat(JSON.stringify({
+  const result = extractByFormat(JSON.stringify({
     type: "oauth",
     expires: 123,
     tokens: { access_token: "ACCESS_TOKEN_123", refresh_token: "REFRESH_TOKEN_123" },
     nested: [{ id_token: "ID_TOKEN_123" }],
   }), "json", ["access_token", "refresh_token", "id_token"])
-  expect(values).toEqual(["ACCESS_TOKEN_123", "REFRESH_TOKEN_123", "ID_TOKEN_123"])
+  expect(values(result)).toEqual(["ACCESS_TOKEN_123", "REFRESH_TOKEN_123", "ID_TOKEN_123"])
+  expect(result).toEqual([
+    { value: "ACCESS_TOKEN_123", key: "tokens.access_token" },
+    { value: "REFRESH_TOKEN_123", key: "tokens.refresh_token" },
+    { value: "ID_TOKEN_123", key: "nested[0].id_token" },
+  ])
 })
 
 test("extracts npmrc registry tokens and decodes base64 passwords", () => {
-  const values = extractNpmrc([
+  const result = extractNpmrc([
     "registry=https://registry.npmjs.org/",
     "//registry.npmjs.org/:_authToken=NPM_TOKEN_123",
     "//registry.npmjs.org/:_auth=dXNlcjpwYXNzd29yZA==",
     "//registry.npmjs.org/:_password=cGFzc3dvcmQxMjM=",
   ].join("\n"))
-  expect(values).toContain("NPM_TOKEN_123")
-  expect(values).toContain("dXNlcjpwYXNzd29yZA==")
-  expect(values).toContain("user:password")
-  expect(values).toContain("password123")
-  expect(values).not.toContain("https://registry.npmjs.org/")
+  const found = values(result)
+  expect(found).toContain("NPM_TOKEN_123")
+  expect(found).toContain("dXNlcjpwYXNzd29yZA==")
+  expect(found).toContain("user:password")
+  expect(found).toContain("password123")
+  expect(found).not.toContain("https://registry.npmjs.org/")
+  expect(result).toContainEqual({ value: "NPM_TOKEN_123", key: "_authToken @ registry.npmjs.org" })
+  expect(result).toContainEqual({ value: "user:password", key: "_auth @ registry.npmjs.org (decoded)" })
 })
 
 test("extracts AWS secrets but not region or profile names", () => {
-  const values = extractAwsCredentials([
+  const result = extractAwsCredentials([
     "[default]",
     "aws_access_key_id = AKIAEXAMPLE123456789",
     "aws_secret_access_key = SECRET_ACCESS_123456789",
     "aws_session_token = SESSION_TOKEN_123456789",
     "region = us-east-1",
   ].join("\n"))
-  expect(values).toContain("AKIAEXAMPLE123456789")
-  expect(values).toContain("SECRET_ACCESS_123456789")
-  expect(values).toContain("SESSION_TOKEN_123456789")
-  expect(values).not.toContain("us-east-1")
-  expect(values).not.toContain("default")
+  const found = values(result)
+  expect(found).toContain("AKIAEXAMPLE123456789")
+  expect(found).toContain("SECRET_ACCESS_123456789")
+  expect(found).toContain("SESSION_TOKEN_123456789")
+  expect(found).not.toContain("us-east-1")
+  expect(found).not.toContain("default")
+  expect(result).toContainEqual({ value: "SECRET_ACCESS_123456789", key: "default.aws_secret_access_key" })
 })
 
 test("extracts pypirc passwords and cargo registry tokens", () => {
-  expect(extractPypirc("[pypi]\nusername = __token__\npassword = pypi-123456\n")).toEqual(["pypi-123456"])
-  expect(extractCargoCredentials([
+  expect(values(extractPypirc("[pypi]\nusername = __token__\npassword = pypi-123456\n"))).toEqual(["pypi-123456"])
+  const cargo = extractCargoCredentials([
     "[registry]",
     'token = "CARGO_TOKEN_123"',
     "[registries.private]",
     'token = "PRIVATE_TOKEN_123"',
-  ].join("\n"))).toEqual(["CARGO_TOKEN_123", "PRIVATE_TOKEN_123"])
+  ].join("\n"))
+  expect(values(cargo)).toEqual(["CARGO_TOKEN_123", "PRIVATE_TOKEN_123"])
+  expect(cargo).toEqual([
+    { value: "CARGO_TOKEN_123", key: "registry.token" },
+    { value: "PRIVATE_TOKEN_123", key: "registries.private.token" },
+  ])
 })
 
 test("extracts kubeconfig credentials without ordinary fields", () => {
-  const values = extractKubeconfig([
+  const result = extractKubeconfig([
     "users:",
     "  - name: developer",
     "    user:",
@@ -73,24 +90,28 @@ test("extracts kubeconfig credentials without ordinary fields", () => {
     "    cluster:",
     "      server: https://example.test",
   ].join("\n"))
-  expect(values).toEqual(["KUBE_TOKEN_123", "KUBE_PASSWORD_123", "CLIENT_KEY_DATA_123"])
+  expect(values(result)).toEqual(["KUBE_TOKEN_123", "KUBE_PASSWORD_123", "CLIENT_KEY_DATA_123"])
+  expect(result[0]).toEqual({ value: "KUBE_TOKEN_123", key: "users[developer].user.token" })
 })
 
 test("extracts Docker auth values in encoded and decoded form", () => {
-  const values = extractDockerConfig(JSON.stringify({
+  const result = extractDockerConfig(JSON.stringify({
     auths: {
       "registry.example": { auth: "dXNlcjpwYXNzd29yZA==", identitytoken: "IDENTITY_TOKEN_123" },
     },
   }))
-  expect(values).toContain("dXNlcjpwYXNzd29yZA==")
-  expect(values).toContain("user:password")
-  expect(values).toContain("IDENTITY_TOKEN_123")
+  const found = values(result)
+  expect(found).toContain("dXNlcjpwYXNzd29yZA==")
+  expect(found).toContain("user:password")
+  expect(found).toContain("IDENTITY_TOKEN_123")
+  expect(result).toContainEqual({ value: "user:password", key: "auths.registry.example.auth (decoded)" })
 })
 
 test("expands only secret values and skips placeholders", () => {
   const patterns = patternsForValues(["TOKEN_123456", "${TOKEN}", "changeme", "short"])
-  expect(patterns).toContain("TOKEN_123456")
-  expect(patterns).not.toContain("${TOKEN}")
-  expect(patterns).not.toContain("changeme")
-  expect(patterns).not.toContain("short")
+  const found = values(patterns)
+  expect(found).toContain("TOKEN_123456")
+  expect(found).not.toContain("${TOKEN}")
+  expect(found).not.toContain("changeme")
+  expect(found).not.toContain("short")
 })

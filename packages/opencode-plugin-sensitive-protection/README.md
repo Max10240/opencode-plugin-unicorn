@@ -10,7 +10,8 @@ contents to the model provider.
 
 Sensitive protection knows the common credential files, extracts only the sensitive fields, blocks direct access when
 appropriate, and replaces those values with `[REDACTED:PROTECTED]` before they reach the model. It also shows a
-top-right TUI toast whenever a rule fires, so protection never fails silently.
+top-right TUI toast, a clickable details chip, and a live history dialog whenever a rule fires, so protection never
+fails silently.
 
 ## What is protected by default
 
@@ -46,7 +47,7 @@ registered automatically.
 
 ## TUI notifications
 
-Every hit produces a toast in the top-right corner of the TUI:
+A hit produces a toast in the top-right corner of the TUI:
 
 ```text
 Sensitive protection
@@ -59,11 +60,45 @@ Sensitive protection warning
 Could not extract sensitive values from .npmrc; reads are blocked
 ```
 
-A tool call with many matches produces one toast with a count, not one per value. Repeated hits queue up and display
-`+N more`. Toasts never contain the secret value itself.
+A tool call with many matches produces one toast with a count, not one per value. Toasts never contain the secret value
+itself.
+
+The count is the number of occurrences in that outbound request, not a cumulative total. The model context is rebuilt
+for every model request, so the same still-present values can be redacted again on every turn. Protection aggregates
+that repeated condition and does not re-toast it on every request. A new affected file or key, or a higher count,
+still alerts.
+
+The host renders the toast and the plugin API does not expose a click action for it. To keep details one action away:
+
+- A clickable `access blocked · details` or `N values redacted · details` chip appears in the composer footer for 30
+  seconds after an alert.
+- `ctrl+shift+h` opens the same history dialog. Set `historyKeybind` to change it or `false` to disable the binding.
+- `/protection-history` and the command palette work even when notifications are off. The command opens all sessions; the
+  footer chip opens the triggering session.
+
+When a trigger comes from another session, the toast also offers `Open` to jump to that session. The footer chip still
+opens the history dialog for the full context.
 
 Notifications require the TUI entry. With Unicorn both entries are loaded automatically. Standalone, load the package
 in both `opencode.jsonc` and `cli.json`.
+
+## Protection history
+
+The history dialog shows recent triggers with the information needed to decide what happened:
+
+- whether access was blocked or values were redacted, and at which stage (model context, provider request, tool output,
+  or file read);
+- the protected file and the extracted key that matched, such as `_authToken` in `~/.npmrc`;
+- the triggering session title, short session ID, and project folder;
+- when the condition was first and last seen, and how many times it occurred.
+
+The list updates live while the dialog is open. Use `tab` to filter by event kind, `s` to switch between this session
+and all sessions, `c` to copy the selected report, `enter` to open the triggering session, and `x` twice to clear the
+history. A deleted session is shown as unavailable instead of failing the dialog.
+
+History is metadata only. It never contains a secret value, is kept in memory on the server, and disappears when the
+server exits. The client keeps at most 1,000 events and renders at most 100 rows at a time. Repeated conditions are
+merged, so the list stays useful instead of growing on every request.
 
 ## Quick start
 
@@ -169,7 +204,9 @@ sandbox. Enable it only in trusted user configuration; do not commit extractor c
 | `maxContentBytes` | `8388608` | Maximum file size read for extraction; hard limit `64 MiB` |
 | `customFiles` | `[]` | Extra files and their extractors |
 | `allowCustomExtractors` | `false` | Allow JavaScript `extractor` strings in `customFiles` |
-| `notifications` | `true` | Show TUI toasts for hits and parser errors |
+| `notifications` | `true` | Show TUI toasts and the footer details chip for hits and parser errors |
+| `historyLimit` | `200` | Maximum stored history conditions, `0`–`1000`; `0` keeps only live events for the current TUI |
+| `historyKeybind` | `"ctrl+shift+h"` | Shortcut for protection history; `false` disables the binding |
 
 Built-in files are refreshed every two seconds when their `mtime`, size, or inode changes. The plugin never refreshes
 tokens itself; it only re-extracts values after the owning CLI updates a file.
@@ -211,3 +248,5 @@ This affects only the current project and does not disable the encryption plugin
 - **OpenCode V2 stores credentials in SQLite.** `opencode.db` is a binary database and is not read by this version; only the legacy
   `auth.json` and the text files in the built-in list are covered.
 - **The agent can still see that a file exists.** Protection hides content, not file names or metadata.
+- **Protection history stays local and metadata-only.** It records file paths, key names, session IDs, titles, and
+  folders, never secret values, and it is not written to disk. Clear it from the dialog with `x`, `x`.
