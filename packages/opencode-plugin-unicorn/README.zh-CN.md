@@ -69,6 +69,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | 跨 session 消息 | `features.sendMessageAcrossSessions` | 让一个 session 给另一个 cwd 的 session 发消息 |
 | 图片生成 | `features.imageGen` | 生成或编辑图片并保存成文件 |
 | 图片预览 | `features.showImg` | 在对话里显示图片，不把图片字节加入模型上下文 |
+| OpenCode Go 用量 | `features.opencodeGoUsage` | 展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量 |
 | 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
 | 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
 | 敏感信息保护 | `features.sensitiveProtection` | 保护凭据文件，脱敏 secret 值并阻断私钥 |
@@ -87,6 +88,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | 跨 session 消息 | `sendMessageAcrossSessions` | 无需配置 |
 | 图片生成 | `imageGen` | `model`、`baseURL`、`integrationID` |
 | 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
+| OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
 | 敏感信息保护 | `sensitiveProtection` | `builtins`、`disabledBuiltinGroups`、`customFiles`、`blockReads`、`redactContext`、`redactHttp`、`maxContentBytes`、`notifications` |
@@ -94,6 +96,9 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 
 `features.<名称>: false` 永远优先，会关闭对应功能，且不影响其他功能。子插件自己的关闭参数同样有效，例如
 `showImg.features.showImg: false` 或 `notepad.enabled: false`。
+
+OpenCode Go 用量默认开启，但只有当前 server 存在 OpenCode Console credential 时命令才会出现。输入
+`/usage-opencode-go` 查看，默认不绑定快捷键。
 
 推荐配置有一个特殊规则：`features.recommendedOpencodeConfig: false` 会强制关闭，但不设置开关并不会自动启用。
 需要显式写 `"recommendedOpencodeConfig": { "enabled": true }`，或者让插件读取 server 环境里的 `IS_MAX_SELF`。
@@ -140,6 +145,7 @@ Unicorn 不再读取顶层的 `model`、`baseURL`、`integrationID`、`keybind`�
 - [跨 session 消息](../opencode-plugin-send-message-across-sessions/README.zh-CN.md)
 - [图片生成](../opencode-plugin-image-gen/README.zh-CN.md)
 - [图片预览](../opencode-plugin-show-img/README.zh-CN.md)
+- [OpenCode Go 用量](../opencode-plugin-opencode-go-usage/README.zh-CN.md)
 - [记事本](../opencode-plugin-notepad/README.zh-CN.md)
 - [敏感信息加密](../opencode-plugin-sensitive-encrypt/README.zh-CN.md)
 - [敏感信息保护](../opencode-plugin-sensitive-protection/README.zh-CN.md)

@@ -57,6 +57,7 @@ prompt、在很长的对话里找不到某个决定、密钥不小心进了上�
 | [跨 session 消息](./packages/opencode-plugin-send-message-across-sessions/README.zh-CN.md) | 让一个 session 给另一个 cwd 的 session 发消息 | 前端和后端、或两个 worktree 需要协作 |
 | [图片生成](./packages/opencode-plugin-image-gen/README.zh-CN.md) | 生成或编辑图片并保存到文件 | 需要配图、图标、示意图或参考图变体，又不想离开对话 |
 | [图片预览](./packages/opencode-plugin-show-img/README.zh-CN.md) | 在对话里直接预览图片，不把图片字节发给模型 | Agent 提到截图、图表或生成的图片，你想马上看到 |
+| [OpenCode Go 用量](./packages/opencode-plugin-opencode-go-usage/README.zh-CN.md) | 展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量 | 想直接在 TUI 里查看每个 Go 额度还剩多少 |
 | [记事本](./packages/opencode-plugin-notepad/README.zh-CN.md) | 按文件夹或全局保存随手笔记 | 突然想到一个后续事项，不想打断当前 Agent |
 | [敏感信息加密](./packages/opencode-plugin-sensitive-encrypt/README.zh-CN.md) | 用公钥加密文本或文件，只解密到文件 | 需要保存、传递或交给 Agent 处理密钥，但不能暴露明文 |
 | [敏感信息保护](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md) | 保护凭据文件，脱敏 secret 值并阻断私钥 | 机器上有凭据、token 或私钥 |
@@ -72,6 +73,7 @@ prompt、在很长的对话里找不到某个决定、密钥不小心进了上�
 - [跨 session 消息](./packages/opencode-plugin-send-message-across-sessions/README.zh-CN.md)
 - [图片生成](./packages/opencode-plugin-image-gen/README.zh-CN.md)
 - [图片预览](./packages/opencode-plugin-show-img/README.zh-CN.md)
+- [OpenCode Go 用量](./packages/opencode-plugin-opencode-go-usage/README.zh-CN.md)
 - [记事本](./packages/opencode-plugin-notepad/README.zh-CN.md)
 - [敏感信息加密](./packages/opencode-plugin-sensitive-encrypt/README.zh-CN.md)
 - [敏感信息保护](./packages/opencode-plugin-sensitive-protection/README.zh-CN.md)

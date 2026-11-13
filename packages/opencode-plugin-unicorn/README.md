@@ -71,6 +71,7 @@ the same name:
 | Cross-session messages | `features.sendMessageAcrossSessions` | Lets one session send a message to another session in a different working directory |
 | Image generation | `features.imageGen` | Generates or edits images and saves them as files |
 | Image preview | `features.showImg` | Shows images inline without adding image bytes to model context |
+| OpenCode Go usage | `features.opencodeGoUsage` | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account |
 | Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
 | Sensitive protection | `features.sensitiveProtection` | Protects credential files by redacting secret values and blocking private keys |
@@ -89,6 +90,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | Cross-session messages | `sendMessageAcrossSessions` | No required options |
 | Image generation | `imageGen` | `model`, `baseURL`, `integrationID` |
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
+| OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
 | Sensitive protection | `sensitiveProtection` | `builtins`, `disabledBuiltinGroups`, `customFiles`, `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes`, `notifications` |
@@ -96,6 +98,9 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 
 `features.<name>: false` always wins and disables that feature without affecting the others. A plugin's own disable
 option still works, for example `showImg.features.showImg: false` or `notepad.enabled: false`.
+
+OpenCode Go usage is enabled by default but only appears when the current server has an OpenCode Console credential.
+Use `/usage-opencode-go`; there is no default keybind.
 
 The recommended-config feature is special: `features.recommendedOpencodeConfig: false` force-disables it, but leaving
 the switch unset does not enable it. Turn it on with `"recommendedOpencodeConfig": { "enabled": true }`, or let the
@@ -144,6 +149,7 @@ Each feature has its own README with usage examples and edge cases:
 - [Cross-session messages](../opencode-plugin-send-message-across-sessions/README.md)
 - [Image generation](../opencode-plugin-image-gen/README.md)
 - [Image preview](../opencode-plugin-show-img/README.md)
+- [OpenCode Go usage](../opencode-plugin-opencode-go-usage/README.md)
 - [Notepad](../opencode-plugin-notepad/README.md)
 - [Sensitive encryption](../opencode-plugin-sensitive-encrypt/README.md)
 - [Sensitive protection](../opencode-plugin-sensitive-protection/README.md)

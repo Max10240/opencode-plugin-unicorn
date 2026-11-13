@@ -59,6 +59,7 @@ See the [Unicorn README](./packages/opencode-plugin-unicorn/README.md) for every
 | [Send message across sessions](./packages/opencode-plugin-send-message-across-sessions) | Let one session message another, across working directories | Frontend and backend, or two worktrees, need to coordinate |
 | [Image generation](./packages/opencode-plugin-image-gen) | Generate or edit images and save them to disk | You need a diagram, illustration, icon, or edited reference without leaving the chat |
 | [Show image](./packages/opencode-plugin-show-img) | Preview images inline, without sending image bytes to the model | The agent mentions a screenshot, chart, or generated image and you want to see it |
+| [OpenCode Go usage](./packages/opencode-plugin-opencode-go-usage) | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account | You want to see how much of each Go allowance is left without leaving the TUI |
 | [Notepad](./packages/opencode-plugin-notepad) | A scratchpad for folder-scoped and global notes | You think of a follow-up or reminder and do not want to derail the agent |
 | [Sensitive encrypt](./packages/opencode-plugin-sensitive-encrypt) | Encrypt text or files with a public key and decrypt only to a file | Secrets need to be stored, moved, or handed to an agent without exposing plaintext |
 | [Sensitive protection](./packages/opencode-plugin-sensitive-protection) | Protects credential files by redacting secret values and blocking private keys | Credentials, tokens, or private keys live on your machine |
@@ -74,6 +75,7 @@ Every plugin also works standalone. Open its README for the exact config, keybin
 - [Send message across sessions](./packages/opencode-plugin-send-message-across-sessions/README.md)
 - [Image generation](./packages/opencode-plugin-image-gen/README.md)
 - [Show image](./packages/opencode-plugin-show-img/README.md)
+- [OpenCode Go usage](./packages/opencode-plugin-opencode-go-usage/README.md)
 - [Notepad](./packages/opencode-plugin-notepad/README.md)
 - [Sensitive encrypt](./packages/opencode-plugin-sensitive-encrypt/README.md)
 - [Sensitive protection](./packages/opencode-plugin-sensitive-protection/README.md)
