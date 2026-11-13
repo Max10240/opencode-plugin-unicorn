@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -7,6 +8,16 @@ import { applyEdits, modify } from "jsonc-parser"
 import { ensureNpmLogin, runWithAuthLinks } from "./auth-process.mjs"
 import { assertPluginVersions, checkPluginVersions } from "./check-versions.mjs"
 import { runCommand } from "./process.mjs"
+import {
+  createSession,
+  flushOutput,
+  loadSession,
+  parseInternalArgs,
+  parseResumeArgs,
+  readDone,
+  watchSession,
+  writeDone,
+} from "./release-session.mjs"
 import { syncPluginDependencies } from "./sync-plugin-dependencies.mjs"
 import { buildLevels, workspacePackages } from "./workspace.mjs"
 
@@ -403,6 +414,7 @@ export async function release({
     cwd: options.cwd ?? root,
     env: options.env ?? process.env,
     log,
+    authEventFile: process.env.RELEASE_AUTH_EVENT_FILE,
   })
   if (!ci) await ensureNpmLogin({ registry: options.registry, run, authRun, log })
 
@@ -431,22 +443,120 @@ export async function release({
   return { releaseType: options.releaseType, ...result }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function resumableRelease(args) {
+  const options = parseReleaseArgs(args)
+  return !options.dryRun && (options.releaseType === "local-publish" || options.releaseType === "local-stage")
+    ? options
+    : null
+}
+
+async function finishSession(result) {
+  if (result.type === "auth") return 0
+  if (result.type === "done") {
+    if (result.code === 0) {
+      console.log(JSON.stringify(result.result ?? { status: "completed" }))
+      return 0
+    }
+    const message = result.error?.message ?? "Release failed"
+    console.error(message)
+    console.log(JSON.stringify({ status: "failed", message }))
+    return result.code || 1
+  }
+  if (result.type === "crashed") {
+    const message = result.state?.error?.message ?? "Release process exited unexpectedly"
+    console.error(message)
+    console.log(JSON.stringify({ status: "failed", message }))
+    return 1
+  }
+  return 1
+}
+
+async function startResumableRelease(args, options) {
+  console.log(options.releaseType === "local-stage" ? "Checking before stage" : "Checking before publish")
+  const session = createSession({ args })
+  console.log(`[release] session ${session.id}: ${session.directory}`)
+  const result = await watchSession(session)
+  return finishSession(result)
+}
+
+async function resumeRelease(id) {
+  const session = loadSession(id)
+  console.log(`Resuming release session ${id}`)
+  if (!readDone(session)) console.log("[release] waiting for the next authorization link or completion")
+  const result = await watchSession(session)
+  return finishSession(result)
+}
+
+async function runInternal(args, sessionDir) {
+  try {
+    const result = await release({ args })
+    if (sessionDir) console.log("[release] completed")
+    flushOutput()
+    if (sessionDir) writeDone(sessionDir, { code: 0, result })
+    else console.log(JSON.stringify(result))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(error)
+    flushOutput()
+    if (sessionDir) {
+      try {
+        writeDone(sessionDir, {
+          code: 1,
+          error: {
+            message,
+            ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+          },
+        })
+      } catch (doneError) {
+        console.error(doneError)
+      }
+    } else {
+      console.log(JSON.stringify({ status: "failed", message }))
+    }
+    process.exitCode = 1
+  }
+}
+
+function isMainModule() {
+  if (!process.argv[1]) return false
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule()) {
   try {
     const argv = process.argv.slice(2)
-    if (argv.includes("--help") || argv.includes("-h")) {
+    const internal = parseInternalArgs(argv)
+    if (internal.internal) {
+      await runInternal(internal.args, internal.sessionDir)
+    } else if (argv.includes("--help") || argv.includes("-h")) {
       console.log([
         "npm run release -- --release-type=<type> [--version=<spec>] [--tag=latest] [--registry=...] [--dry-run]",
+        "npm run release -- --release-type=<type> [options] --resume <session-id>",
         "",
         "release-type: local-publish | local-stage | ci-publish | ci-stage",
         "version:      patch (default) | minor | major | explicit semver",
         "",
         "The command validates arguments, requires a clean workspace, runs the full check,",
         "bumps every package to the same target version, then publishes or triggers CI.",
+        "",
+        "Local releases pause after printing each npm auth URL. Authorize in the browser,",
+        "then rerun the printed --resume command with the same session id.",
       ].join("\n"))
     } else {
-      const result = await release({ args: argv })
-      console.log(JSON.stringify(result))
+      const resume = parseResumeArgs(argv)
+      const resumable = resume.resume ? null : resumableRelease(argv)
+      if (resume.resume) {
+        process.exitCode = await resumeRelease(resume.resume)
+      } else if (resumable) {
+        process.exitCode = await startResumableRelease(argv, resumable)
+      } else {
+        const result = await release({ args: argv })
+        console.log(JSON.stringify(result))
+      }
     }
   } catch (error) {
     console.log(JSON.stringify({ status: "failed", message: error.message }))

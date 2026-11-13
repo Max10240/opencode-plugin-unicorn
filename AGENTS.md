@@ -45,3 +45,11 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
   `ci-*` commits and pushes them.
 - The target version must be strictly greater than every package's registry `latest`.
 - Do not call `npm publish` directly. Never commit `~/.npmrc` or any npm token.
+- Local release types (`local-publish`, `local-stage`) run the real release in a detached process. When npm needs
+  browser authorization, the foreground command prints the URL, prints `Waiting for user to authorize`, and exits
+  instead of blocking. It also prints a `--resume <session-id>` command with the original arguments.
+- Authorize in the browser, then run the printed resume command. If another auth link appears, the resume command
+  prints it and exits with the same session ID. Repeat until the resume command prints the final result.
+- The resumable flow uses `expect` to give npm a pseudo-terminal so it emits web-auth URLs.
+- Session inputs and output are kept under `/tmp/opencode-plugin-unicorn-release-<uid>/<session-id>/`
+  (`session.json`, `output.log`, `auth-events.jsonl`, `done.json`).

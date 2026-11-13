@@ -1,4 +1,6 @@
 set timeout 3600
+fconfigure stdout -buffering line
+fconfigure stderr -buffering line
 log_user 1
 set command {}
 set count 0

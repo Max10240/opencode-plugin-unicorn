@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { ensureNpmLogin, expectCommand, extractAuthUrls, runWithAuthLinks } from "../scripts/auth-process.mjs"
 
 function fakeChild() {
@@ -46,6 +49,36 @@ test("prints each auth link once and trusts the reported child status", async ()
   await pending
   expect(messages.filter((message) => message.includes(url))).toHaveLength(1)
   expect(messages.join("\n")).toContain("complete authentication")
+})
+
+test("records auth and resolution events for a resumable release session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "auth-events-"))
+  const file = path.join(root, "auth-events.jsonl")
+  const child = fakeChild()
+  const logs: string[] = []
+  const pending = runWithAuthLinks(["npm", "publish", "file.tgz"], {
+    spawnImpl: () => child,
+    authEventFile: file,
+    log: (message: string) => logs.push(message),
+    timeoutMs: 5_000,
+  })
+  const url = "https://www.npmjs.com/auth/cli/abc-123"
+  child.stdout.emit("data", Buffer.from(`${url}\n`))
+  child.stdout.emit("data", Buffer.from("__AUTH_EXIT__ 0\n"))
+  child.emit("close", 0, null)
+  await pending
+  try {
+    const events = (await readFile(file, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    expect(events[0]).toMatchObject({ type: "auth", url })
+    expect(events[0].challenge).toBeString()
+    expect(events.at(-1)).toMatchObject({ type: "resolved", challenge: events[0].challenge })
+    expect(logs.join("\n")).not.toContain(url)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test("rejects a failed npm child even when expect exits successfully", async () => {
