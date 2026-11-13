@@ -51,5 +51,11 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
 - Authorize in the browser, then run the printed resume command. If another auth link appears, the resume command
   prints it and exits with the same session ID. Repeat until the resume command prints the final result.
 - The resumable flow uses `expect` to give npm a pseudo-terminal so it emits web-auth URLs.
-- Session inputs and output are kept under `/tmp/opencode-plugin-unicorn-release-<uid>/<session-id>/`
-  (`session.json`, `output.log`, `auth-events.jsonl`, `done.json`).
+- Packages publish in workspace dependency levels, one `npm publish --workspace` batch per level. The next level starts
+  after the previous `npm publish` command succeeds; it does not wait for registry propagation. Unicorn is therefore
+  published after the dependency packages, without the long visibility wait. `local-publish` also skips the final
+  registry verification. This keeps auth challenges to one per level instead of one per package.
+- During a release, session inputs and output are kept under
+  `/tmp/opencode-plugin-unicorn-release-<uid>/<session-id>/` (`session.json`, `output.log`, `auth-events.jsonl`,
+  `done.json`). A successful session is removed immediately after the final result; a failed session is kept for
+  debugging.

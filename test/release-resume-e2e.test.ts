@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test"
 import { execFileSync } from "node:child_process"
+import { existsSync } from "node:fs"
 import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -69,6 +70,7 @@ test("local publish pauses for login and publish auth links, then resumes to com
   await mkdir(sessions, { recursive: true })
   await mkdir(path.join(fixture, "packages/unicorn"), { recursive: true })
   await mkdir(path.join(fixture, "packages/show-img"), { recursive: true })
+  await mkdir(path.join(fixture, "packages/new-plugin"), { recursive: true })
   await cp(path.join(repository, "scripts"), path.join(fixture, "scripts"), { recursive: true })
   await symlink(path.join(repository, "node_modules"), path.join(fixture, "node_modules"), "dir")
 
@@ -83,7 +85,10 @@ test("local publish pauses for login and publish auth links, then resumes to com
   await writeFile(path.join(fixture, "packages/unicorn/package.json"), JSON.stringify({
     name: "@max10240/opencode-plugin-unicorn",
     version: "1.0.1",
-    dependencies: { "@max10240/opencode-plugin-show-img": "1.0.1" },
+    dependencies: {
+      "@max10240/opencode-plugin-new-plugin": "1.0.1",
+      "@max10240/opencode-plugin-show-img": "1.0.1",
+    },
     scripts: { build: "true" },
   }, null, 2))
   await writeFile(path.join(fixture, "packages/unicorn/index.js"), "export default 'unicorn'\n")
@@ -93,6 +98,12 @@ test("local publish pauses for login and publish auth links, then resumes to com
     scripts: { build: "true" },
   }, null, 2))
   await writeFile(path.join(fixture, "packages/show-img/index.js"), "export default 'show-img'\n")
+  await writeFile(path.join(fixture, "packages/new-plugin/package.json"), JSON.stringify({
+    name: "@max10240/opencode-plugin-new-plugin",
+    version: "1.0.1",
+    scripts: { build: "true" },
+  }, null, 2))
+  await writeFile(path.join(fixture, "packages/new-plugin/index.js"), "export default 'new-plugin'\n")
   await writeFile(path.join(auth, "npmrc"), "")
 
   const fakeNpm = path.join(bin, "npm")
@@ -113,6 +124,10 @@ test("local publish pauses for login and publish auth links, then resumes to com
     "  exit 0",
     "fi",
     'if [ "$1" = "publish" ]; then',
+    '  printf "%s\\n" "$*" >> "$AUTH_DIR/publish-order"',
+    '  if [ -f "$AUTH_DIR/authorized-publish" ]; then',
+    "    exit 0",
+    "  fi",
     '  echo "https://www.npmjs.com/auth/cli/publish-two"',
     '  while [ ! -f "$AUTH_DIR/authorized-publish" ]; do sleep 1; done',
     "  exit 0",
@@ -178,6 +193,24 @@ test("local publish pauses for login and publish auth links, then resumes to com
     expect(secondOutput).toContain("https://www.npmjs.com/auth/cli/publish-two")
     expect(secondOutput).toContain(`--resume ${id}`)
 
+    const sessionDir = path.join(sessions, id!)
+    expect(await readFile(path.join(sessionDir, "output.log"), "utf8")).toContain("fixture check:release")
+    const sessionState = JSON.parse(await readFile(path.join(sessionDir, "session.json"), "utf8"))
+    expect(sessionState.args).toEqual(["--release-type=local-publish", `--registry=${registry}`])
+    expect(sessionState.status).toBe("waiting-auth")
+    const events = (await readFile(path.join(sessionDir, "auth-events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/login-one"))).toBe(true)
+    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/publish-two"))).toBe(true)
+    expect(events.some((event) => event.type === "resolved")).toBe(true)
+    const firstPublishes = (await readFile(path.join(auth, "publish-order"), "utf8")).trim().split("\n")
+    expect(firstPublishes).toHaveLength(1)
+    expect(firstPublishes[0]).toContain("--workspace @max10240/opencode-plugin-new-plugin")
+    expect(firstPublishes[0]).toContain("--workspace @max10240/opencode-plugin-show-img")
+    expect(firstPublishes[0]).not.toContain("unicorn")
+
     await writeFile(path.join(auth, "authorized-publish"), "")
     const final = await run([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", id!], { cwd: fixture, env })
     const finalOutput = `${final.stdout}\n${final.stderr}`
@@ -189,24 +222,15 @@ test("local publish pauses for login and publish auth links, then resumes to com
       .toBe("release: v1.0.2 [local-publish]")
     const manifest = JSON.parse(await readFile(path.join(fixture, "packages/unicorn/package.json"), "utf8"))
     expect(manifest.version).toBe("1.0.2")
+    expect(manifest.dependencies["@max10240/opencode-plugin-new-plugin"]).toBe("1.0.2")
     expect(manifest.dependencies["@max10240/opencode-plugin-show-img"]).toBe("1.0.2")
 
-    const sessionDir = path.join(sessions, id!)
-    expect(await readFile(path.join(sessionDir, "output.log"), "utf8")).toContain("fixture check:release")
-    const sessionState = JSON.parse(await readFile(path.join(sessionDir, "session.json"), "utf8"))
-    expect(sessionState.args).toEqual(["--release-type=local-publish", `--registry=${registry}`])
-    expect(sessionState.status).toBe("completed")
-    const events = (await readFile(path.join(sessionDir, "auth-events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/login-one"))).toBe(true)
-    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/publish-two"))).toBe(true)
-    expect(events.some((event) => event.type === "resolved")).toBe(true)
-
-    const again = await run([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", id!], { cwd: fixture, env })
-    expect(again.code).toBe(0)
-    expect(`${again.stdout}\n${again.stderr}`).toContain('"version":"1.0.2"')
+    const publishes = (await readFile(path.join(auth, "publish-order"), "utf8")).trim().split("\n")
+    expect(publishes).toHaveLength(2)
+    expect(publishes[1]).toContain("--workspace @max10240/opencode-plugin-unicorn")
+    expect(publishes[1]).not.toContain("opencode-plugin-new-plugin")
+    expect(publishes[1]).not.toContain("opencode-plugin-show-img")
+    expect(existsSync(sessionDir)).toBe(false)
 
     const missing = await run([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", "00000000-0000-4000-8000-000000000000"], { cwd: fixture, env })
     expect(missing.code).toBe(1)

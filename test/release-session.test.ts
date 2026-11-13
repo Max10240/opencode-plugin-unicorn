@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -9,6 +10,7 @@ import {
   parseResumeArgs,
   pendingAuthEvent,
   readDone,
+  removeSession,
   watchSession,
 } from "../scripts/release-session.mjs"
 
@@ -93,8 +95,10 @@ test("pauses for each auth link and resumes until the detached release completes
       status: "completed",
       reportedChallenges: ["one", "two"],
     })
+    expect(removeSession(session)).toBe(true)
+    expect(existsSync(session.directory)).toBe(false)
   } finally {
-    if (!readDone(session) && Number.isInteger(session.pid)) {
+    if (existsSync(session.directory) && !readDone(session) && Number.isInteger(session.pid)) {
       try { process.kill(-session.pid, "SIGTERM") } catch { try { process.kill(session.pid, "SIGTERM") } catch {} }
     }
     await rm(root, { recursive: true, force: true })

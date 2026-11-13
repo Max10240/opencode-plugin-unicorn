@@ -11,6 +11,7 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -440,6 +441,15 @@ export function writeDone(sessionDir, value) {
     ...value,
     finishedAt: timestamp(),
   })
+}
+
+export function removeSession(session) {
+  try {
+    rmSync(session.directory, { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function flushOutput() {

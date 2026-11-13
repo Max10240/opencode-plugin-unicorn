@@ -51,6 +51,24 @@ test("registry reads can bypass a cached version response", async () => {
   expect(urls[0]).toContain("__release=")
 })
 
+test("registry version lookup falls back to the package document", async () => {
+  const calls: string[] = []
+  const remote = await fetchRegistryVersion("https://registry.npmjs.org/", CHILD, "1.0.12", {
+    cacheBust: true,
+    fetchImpl: async (url) => {
+      calls.push(String(url))
+      if (String(url).includes("/1.0.12")) return new Response("not found", { status: 404 })
+      return Response.json({
+        versions: {
+          "1.0.12": { dist: { integrity: "sha512-packument", tarball: "https://example.test/x.tgz" } },
+        },
+      })
+    },
+  })
+  expect(remote).toEqual({ integrity: "sha512-packument", tarball: "https://example.test/x.tgz" })
+  expect(calls).toHaveLength(2)
+})
+
 test("release arguments require an explicit release type and default to patch", () => {
   expect(parseReleaseArgs(["--release-type=local-publish"])).toMatchObject({ releaseType: "local-publish", version: "patch", dryRun: false })
   expect(parseReleaseArgs(["--release-type=ci-stage", "--version=minor", "--dry-run"])).toMatchObject({ releaseType: "ci-stage", version: "minor", dryRun: true })
@@ -193,7 +211,7 @@ test("registry verification retries transient network failures", async () => {
   expect(calls).toBe(2)
 })
 
-test("local publish trusts npm publish and commits package versions", async () => {
+test("local publish verifies dependency levels and commits package versions", async () => {
   const fx = await fixture()
   try {
     const calls: string[][] = []
@@ -262,7 +280,7 @@ test("plan refuses the same version with different content", async () => {
   } finally { await fx.cleanup() }
 })
 
-test("release publishes all missing workspaces in one npm invocation and never bumps versions", async () => {
+test("release publishes dependency levels in order and never bumps versions", async () => {
   const fx = await fixture()
   try {
     const result = await releasePackages({
@@ -276,11 +294,17 @@ test("release publishes all missing workspaces in one npm invocation and never b
     })
     expect(result).toMatchObject({ version: "1.0.11", published: [CHILD, UNICORN] })
     const publishes = fx.calls.filter((args) => args[0] === "npm" && args[1] === "publish")
-    expect(publishes).toHaveLength(1)
+    expect(publishes).toHaveLength(2)
     expect(publishes[0]).toEqual(expect.arrayContaining([
-      "npm", "publish", "--workspace", CHILD, "--workspace", UNICORN,
+      "npm", "publish", "--workspace", CHILD,
       "--access", "public", "--ignore-scripts", "--tag=latest",
     ]))
+    expect(publishes[0]).not.toContain(UNICORN)
+    expect(publishes[1]).toEqual(expect.arrayContaining([
+      "npm", "publish", "--workspace", UNICORN,
+      "--access", "public", "--ignore-scripts", "--tag=latest",
+    ]))
+    expect(publishes[1]).not.toContain(CHILD)
     expect(fx.calls.some((args) => args.includes("version"))).toBe(false)
   } finally { await fx.cleanup() }
 })

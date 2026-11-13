@@ -15,6 +15,7 @@ import {
   parseInternalArgs,
   parseResumeArgs,
   readDone,
+  removeSession,
   watchSession,
   writeDone,
 } from "./release-session.mjs"
@@ -64,7 +65,18 @@ function cacheBusted(url, enabled) {
 
 export async function fetchRegistryVersion(registry, name, version, { fetchImpl = fetch, cacheBust = false } = {}) {
   const response = await fetchImpl(cacheBusted(registryVersionUrl(registry, name, version), cacheBust), { headers: { accept: "application/json" } })
-  if (response.status === 404) return null
+  if (response.status === 404) {
+    // The version endpoint can stay cached as 404 after the package document has
+    // already listed the version. The package document is the authoritative set.
+    const packumentURL = `${registry.replace(/\/+$/, "")}/${registryPackagePath(name)}`
+    const packumentResponse = await fetchImpl(cacheBusted(packumentURL, cacheBust), { headers: { accept: "application/json" } })
+    if (packumentResponse.status === 404) return null
+    if (!packumentResponse.ok) throw new Error(`Registry query failed for ${name}: ${packumentResponse.status}`)
+    const packument = await packumentResponse.json()
+    const entry = packument.versions?.[version]
+    if (!entry) return null
+    return { integrity: entry.dist?.integrity ?? null, tarball: entry.dist?.tarball ?? null }
+  }
   if (!response.ok) throw new Error(`Registry query failed for ${name}@${version}: ${response.status}`)
   const body = await response.json()
   return { integrity: body.dist?.integrity ?? null, tarball: body.dist?.tarball ?? null }
@@ -258,10 +270,11 @@ export async function planRelease({
 
   const temporary = destination ?? await mkdtemp(path.join(os.tmpdir(), "unicorn-release-"))
   const owned = destination === undefined
+  const levels = buildLevels(packages)
   try {
     await mkdir(temporary, { recursive: true })
     const plan = []
-    for (const item of buildLevels(packages).flat()) {
+    for (const item of levels.flat()) {
       const packed = await pack(root, item, temporary, { run })
       const remote = await fetchRegistryVersion(registry, item.manifest.name, version, { fetchImpl, cacheBust: true })
       if (remote) {
@@ -274,7 +287,13 @@ export async function planRelease({
         plan.push({ name: item.manifest.name, version, ...packed, action: "publish" })
       }
     }
-    return { version, plan, temporary, cleanup: async () => { if (owned) await rm(temporary, { recursive: true, force: true }) } }
+    return {
+      version,
+      plan,
+      levels: levels.map((level) => level.map((item) => item.manifest.name)),
+      temporary,
+      cleanup: async () => { if (owned) await rm(temporary, { recursive: true, force: true }) },
+    }
   } catch (error) {
     if (owned) await rm(temporary, { recursive: true, force: true })
     throw error
@@ -339,25 +358,33 @@ export async function releasePackages({
         await authRun(command, { cwd: root })
       }
     } else if (published.length > 0) {
-      // One npm process and one web-auth challenge for all missing packages.
-      log(`[release] publishing ${published.map((item) => `${item.name}@${item.version}`).join(", ")}`)
-      const command = [
-        "npm", "publish",
-        ...published.flatMap((item) => ["--workspace", item.name]),
-        "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false",
-      ]
-      try {
-        await authRun(command, { cwd: root })
-      } catch (error) {
-        // npm's web-auth polling can report 404/E404 after the registry accepted the
-        // upload. Treat the batch as published only when every exact version exists.
-        const missing = []
-        for (const item of published) {
-          const remote = await fetchRegistryVersion(registry, item.name, item.version, { fetchImpl })
-          if (!remote) missing.push(item.name)
+      const byName = new Map(published.map((item) => [item.name, item]))
+      const publishLevels = planned.levels
+        .map((level) => level.map((name) => byName.get(name)).filter((item) => item !== undefined))
+        .filter((level) => level.length > 0)
+      const grouped = new Set(publishLevels.flatMap((level) => level.map((item) => item.name)))
+      const omitted = published.filter((item) => !grouped.has(item.name)).map((item) => item.name)
+      if (omitted.length) throw new Error(`Release plan omitted packages from dependency levels: ${omitted.join(", ")}`)
+      for (const level of publishLevels) {
+        log(`[release] publishing ${level.map((item) => `${item.name}@${item.version}`).join(", ")}`)
+        const command = [
+          "npm", "publish",
+          ...level.flatMap((item) => ["--workspace", item.name]),
+          "--access", "public", "--ignore-scripts", `--tag=${tag}`, `--registry=${registry}`, "--update-notifier=false",
+        ]
+        try {
+          await authRun(command, { cwd: root })
+        } catch (error) {
+          // npm's web-auth polling can report 404/E404 after the registry accepted the
+          // upload. Treat the level as published only when every exact version exists.
+          const missing = []
+          for (const item of level) {
+            const remote = await fetchRegistryVersion(registry, item.name, item.version, { fetchImpl })
+            if (!remote) missing.push(item.name)
+          }
+          if (missing.length) throw error
+          log(`[release] ${level.map((item) => item.name).join(", ")} are present despite the CLI error; continuing`)
         }
-        if (missing.length) throw error
-        log(`[release] ${published.map((item) => item.name).join(", ")} are present despite the CLI error; continuing`)
       }
     }
 
@@ -476,7 +503,11 @@ async function startResumableRelease(args, options) {
   const session = createSession({ args })
   console.log(`[release] session ${session.id}: ${session.directory}`)
   const result = await watchSession(session)
-  return finishSession(result)
+  const code = await finishSession(result)
+  if (result.type === "done" && result.code === 0 && !removeSession(session)) {
+    console.error(`[release] could not remove session ${session.directory}`)
+  }
+  return code
 }
 
 async function resumeRelease(id) {
@@ -484,7 +515,11 @@ async function resumeRelease(id) {
   console.log(`Resuming release session ${id}`)
   if (!readDone(session)) console.log("[release] waiting for the next authorization link or completion")
   const result = await watchSession(session)
-  return finishSession(result)
+  const code = await finishSession(result)
+  if (result.type === "done" && result.code === 0 && !removeSession(session)) {
+    console.error(`[release] could not remove session ${session.directory}`)
+  }
+  return code
 }
 
 async function runInternal(args, sessionDir) {
