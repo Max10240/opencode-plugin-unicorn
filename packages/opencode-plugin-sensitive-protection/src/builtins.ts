@@ -7,6 +7,8 @@ import { parse as parseToml } from "smol-toml"
 import { parse as parseYaml } from "yaml"
 import type { ProtectionRegistry } from "./registry.js"
 import type { CustomFileOptions, ExtractFormat, ReadPolicy, WritePolicy } from "./options.js"
+import type { ProtectionSource } from "./types.js"
+import type { ExtractedValue } from "./extractors.js"
 import {
   extractAwsCredentials,
   extractByFormat,
@@ -40,12 +42,13 @@ export type ManagedFile = {
   readonly read: ReadPolicy
   readonly write: WritePolicy
   readonly source: "builtin" | "custom"
-  readonly extract: (content: string) => string[]
+  readonly extract: (content: string) => ExtractedValue[]
 }
 
 export type ManagedHitError = {
   readonly label: string
   readonly file: string
+  readonly source?: ProtectionSource
   readonly error: unknown
 }
 
@@ -56,7 +59,7 @@ type Definition = {
   readonly paths: () => readonly string[]
   readonly read: ReadPolicy
   readonly write: WritePolicy
-  readonly extract: (content: string) => string[]
+  readonly extract: (content: string) => ExtractedValue[]
 }
 
 export function builtinFiles(options: {
@@ -90,11 +93,12 @@ export function customFiles(options: {
   const result: ManagedFile[] = []
   for (const file of options.files) {
     const resolved = expandPath(file.path, home, options.directory)
+    const compile = file.extractor ? compileExtractor(file.extractor, resolved, home, options.maxContentBytes) : undefined
     const extract = file.extractor
-      ? compileExtractor(file.extractor, resolved, home, options.maxContentBytes)
+      ? compile && ((content: string) => compile(content).map((value) => ({ value })))
       : (content: string) => extractByFormat(content, file.format!, file.fields!)
     if (!extract) {
-      options.onError?.({ label: file.label, file: resolved, error: new Error("Invalid custom extractor") })
+      options.onError?.({ label: file.label, file: resolved, source: "custom", error: new Error("Invalid custom extractor") })
       result.push({
         id: file.id,
         label: file.label,
@@ -184,7 +188,7 @@ export class ManagedFiles {
     if (this.states.get(resolved) === signature) return
     this.states.set(resolved, signature)
     if (info.size > this.maxContentBytes) {
-      this.onError({ label: file.label, file: resolved, error: new Error("File exceeds maxContentBytes") })
+      this.onError({ label: file.label, file: resolved, source: file.source, error: new Error("File exceeds maxContentBytes") })
       await this.blockOnError(file, resolved)
       return
     }
@@ -193,16 +197,16 @@ export class ManagedFiles {
     try {
       content = await readFile(resolved, "utf8")
     } catch (error) {
-      this.onError({ label: file.label, file: resolved, error })
+      this.onError({ label: file.label, file: resolved, source: file.source, error })
       await this.blockOnError(file, resolved)
       return
     }
 
-    let values: string[]
+    let values: ExtractedValue[]
     try {
       values = file.extract(content)
     } catch (error) {
-      this.onError({ label: file.label, file: resolved, error })
+      this.onError({ label: file.label, file: resolved, source: file.source, error })
       await this.blockOnError(file, resolved)
       return
     }
@@ -222,7 +226,7 @@ export class ManagedFiles {
         persist: false,
       })
     } catch (error) {
-      this.onError({ label: file.label, file: resolved, error })
+      this.onError({ label: file.label, file: resolved, source: file.source, error })
     }
   }
 
@@ -406,10 +410,10 @@ const BUILTIN_DEFINITIONS: readonly Definition[] = [
       const parsed = JSON.parse(content) as Record<string, unknown>
       const credentials = parsed.credentials
       if (!credentials || typeof credentials !== "object" || Array.isArray(credentials)) return []
-      return Object.values(credentials).flatMap((value) => {
+      return Object.entries(credentials).flatMap(([host, value]) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return []
         const token = (value as Record<string, unknown>).token
-        return typeof token === "string" ? [token] : []
+        return typeof token === "string" ? [{ value: token, key: `credentials.${host}.token` }] : []
       })
     },
   },

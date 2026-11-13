@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises"
 
 export const DEFAULT_MAX_CONTENT_BYTES = 8 * 1024 * 1024
 export const MAX_CONTENT_BYTES_LIMIT = 64 * 1024 * 1024
+export const DEFAULT_HISTORY_LIMIT = 200
+export const MAX_HISTORY_LIMIT = 1000
+export const DEFAULT_HISTORY_KEYBIND = "ctrl+shift+h"
 
 export type ExtractFormat = "json" | "yaml" | "ini" | "toml"
 export type ReadPolicy = "block" | "redact"
@@ -31,6 +34,8 @@ export type ProtectionOptions = {
   readonly customFiles?: readonly CustomFileOptions[]
   readonly allowCustomExtractors?: boolean
   readonly notifications?: boolean
+  readonly historyLimit?: number
+  readonly historyKeybind?: string | false
 }
 
 export type ResolvedProtectionOptions = {
@@ -46,6 +51,8 @@ export type ResolvedProtectionOptions = {
   readonly customFileErrors: readonly string[]
   readonly allowCustomExtractors: boolean
   readonly notifications: boolean
+  readonly historyLimit: number
+  readonly historyKeybind: string | false
 }
 
 export function dataDirectory(environment: NodeJS.ProcessEnv = process.env, home = os.homedir()) {
@@ -75,6 +82,10 @@ export async function parseProtectionOptions(
   if (configured !== undefined && (typeof configured !== "number" || !Number.isSafeInteger(configured) || configured < 1 || configured > MAX_CONTENT_BYTES_LIMIT)) {
     throw new Error(`maxContentBytes must be an integer between 1 and ${MAX_CONTENT_BYTES_LIMIT}`)
   }
+  const configuredHistory = raw.historyLimit
+  if (configuredHistory !== undefined && (typeof configuredHistory !== "number" || !Number.isSafeInteger(configuredHistory) || configuredHistory < 0 || configuredHistory > MAX_HISTORY_LIMIT)) {
+    throw new Error(`historyLimit must be an integer between 0 and ${MAX_HISTORY_LIMIT}`)
+  }
   const enabled = raw.enabled !== false && (await projectEscapeHatch(directory))
   const custom = parseCustomFiles(raw.customFiles, raw.allowCustomExtractors === true)
   return {
@@ -90,6 +101,12 @@ export async function parseProtectionOptions(
     customFileErrors: custom.errors,
     allowCustomExtractors: raw.allowCustomExtractors === true,
     notifications: raw.notifications !== false,
+    historyLimit: configuredHistory === undefined ? DEFAULT_HISTORY_LIMIT : configuredHistory as number,
+    historyKeybind: raw.historyKeybind === false
+      ? false
+      : typeof raw.historyKeybind === "string" && raw.historyKeybind.trim()
+        ? raw.historyKeybind.trim()
+        : DEFAULT_HISTORY_KEYBIND,
   }
 }
 

@@ -8,7 +8,8 @@
 权限的 Agent 都能读到它们，哪怕只是一句“看看配置”，也可能把内容发给模型 provider。
 
 敏感信息保护认识常见的凭据文件，只提取真正敏感的字段；该阻断的直接阻断，其他场景把值替换成
-`[REDACTED:PROTECTED]`，在进入模型之前完成脱敏。每次规则命中还会在 TUI 右上角弹出提示，不会静默失败。
+`[REDACTED:PROTECTED]`，在进入模型之前完成脱敏。每次规则命中还会显示 TUI 右上角提示、可点击的详情状态和
+实时保护历史，不会静默失败。
 
 ## 默认保护哪些文件
 
@@ -38,7 +39,7 @@
 
 ## TUI 提示
 
-每次命中都会在 TUI 右上角弹出 toast：
+命中时会在 TUI 右上角弹出 toast：
 
 ```text
 Sensitive protection
@@ -51,10 +52,37 @@ Sensitive protection warning
 Could not extract sensitive values from .npmrc; reads are blocked
 ```
 
-一次工具调用命中多个值时只弹一次，并显示数量；连续命中会排队，显示 `+N more`。Toast 不会包含 secret 原文。
+一次工具调用命中多个值时只弹一次，并显示数量。Toast 不会包含 secret 原文。
+
+这里的数量是“本次发往模型的请求中的出现次数”，不是累计值。模型上下文会在每次请求前重新构建，所以仍然存在的值
+每一轮都可能被再次脱敏。插件会合并这种重复条件，不会每条消息都重复弹窗；出现新的文件、新的 key，或数量增加时
+仍会提示。
+
+Toast 由宿主渲染，插件 API 没有提供点击回调。为了让详情只差一步：
+
+- 提示出现后，输入框底部会显示可点击的 `access blocked · details` 或 `N values redacted · details` 状态，持续 30 秒。
+- `ctrl+shift+h` 可以直接打开历史弹窗；用 `historyKeybind` 修改，设为 `false` 关闭快捷键。
+- 即使关闭通知，也可以用 `/protection-history` 或命令面板打开。命令默认显示全部会话；底部状态默认显示触发它的会话。
+
+如果触发来自其他会话，toast 还会显示 `Open`，点击可直接跳到那个会话；底部状态仍然打开完整的历史弹窗。
 
 提示需要 TUI 入口。通过 Unicorn 使用时两端会自动加载；独立使用时需要在 `opencode.jsonc` 和 `cli.json`
 都加载这个包。
+
+## 保护历史
+
+历史弹窗会展示每次触发需要的上下文：
+
+- 是阻断访问还是脱敏，以及发生在哪个阶段（模型上下文、provider 请求、工具输出、文件读取）；
+- 命中的受保护文件，以及提取出的 key，例如 `~/.npmrc` 中的 `_authToken`；
+- 触发它的会话标题、短 Session ID 和项目目录；
+- 首次/最近触发时间，以及重复次数。
+
+弹窗打开期间会实时更新。`tab` 切换事件类型，`s` 在本会话/全部会话之间切换，`c` 复制当前报告，`enter`
+打开触发会话，连续按两次 `x` 清空历史。会话已被删除时会显示为不可用，而不是让弹窗失败。
+
+历史只包含元数据，不包含 secret 原文；保存在 server 内存中，server 退出即消失。客户端最多保留 1,000 条，
+每次最多渲染 100 行。重复条件会合并，避免每轮请求都把列表撑大。
 
 ## 快速开始
 
@@ -159,7 +187,9 @@ extractor 必须返回 `string[]`，并且只包含 secret 值。它是任意本
 | `maxContentBytes` | `8388608` | 提取时读取的最大文件大小；硬上限 `64 MiB` |
 | `customFiles` | `[]` | 额外文件和提取规则 |
 | `allowCustomExtractors` | `false` | 允许 `customFiles` 中的 JavaScript `extractor` 字符串 |
-| `notifications` | `true` | 命中或解析失败时显示 TUI toast |
+| `notifications` | `true` | 命中或解析失败时显示 TUI toast 和底部详情状态 |
+| `historyLimit` | `200` | 历史最多保留的条件数，`0`–`1000`；`0` 只显示当前 TUI 收到的实时事件 |
+| `historyKeybind` | `"ctrl+shift+h"` | 打开保护历史的快捷键；设为 `false` 关闭绑定 |
 
 内置文件每两秒检查一次 `mtime`、大小和 inode，只有变化时才重新提取。插件不主动刷新 token，只在所属 CLI
 更新文件后重新读取。
@@ -198,3 +228,5 @@ extractor 必须返回 `string[]`，并且只包含 secret 值。它是任意本
 - **部分 AI Agent 把凭据放在系统 Keychain。** 只能保护它们的明文 fallback 文件。
 - **OpenCode V2 把凭据放在 SQLite。** `opencode.db` 是二进制数据库，本版本不读取；只覆盖旧版 `auth.json` 和内置列表中的文本文件。
 - **Agent 仍然知道文件存在。** 保护隐藏的是内容，不是文件名或元数据。
+- **保护历史只在本机内存中，且只有元数据。** 记录文件路径、key 名称、Session ID、标题和目录，不记录 secret
+  原文，也不写入磁盘。可在弹窗中连续按两次 `x` 清空。

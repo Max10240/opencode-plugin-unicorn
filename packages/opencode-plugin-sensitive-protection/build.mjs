@@ -6,7 +6,9 @@ const result = await Bun.build({
   root: ".",
   naming: "[dir]/[name].js",
   target: "bun",
-  external: ["*"],
+  // Bundle relative modules so TUI helpers ship in the published .js entry;
+  // keep host/runtime packages external for the plugin sandbox.
+  external: ["@opencode/*", "@opentui/*", "solid-js", "solid-js/*", "ini", "smol-toml", "yaml"],
   plugins: [solidPlugin],
 })
 
