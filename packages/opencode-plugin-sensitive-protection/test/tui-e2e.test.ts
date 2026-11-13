@@ -32,7 +32,7 @@ test("shows a top-right toast when a protected read is blocked", async () => {
     try {
       await tui.waitFor("Sensitive-Protection-Toast", "TUI did not start")
       e2e.proxy.mock.prependFixture({
-        match: { userMessage: "E2E_PROTECTION_TOAST", toolName: "read", hasToolResult: false },
+        match: { userMessage: "E2E_PROTECTION_TOAST", sequenceIndex: 0 },
         response: {
           toolCalls: [{ id: "call_protected_read", name: "read", arguments: JSON.stringify({ path: secret }) }],
         },

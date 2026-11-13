@@ -83,4 +83,6 @@ genuinely long jobs.
 - **Already-background work is ignored.** Tools started with `background: true` are left alone.
 - **Failures are quiet.** If OpenCode cannot move the work after a few retries, the TUI shows one warning instead of
   nagging you.
-- **No new panel or badge.** The plugin stays out of the way; the existing background UI tells you what happened.
+- **No new panel or badge.** The plugin stays out of the way; the existing background UI tells you what happened. On OpenCode
+  2.3+, the core TUI may omit the background badge even though the tool was backgrounded; its shell status and output are
+  unchanged.

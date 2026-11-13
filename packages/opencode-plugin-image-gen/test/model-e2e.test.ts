@@ -30,7 +30,7 @@ for (const mode of ["standalone", "unicorn"] as const) {
         const out = `model-${index}.png`
         const input = { prompt: "E2E image", out, quality, ...(model ? { model } : model === null ? { model: null, size: null, images: null } : {}), ...(index === 4 ? { size: null } : {}) }
         e2e.proxy.mock.prependFixture({
-          match: { userMessage: marker, toolName: "image_gen", hasToolResult: false },
+          match: { userMessage: marker, sequenceIndex: 0 },
           response: { toolCalls: [{ id, name: "image_gen", arguments: JSON.stringify(input) }] },
         })
         e2e.proxy.mock.prependFixture({ match: { toolCallId: id }, response: { content: "MODEL_IMAGE_DONE" } })
@@ -61,7 +61,7 @@ for (const mode of ["standalone", "unicorn"] as const) {
         const input: Record<string, unknown> = { prompt: "proof", out: `invalid-${label}.png` }
         Object.assign(input, invalid)
         e2e.proxy.mock.prependFixture({
-          match: { userMessage: marker, toolName: "image_gen", hasToolResult: false },
+          match: { userMessage: marker, sequenceIndex: 0 },
           response: { toolCalls: [{ id, name: "image_gen", arguments: JSON.stringify(input) }] },
         })
         e2e.proxy.mock.prependFixture({ match: { toolCallId: id }, response: { content: "SCHEMA_REJECTED" } })

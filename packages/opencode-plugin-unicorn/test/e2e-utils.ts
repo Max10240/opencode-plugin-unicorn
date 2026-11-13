@@ -355,11 +355,11 @@ async function startMockProvider(): Promise<MockProvider> {
   mock.on({ toolCallId: "call_image_gen" }, { content: "E2E_IMAGE_OK" })
   mock.on({ toolCallId: "call_image_edit" }, { content: "E2E_IMAGE_EDIT_OK" })
   mock.on(
-    { userMessage: "E2E_IMAGE_GEN", toolName: "image_gen" },
+    { userMessage: "E2E_IMAGE_GEN" },
     { toolCalls: [{ id: "call_image_gen", name: "image_gen", arguments: { prompt: "E2E image", out: "e2e-image.png" } }] },
   )
   mock.on(
-    { userMessage: "E2E_IMAGE_EDIT", toolName: "image_gen" },
+    { userMessage: "E2E_IMAGE_EDIT" },
     {
       toolCalls: [
         {

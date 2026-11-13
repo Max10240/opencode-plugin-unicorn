@@ -20,7 +20,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opencode/plugin": "^2.0.9",
+    "@opencode/plugin": "^2.2.7",
     "jsonc-parser": "^3.3.1",
     "marked": "^18.0.14"
   },

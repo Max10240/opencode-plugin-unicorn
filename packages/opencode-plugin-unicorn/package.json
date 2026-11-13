@@ -41,7 +41,7 @@
     "@max10240/opencode-plugin-sensitive-protection": "1.0.25",
     "@max10240/opencode-plugin-session-search": "1.0.25",
     "@max10240/opencode-plugin-show-img": "1.0.25",
-    "@opencode/plugin": "^2.0.9"
+    "@opencode/plugin": "^2.2.7"
   },
   "peerDependencies": {
     "@opentui/core": ">=0.5.8",

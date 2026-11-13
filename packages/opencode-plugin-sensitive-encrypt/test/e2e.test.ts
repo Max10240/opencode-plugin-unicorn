@@ -21,7 +21,7 @@ async function callTool(
 ) {
   const id = `call_${randomUUID()}`
   e2e.proxy.mock.prependFixture({
-    match: { userMessage: message, toolName: tool, hasToolResult: false },
+    match: { userMessage: message, sequenceIndex: 0 },
     response: { toolCalls: [{ id, name: tool, arguments: JSON.stringify(argumentsValue) }] },
   })
   e2e.proxy.mock.prependFixture({ match: { toolCallId: id }, response: { content: `${message}_DONE` } })

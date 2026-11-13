@@ -30,7 +30,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@opencode/plugin": "^2.0.9"
+    "@opencode/plugin": "^2.2.7"
   },
   "devDependencies": {
     "@copilotkit/aimock": "^1.42.1",

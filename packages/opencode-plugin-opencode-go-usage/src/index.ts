@@ -5,6 +5,7 @@ import { OpencodeGoUsageRpc } from "./rpc.js"
 import { INTEGRATION_ID, listAccountRefs, listAccountUsage, type UsageSource } from "./usage.js"
 
 type ServerContext = Pick<Context, "options" | "rpc" | "integration">
+type ResolveConnection = Parameters<NonNullable<ServerContext["integration"]>["connection"]["resolve"]>[0]
 
 export default Plugin.define({
   id: "max10240.opencode-go-usage",
@@ -17,7 +18,7 @@ export async function setupOpencodeGoUsage(context: ServerContext) {
   const source: UsageSource = {
     get: (input) => context.integration.get(input).then((output) => output.data),
     active: () => context.integration.connection.active(INTEGRATION_ID),
-    resolve: (connection) => context.integration.connection.resolve(connection),
+    resolve: (connection) => context.integration.connection.resolve(connection as ResolveConnection),
   }
 
   const registration = await context.rpc.register(OpencodeGoUsageRpc, {

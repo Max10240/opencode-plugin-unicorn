@@ -31,7 +31,7 @@ export async function checkShowImg(e2e: E2E, enabled = true) {
   await writeFile(file, imageBytes)
 
   e2e.proxy.mock.prependFixture({
-    match: { userMessage: "E2E_SHOW_IMG", toolName: "show_img", hasToolResult: false },
+    match: { userMessage: "E2E_SHOW_IMG", sequenceIndex: 0 },
     response: { toolCalls: [{ id: "call_show_img", name: "show_img", arguments: JSON.stringify({ abs_file_path: file }) }] },
   })
   e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_show_img" }, response: { content: "SHOW_IMG_DONE" } })
@@ -145,7 +145,7 @@ export async function showImage(e2e: E2E, sessionID: string, file: string) {
   const id = `call_${crypto.randomUUID()}`
   const text = `E2E_SHOW_${id}`
   e2e.proxy.mock.prependFixture({
-    match: { userMessage: text, toolName: "show_img", hasToolResult: false },
+    match: { userMessage: text, sequenceIndex: 0 },
     response: { toolCalls: [{ id, name: "show_img", arguments: JSON.stringify({ abs_file_path: file }) }] },
   })
   e2e.proxy.mock.prependFixture({ match: { toolCallId: id }, response: { content: "SHOW_IMG_DONE" } })

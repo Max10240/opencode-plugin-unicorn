@@ -4,7 +4,12 @@ export const REQUEST_TIMEOUT_MS = 10_000
 export const REQUEST_CONCURRENCY = 3
 
 export type ConnectionLike =
-  | { readonly type: "credential"; readonly id: string; readonly label: string }
+  | {
+      readonly type: "credential"
+      readonly id: string
+      readonly label: string
+      readonly method?: "key" | "oauth" | "external"
+    }
   | { readonly type: "env"; readonly name: string }
 
 export type CredentialLike =

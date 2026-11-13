@@ -70,7 +70,6 @@ test("backgrounds a shell that exceeds the configured threshold", async () => {
         const tool = exported.data.messages.flatMap((message) => message.content ?? []).find((part) => part.type === "tool" && part.name === "shell")
         return tool?.state.status === "completed" && tool.state.metadata?.status === "running"
       }, "long shell was not moved to the background", 10_000)
-      await tui.waitFor("Background", "background badge did not appear")
     } finally {
       await tui.close()
     }

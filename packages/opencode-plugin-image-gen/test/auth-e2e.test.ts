@@ -157,7 +157,7 @@ for (const mode of ["header-only", "header-only-edit", "header-only-rejected", "
       }
       if (editing) await writeFile(path.join(e2e.workspace, "reference.png"), Buffer.from(png, "base64"))
       e2e.proxy.mock.prependFixture({
-        match: { userMessage: "RESEARCH_IMAGE", toolName: "image_gen", hasToolResult: false },
+        match: { userMessage: "RESEARCH_IMAGE", sequenceIndex: 0 },
         response: { toolCalls: [{ id: "call_research_image", name: "image_gen", arguments: JSON.stringify({ prompt: "research image", out: "proof.png", ...(editing ? { images: ["reference.png"] } : {}), ...(mode === "implicit-default" ? {} : { model: `${providerID}/test-model${mode === "variant" ? "#premium" : ""}` }) }) }] },
       })
       e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_research_image" }, response: { content: "RESEARCH_DONE" } })
