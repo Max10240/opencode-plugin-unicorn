@@ -30,8 +30,8 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.8.2",
     "@opencode/plugin": "^2.2.7",
-    "effect": "^4.0.1",
-    "@opencode/ai": "2.2.0"
+    "effect": "^4.1.0",
+    "@opencode/ai": "^2.3.0"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -44,7 +44,7 @@
   },
   "peerDependencies": {
     "@opencode/plugin": "^2.2.7",
-    "effect": "^4.0.1"
+    "effect": "^4.1.0"
   },
   "peerDependenciesMeta": {
     "@opencode/plugin": {
