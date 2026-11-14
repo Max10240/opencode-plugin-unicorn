@@ -26,7 +26,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opencode/ai": "^2.2.0",
+    "@opencode/ai": "^2.3.0",
     "@opencode/plugin": "^2.2.7",
     "effect": "^4.0.1"
   },

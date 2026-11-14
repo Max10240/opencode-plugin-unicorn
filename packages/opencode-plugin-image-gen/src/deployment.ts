@@ -8,6 +8,14 @@ type Factory = {
   readonly configure: (input: Record<string, unknown>) => { readonly image?: (id: string) => ImageModel }
 }
 type Provider = { language: Factory; media: Factory; family?: string; apiKeyAuth: boolean }
+type DeploymentDefaults = {
+  readonly headers?: Record<string, string>
+  readonly http?: {
+    readonly body?: Record<string, unknown>
+    readonly headers?: Record<string, string>
+    readonly query?: Record<string, string>
+  }
+}
 const CORE_SETTINGS = new Set(["chunkTimeout", "compaction", "fetch", "timeout", "transport"])
 const API_KEY_PACKAGES = new Set([
   "anthropic", "anthropic-compatible", "baseten", "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai",
@@ -88,7 +96,9 @@ export async function prepareImageModel(request: ImageRequest): Promise<{ model:
   const preparedBaseURL = language?.route.endpoint.baseURL ?? baseURL
   if (preparedBaseURL !== undefined && typeof preparedBaseURL !== "string") throw new Error("Image-gen requires a string provider deployment URL")
   if (typeof preparedBaseURL === "string" && /\$\{[^}]+\}/.test(preparedBaseURL)) throw new Error("Provider baseURL contains unresolved environment variables")
-  const defaults = language?.route.defaults
+  // Older releases exposed deployment defaults on the route; current releases put them on the model's request options.
+  const defaults = (language as { options?: DeploymentDefaults } | undefined)?.options ??
+    (language?.route as { defaults?: DeploymentDefaults } | undefined)?.defaults
   const input: Record<string, unknown> = {
     ...settings,
     ...(request.canonical === undefined ? {} : { provider: request.canonical }),

@@ -332,10 +332,10 @@ test("SDK feasibility: reuse a provider model's prepared HTTP/auth context for a
     const route = prepared.route
     const image = OpenAI.configure({
       auth: route.auth, baseURL: route.endpoint.baseURL,
-      headers: route.defaults.headers,
-      http: { ...route.defaults.http, query: route.endpoint.query },
+      headers: route.options?.headers,
+      http: { ...route.options?.http, query: route.endpoint.query },
     }).image("image-model")
-    await client.image.generate({ model: image, prompt: "proof", n: 1, format: "png" })
+    await client.image.generate({ model: image, prompt: "proof", n: 1, providerOptions: { outputFormat: "png" } })
     expect(requests).toHaveLength(1)
     expect(requests[0].headers.authorization).toBe("Bearer synthetic-inline-key")
     expect(requests[0].headers["openai-organization"]).toBe("research-org")
