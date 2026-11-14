@@ -6,7 +6,7 @@ import path from "node:path"
 import { treeFiles } from "./workspace.mjs"
 
 export const CHECK_CACHE_VERSION = 1
-const EXCLUDED = new Set(["node_modules", "dist", "coverage", ".git", "__local_test"])
+const EXCLUDED = new Set(["node_modules", "dist", "coverage", ".git", ".local", "__local_test"])
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex")

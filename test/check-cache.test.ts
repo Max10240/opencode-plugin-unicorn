@@ -59,6 +59,20 @@ test("repository snapshots separate source, test and helper changes", async () =
   })
 })
 
+test("repository snapshots ignore the local shadow directory", async () => {
+  await fixture(async (root) => {
+    const packages = [
+      { directory: path.join(root, "packages/a"), manifest: { name: "a", dependencies: {} } },
+      { directory: path.join(root, "packages/b"), manifest: { name: "b", dependencies: { a: "1.0.0" } } },
+    ]
+    const before = await snapshotRepository(root, packages)
+    await mkdir(path.join(root, ".local", "unicorn-shadow"), { recursive: true })
+    await writeFile(path.join(root, ".local", "unicorn-shadow", "snapshot.json"), "{}")
+    const after = await snapshotRepository(root, packages)
+    expect(after.rootHash).toBe(before.rootHash)
+  })
+})
+
 test("dist hashes follow output bytes", async () => {
   await fixture(async (root) => {
     const packages = [

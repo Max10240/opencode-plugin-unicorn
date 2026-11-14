@@ -6,3 +6,4 @@ coverage/
 bun.lock
 __local_test/
 isolated/
+/.local/
