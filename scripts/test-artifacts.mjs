@@ -126,6 +126,7 @@ function externalManifest(manifest, local) {
     dependencies: external(manifest.dependencies),
     optionalDependencies: external(manifest.optionalDependencies),
     peerDependencies: external(manifest.peerDependencies),
+    peerDependenciesMeta: external(manifest.peerDependenciesMeta),
   }
 }
 

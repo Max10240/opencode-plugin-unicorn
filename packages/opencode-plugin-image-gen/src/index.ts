@@ -7,6 +7,8 @@ import { saveGeneratedImage } from "./output.js"
 import { prepareImagePreview } from "./preview.js"
 import type { ImageGenOptions, ImageToolInput } from "./types.js"
 
+export { generateImage, readImageFiles } from "./openai-images.js"
+
 const TOOL_NAME = "image_gen"
 
 export async function setupImageGen(context: Context) {

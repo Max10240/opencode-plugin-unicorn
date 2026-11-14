@@ -274,7 +274,7 @@ test("configured auth is not overwritten by an undefined credential or ambient O
   } })
   try {
     home = await mkdtemp(path.join(os.tmpdir(), "image-gen-auth-env-"))
-    const module = pathToFileURL(path.join(packageRoot, "dist/src/openai-images.js")).href
+    const module = pathToFileURL(path.join(packageRoot, "dist/src/index.js")).href
     const script = `
       import {generateImage} from ${JSON.stringify(module)};
       await generateImage({providerID:"research",packageName:"@opencode/ai/providers/openai-compatible",model:"image-model",prompt:"proof",

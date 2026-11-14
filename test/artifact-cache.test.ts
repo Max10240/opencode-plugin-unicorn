@@ -45,6 +45,7 @@ test("dependency cache keys follow external resolution and toolchain, not local 
   for (const input of [{ ...runtime, node: "other" }, { ...runtime, npm: "other" }, { ...runtime, arch: "other" }]) expect(dependencyKey(archives, input)).not.toBe(key)
   expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, version: "2.0.0" } }], runtime)).toBe(key)
   expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, dependencies: { external: "^2" } } }], runtime)).not.toBe(key)
+  expect(dependencyKey([{ ...archives[0], manifest: { ...archives[0].manifest, peerDependenciesMeta: { external: { optional: true } } } }], runtime)).not.toBe(key)
 
   const local = { file: archives[0].file, manifest: { name: "@test/local", version: "1.0.0" } }
   const withLocal = [{ ...archives[0], manifest: { ...archives[0].manifest, dependencies: { external: "^1.0.0", "@test/local": "1.0.0" } } }, local]

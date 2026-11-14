@@ -1,24 +1,24 @@
 {
   "review-your-changes-carefully": {
-    "template": "review all your changes carefully, ensure the changes work as expected and don't break any existed functionalities"
+    "template": "Review all your changes carefully and make sure they work as expected without breaking any existing functionality."
   },
   "commit": {
-    "template": "commit all the changes you made. Don't make commit again unless user ask you explicitly"
+    "template": "Commit all the changes you made. Do not commit again unless I explicitly ask."
   },
   "inspect": {
-    "template": "what are you doing now and what problems are you encountering"
+    "template": "What are you doing right now, and what problems are you running into?"
   },
   "keep-working": {
-    "template": "keep working, do not stop unless you finish all the jobs that you should do"
+    "template": "Keep working. Do not stop until you have finished everything you need to do."
   },
   "keep-working-and-dont-ask-question": {
-    "template": "keep working and do not ask any questions, do not stop unless you finish all the jobs that you should do"
+    "template": "Keep working without asking any questions. Do not stop until you have finished everything you need to do."
   },
   "hurry-and-forget": {
-    "template": "Do beblow things first, then forget them and continue all things you are working for: \n\n $ARGUMENTS"
+    "template": "Do the things below first, then forget about them and continue with everything else you were working on:\n\n$ARGUMENTS"
   },
   "investigate-first": {
-    "template": "Complete all research and verification for the task below first, then confirm the findings with me. Do not implement anything until I explicitly agree.---\n\n$ARGUMENTS",
+    "template": "First complete all research and verification for the task below, then confirm the findings with me. Do not implement anything until I explicitly approve.\n\n---\n\n$ARGUMENTS",
     "description": "Research and verify first; implement only after explicit approval"
   },
   "summary-for-me": {

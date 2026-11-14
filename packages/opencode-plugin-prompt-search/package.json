@@ -29,13 +29,11 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "dependencies": {
-    "@opencode/plugin": "^2.2.7"
-  },
   "peerDependencies": {
     "@opentui/core": ">=0.5.8",
     "@opentui/solid": ">=0.5.8",
-    "solid-js": ">=1.9.0"
+    "solid-js": ">=1.9.0",
+    "@opencode/plugin": "^2.2.7"
   },
   "devDependencies": {
     "@copilotkit/aimock": "^1.42.1",
@@ -51,5 +49,19 @@
     "type": "git",
     "url": "git+https://github.com/Max10240/opencode-plugin-unicorn.git",
     "directory": "packages/opencode-plugin-prompt-search"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    },
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   }
 }

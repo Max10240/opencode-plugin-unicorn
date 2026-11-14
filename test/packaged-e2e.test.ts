@@ -1,10 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { checkPluginVersions } from "../scripts/check-versions.mjs"
-import { packWorkspace } from "../scripts/test-artifacts.mjs"
+import { installArchives, packWorkspace } from "../scripts/test-artifacts.mjs"
+import { createOpenCodeE2E } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
 
 setDefaultTimeout(360_000)
 
@@ -58,6 +59,55 @@ test("every npm tarball contains only JavaScript and matches its manifest", asyn
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")
       }
+    }
+  } finally {
+    if (process.platform === "win32") await rm(root, { recursive: true, force: true })
+    else Bun.spawnSync(["rm", "-rf", root], { stdout: "ignore", stderr: "ignore" })
+  }
+})
+
+test("packaged install omits host-provided modules and embeds image-gen's AI runtime", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opencode-packaged-install-"))
+  try {
+    const archives = await packWorkspace(path.join(root, "artifacts"))
+    const install = path.join(root, "install")
+    await installArchives(archives, install, { fresh: true })
+    const modules = path.join(install, "node_modules")
+
+    for (const name of ["@opencode", "@opentui", "effect", "typescript"]) {
+      await expect(access(path.join(modules, name))).rejects.toThrow()
+    }
+
+    const bundle = await readFile(
+      path.join(modules, "@max10240/opencode-plugin-image-gen/dist/src/index.js"),
+      "utf8",
+    )
+    expect(bundle).not.toMatch(/from\s*["']@opencode\/ai(?:[/"'])/)
+    expect(bundle).not.toMatch(/require\(\s*["']@opencode\/ai(?:[/"'])/)
+    expect(bundle).not.toMatch(/import\(\s*["']@opencode\/ai(?:[/"'])/)
+  } finally {
+    if (process.platform === "win32") await rm(root, { recursive: true, force: true })
+    else Bun.spawnSync(["rm", "-rf", root], { stdout: "ignore", stderr: "ignore" })
+  }
+})
+
+test("packaged image-gen resolves host modules from OpenCode and still generates an image", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opencode-packaged-runtime-"))
+  try {
+    const archives = await packWorkspace(path.join(root, "artifacts"))
+    const install = path.join(root, "install")
+    await installArchives(archives, install, { fresh: true })
+    const e2e = await createOpenCodeE2E({
+      plugin: "image-gen",
+      pluginPackage: path.join(install, "node_modules/@max10240/opencode-plugin-image-gen"),
+    })
+    try {
+      await e2e.runImagePrompt()
+      expect(e2e.proxy.imageRequests).toBe(1)
+      const image = await readFile(path.join(e2e.workspace, "e2e-image.png"))
+      expect(image.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    } finally {
+      await e2e.close()
     }
   } finally {
     if (process.platform === "win32") await rm(root, { recursive: true, force: true })
