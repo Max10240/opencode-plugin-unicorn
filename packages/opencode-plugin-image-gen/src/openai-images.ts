@@ -76,13 +76,14 @@ export async function generateImage(request: ImageRequest): Promise<GeneratedIma
       prompt: request.prompt,
       images: (request.images ?? []).map((image) => Media.bytes(image.data, image.mediaType)),
       ...imageOptions(family, request.quality, size),
+      // The bundled @opencode/ai 2.2 runtime carries per-request headers inside `http`.
       ...(request.sessionID ? { http: { headers: { "x-opencode-session-id": request.sessionID } } } : {}),
     }, { signal: request.signal }).catch((error: unknown) => {
       const image = model.route.id === "openai-images" ? openAICompatibleImage(error) : undefined
       if (!image) throw error
-      return { image }
+      return { images: [image] }
     })
-    const image = response.image
+    const image = response.images[0]
     if (!image) throw new Error(`Image provider ${request.providerID} returned no image data.`)
     const dataUrl = image.source.type === "url" ? Media.parseDataUrl(image.source.url) : undefined
     const materialized = dataUrl ?? (await imageClient.run(image.materialize(), { signal: request.signal }))
