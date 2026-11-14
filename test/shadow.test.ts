@@ -46,7 +46,12 @@ test("prune keeps the runtime closure and removes host and unreachable packages"
   try {
     const modules = path.join(root, "node_modules")
     await packageAt(modules, "@max10240/opencode-plugin-unicorn")
-    await packageAt(modules, "@max10240/opencode-plugin-local", { "@opencode/plugin": "2.3.0", effect: "4.1.0" }, { "local-peer": "1.0.0" })
+    await packageAt(
+      modules,
+      "@max10240/opencode-plugin-local",
+      { "@opencode/plugin": "2.3.0", effect: "4.1.0", "@opencode/ai": "2.3.0" },
+      { "local-peer": "1.0.0", "@opentui/core": "1.0.0", "@opentui/solid": "1.0.0", "solid-js": "1.0.0" },
+    )
     await packageAt(modules, "local-peer")
     await packageAt(modules, "@opencode/ai", { "@opencode/schema": "2.3.0", effect: "4.1.0" })
     await packageAt(modules, "@opencode/schema", { effect: "4.1.0" })
@@ -66,11 +71,23 @@ test("prune keeps the runtime closure and removes host and unreachable packages"
       { manifest: { name: "@max10240/opencode-plugin-local", peerDependencies: { "local-peer": "1.0.0" } } },
     ])
 
-    expect(removed.sort()).toEqual(["@opencode/plugin", "@opencode/util", "effect", "typescript", "unreachable"])
-    for (const name of ["@max10240/opencode-plugin-unicorn", "@max10240/opencode-plugin-local", "@opencode/ai", "@opencode/schema", "@opentui/core", "@opentui/solid", "local-peer", "solid-js", "web-tree-sitter"]) {
+    expect(removed.sort()).toEqual([
+      "@opencode/ai",
+      "@opencode/plugin",
+      "@opencode/schema",
+      "@opencode/util",
+      "@opentui/core",
+      "@opentui/solid",
+      "effect",
+      "solid-js",
+      "typescript",
+      "unreachable",
+      "web-tree-sitter",
+    ])
+    for (const name of ["@max10240/opencode-plugin-unicorn", "@max10240/opencode-plugin-local", "local-peer"]) {
       expect(await readdir(path.join(modules, name))).toEqual(["package.json"])
     }
-    for (const name of ["@opencode/plugin", "@opencode/util", "effect", "typescript", "unreachable", ".bin"]) {
+    for (const name of ["@opencode/ai", "@opencode/plugin", "@opencode/schema", "@opencode/util", "@opentui/core", "@opentui/solid", "effect", "solid-js", "typescript", "unreachable", "web-tree-sitter", ".bin"]) {
       expect(await readdir(path.join(modules, name)).catch(() => undefined)).toBeUndefined()
     }
   } finally {

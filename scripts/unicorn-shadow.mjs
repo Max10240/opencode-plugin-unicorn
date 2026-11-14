@@ -13,10 +13,17 @@ const repository = fileURLToPath(new URL("../", import.meta.url))
 const defaultDirectory = path.join(repository, ".local", "unicorn-shadow")
 const SNAPSHOT = "snapshot.json"
 const PLUGIN = "@max10240/opencode-plugin-unicorn"
-// OpenCode provides these from its own runtime; loading a copy from the plugin is rejected.
-const HOST_MODULES = new Set(["effect", "@opencode/plugin"])
-// Peers that the server and TUI entries need at runtime, plus the AI runtime used by the plugins.
-const RUNTIME_ROOTS = ["@opencode/ai", "@opentui/core", "@opentui/solid", "solid-js", "web-tree-sitter"]
+// OpenCode supplies effect, @opencode/plugin, and the TUI runtime from its own process.
+// image-gen embeds @opencode/ai, so none of these need a copy in the shadow snapshot.
+const PRUNED_MODULES = new Set([
+  "effect",
+  "@opencode/plugin",
+  "@opencode/ai",
+  "@opentui/core",
+  "@opentui/solid",
+  "solid-js",
+  "web-tree-sitter",
+])
 const LEFTOVER_MAX_AGE = 60 * 60 * 1_000
 
 function usage() {
@@ -24,7 +31,7 @@ function usage() {
 
 Commands:
   update   Build and pack the workspace, install a snapshot, and replace the shadow copy.
-           Dependencies supplied by OpenCode and unused npm trees are pruned by default.
+           Host-supplied or bundled dependencies and unused npm trees are pruned by default.
            Pass --full to keep the complete npm dependency tree.
   status   Show the installed snapshot and the OpenCode config path.
   verify   Load the snapshot with the installed OpenCode binary in a temporary config.
@@ -75,7 +82,7 @@ async function git(args) {
   return (await runCommand(["git", ...args], { cwd: repository, capture: true })).trim()
 }
 
-async function validate(directory, packages) {
+async function validate(directory, packages, { full = false } = {}) {
   const manifest = await readJSON(path.join(directory, "package.json"))
   if (manifest.name !== PLUGIN) throw new Error(`Unexpected package name in snapshot: ${manifest.name}`)
   const expected = new Map(packages.map((item) => [item.manifest.name, item.manifest.version]))
@@ -91,8 +98,10 @@ async function validate(directory, packages) {
     if (!installed) throw new Error(`Missing local dependency: ${name}`)
     if (installed.version !== version) throw new Error(`Version mismatch for ${name}: ${installed.version} != ${version}`)
   }
-  for (const name of RUNTIME_ROOTS) {
-    if (!(await exists(path.join(directory, "node_modules", name)))) throw new Error(`Missing runtime dependency: ${name}`)
+  if (!full) {
+    for (const name of PRUNED_MODULES) {
+      if (await exists(path.join(directory, "node_modules", name))) throw new Error(`Unexpected pruned dependency: ${name}`)
+    }
   }
   const files = await readdir(directory)
   if (files.some((file) => file.endsWith(".tgz"))) throw new Error("Snapshot contains a pack artifact")
@@ -118,18 +127,16 @@ async function manifestsUnder(nodeModules) {
   return manifests
 }
 
-// Keep only the runtime closure of the packed packages. OpenCode supplies effect and
-// @opencode/plugin itself, and their npm trees (utilities, telemetry, npm itself) are large.
+// Keep only the runtime closure of the packed packages. OpenCode supplies effect,
+// @opencode/plugin and the TUI runtime; image-gen embeds @opencode/ai. Their npm trees
+// are large and would otherwise be duplicated inside the shadow snapshot.
 export async function prune(nodeModules, packages) {
   const manifests = await manifestsUnder(nodeModules)
   const keep = new Set()
-  const pending = [
-    ...packages.flatMap((item) => [item.manifest.name, ...Object.keys(item.manifest.peerDependencies ?? {})]),
-    ...RUNTIME_ROOTS,
-  ]
+  const pending = packages.flatMap((item) => [item.manifest.name, ...Object.keys(item.manifest.peerDependencies ?? {})])
   while (pending.length > 0) {
     const name = pending.pop()
-    if (!name || keep.has(name) || HOST_MODULES.has(name) || name.startsWith("effect/")) continue
+    if (!name || keep.has(name) || PRUNED_MODULES.has(name) || name.startsWith("effect/")) continue
     keep.add(name)
     for (const [directory, manifest] of manifests) {
       if (manifest.name !== name) continue
@@ -249,7 +256,7 @@ export async function update(directory, { full = false } = {}) {
       versions: Object.fromEntries(packages.map((item) => [item.manifest.name, item.manifest.version])),
     }
     await writeJSON(path.join(stage, SNAPSHOT), snapshot)
-    await validate(stage, packages)
+    await validate(stage, packages, { full })
 
     const previous = path.join(parent, `.${path.basename(directory)}.previous-${randomUUID()}`)
     const hadPrevious = await exists(directory)
@@ -328,20 +335,22 @@ async function status(directory) {
       console.log(`[shadow] stale ${item.manifest.name}: ${installed?.version ?? "missing"} != ${item.manifest.version}`)
     }
   }
-  let missingRuntime = 0
-  for (const name of RUNTIME_ROOTS) {
-    if (await exists(path.join(directory, "node_modules", name))) continue
-    missingRuntime++
-    console.log(`[shadow] missing runtime dependency: ${name}`)
+  let unexpected = 0
+  if ((snapshot.mode ?? "full") !== "full") {
+    for (const name of PRUNED_MODULES) {
+      if (!(await exists(path.join(directory, "node_modules", name)))) continue
+      unexpected++
+      console.log(`[shadow] unexpected pruned dependency: ${name}`)
+    }
   }
   console.log(`[shadow] path ${directory}`)
   console.log(`[shadow] version ${manifest.version}`)
   console.log(`[shadow] mode ${snapshot.mode ?? "full"}`)
   console.log(`[shadow] installed ${snapshot.installedAt}`)
   console.log(`[shadow] commit ${snapshot.commit.slice(0, 12)}${snapshot.dirty ? " (dirty)" : ""}`)
-  console.log(`[shadow] packages ${packages.length - missingPackages}/${packages.length}${missingPackages || missingRuntime ? " (run shadow:update)" : ""}`)
+  console.log(`[shadow] packages ${packages.length - missingPackages}/${packages.length}${missingPackages || unexpected ? " (run shadow:update)" : ""}`)
   console.log(`[shadow] OpenCode plugin path: ${config}`)
-  return missingPackages || missingRuntime ? 1 : 0
+  return missingPackages || unexpected ? 1 : 0
 }
 
 async function clean(directory) {
