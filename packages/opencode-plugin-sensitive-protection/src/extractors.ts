@@ -253,13 +253,32 @@ export function extractVaultToken(content: string) {
   return [{ value: content.trim(), key: "token" }]
 }
 
+const PRIVATE_KEY_BEGIN = /^-{4,5}\s*BEGIN [A-Z0-9 ]*PRIVATE KEY.*-{4,5}$/i
+const PRIVATE_KEY_END = /^-{4,5}\s*END [A-Z0-9 ]*PRIVATE KEY.*-{4,5}$/i
+const PRIVATE_KEY_BODY = /^[A-Za-z0-9+/=]+$/
+
 export function extractPrivateKey(content: string) {
   if (!content.includes("PRIVATE KEY")) return []
-  const lines = content.split("\n").map((line) => line.trim()).filter((line) => line.length >= 6)
-  return [
-    { value: content, key: "private key" },
-    ...lines.map((line) => ({ value: line, key: "private key line" })),
-  ]
+  const lines = content.split(/\r?\n/)
+  const result: ExtractedValue[] = []
+  let blocks = 0
+  for (let index = 0; index < lines.length; index++) {
+    if (!PRIVATE_KEY_BEGIN.test(lines[index]!.trim())) continue
+    blocks++
+    let end = index + 1
+    while (end < lines.length && !PRIVATE_KEY_END.test(lines[end]!.trim())) end++
+    const body = lines
+      .slice(index + 1, end)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && PRIVATE_KEY_BODY.test(line))
+    for (const line of body) result.push({ value: line, key: "private key line" })
+    index = end
+  }
+  if (result.length === 0 && blocks === 0) {
+    const value = content.trim()
+    if (value) result.push({ value, key: "private key" })
+  }
+  return result
 }
 
 export function patternsForValues(values: readonly (string | ExtractedValue)[]): ProtectionPattern[] {

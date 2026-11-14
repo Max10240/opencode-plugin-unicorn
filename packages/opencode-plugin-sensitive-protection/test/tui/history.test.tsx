@@ -220,3 +220,39 @@ test("renders attribution, session metadata, and live updates without secret val
     app.renderer.destroy()
   }
 })
+
+test("detail and copy include the matched file path and key", async () => {
+  const harness = createHarness([
+    hit({
+      id: "hit-npmrc",
+      kind: "redacted",
+      source: "tool",
+      count: 2,
+      tool: "shell",
+      sessionID: "ses_one",
+      matches: [{
+        file: "/Users/max/.npmrc",
+        label: "npm auth",
+        source: "builtin",
+        key: "_authToken @ registry.npmjs.org",
+        count: 2,
+      }],
+    }),
+  ])
+  const app = await render(harness)
+  try {
+    await waitFor(app, () => app.captureCharFrame().includes("~/.npmrc"), "matched file did not render")
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("_authToken @ registry.npmjs.org")
+    expect(frame).toContain("File: ~/.npmrc")
+
+    const copy = harness.layers
+      .flatMap((layer) => layer.commands)
+      .find((command) => command.title === "Copy protection event")
+    copy?.run()
+    expect(harness.copied()).toContain("_authToken @ registry.npmjs.org")
+    expect(harness.copied()).toContain("File: /Users/max/.npmrc")
+  } finally {
+    app.renderer.destroy()
+  }
+})

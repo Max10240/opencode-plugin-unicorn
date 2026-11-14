@@ -120,6 +120,27 @@ test("SSH private keys are blocked for read, edit, and write", async () => {
   })
 })
 
+test("SSH private key markers and headers are not redacted as secrets", async () => {
+  await fixture(async ({ home, root }) => {
+    const ssh = path.join(home, ".ssh", "id_ed25519")
+    await mkdir(path.dirname(ssh), { recursive: true })
+    const begin = ["-----BEGIN", "OPENSSH", "PRIVATE KEY-----"].join(" ")
+    const end = ["-----END", "OPENSSH", "PRIVATE KEY-----"].join(" ")
+    const body = ["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="]
+    await writeFile(ssh, `${begin}\n${body.join("\n")}\n${end}\n`)
+    const { hooks, cleanup } = await setup(root, { builtins: true, notifications: false })
+    try {
+      expect(await redact(hooks, begin)).toBe(begin)
+      expect(await redact(hooks, end)).toBe(end)
+      const joined = await redact(hooks, body.join(""))
+      for (const line of body) expect(joined).not.toContain(line)
+      expect(joined).toContain("[REDACTED:PROTECTED]")
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
 test("disabled builtin groups and changed files are respected", async () => {
   await fixture(async ({ home, root }) => {
     const ssh = path.join(home, ".ssh", "id_ed25519")

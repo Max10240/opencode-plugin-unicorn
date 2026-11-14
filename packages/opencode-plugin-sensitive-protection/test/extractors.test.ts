@@ -5,6 +5,7 @@ import {
   extractDockerConfig,
   extractKubeconfig,
   extractNpmrc,
+  extractPrivateKey,
   extractPypirc,
   extractByFormat,
   patternsForValues,
@@ -105,6 +106,49 @@ test("extracts Docker auth values in encoded and decoded form", () => {
   expect(found).toContain("user:password")
   expect(found).toContain("IDENTITY_TOKEN_123")
   expect(result).toContainEqual({ value: "user:password", key: "auths.registry.example.auth (decoded)" })
+})
+
+test("extracts private key material without markers or headers", () => {
+  const begin = "-----BEGIN OPENSSH PRIVATE KEY-----"
+  const body = [
+    "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=",
+    "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=",
+  ]
+  const end = "-----END OPENSSH PRIVATE KEY-----"
+  const pem = [begin, ...body, end].join("\n")
+  const result = extractPrivateKey(pem)
+  const found = values(result)
+  expect(found).toEqual(body)
+  expect(found).not.toContain(body.join(""))
+  expect(found).not.toContain(begin)
+  expect(found).not.toContain(end)
+  expect(values(patternsForValues(result))).not.toContain(begin)
+  expect(values(patternsForValues(result))).not.toContain(end)
+  expect(extractPrivateKey([begin, end].join("\n"))).toEqual([])
+
+  const encrypted = extractPrivateKey([
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "Proc-Type: 4,ENCRYPTED",
+    "DEK-Info: AES-256-CBC,0123456789ABCDEF",
+    "",
+    "QUJDREVGR0hJSktMTU5PUA==",
+    "-----END RSA PRIVATE KEY-----",
+  ].join("\n"))
+  const encryptedValues = values(encrypted)
+  expect(encryptedValues).toContain("QUJDREVGR0hJSktMTU5PUA==")
+  expect(encryptedValues).not.toContain("Proc-Type: 4,ENCRYPTED")
+  expect(encryptedValues).not.toContain("DEK-Info: AES-256-CBC,0123456789ABCDEF")
+
+  const rfc = extractPrivateKey([
+    "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----",
+    'Comment: "test@example"',
+    "QUJDREVGR0hJSktMTU5PUA==",
+    "---- END SSH2 ENCRYPTED PRIVATE KEY ----",
+  ].join("\n"))
+  const rfcValues = values(rfc)
+  expect(rfcValues).toContain("QUJDREVGR0hJSktMTU5PUA==")
+  expect(rfcValues).not.toContain("---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----")
+  expect(rfcValues).not.toContain('Comment: "test@example"')
 })
 
 test("expands only secret values and skips placeholders", () => {

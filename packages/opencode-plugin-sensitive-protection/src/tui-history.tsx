@@ -558,7 +558,14 @@ export function ProtectionHistoryDialog(props: {
             <text fg={theme.text.base} wrapMode="word">{reason(hit())}</text>
             <Show when={displayMatches(hit()).length}>
               <For each={displayMatches(hit()).slice(0, 4)}>
-                {(match) => <text fg={theme.text.muted} wrapMode="word">{`• ${matchText(match, props.context)} ×${match.count}${match.source ? ` · ${sourceLabel(match.source)}` : ""}`}</text>}
+                {(match) => (
+                  <box flexDirection="column" gap={0}>
+                    <text fg={theme.text.muted} wrapMode="word">{`• ${matchText(match, props.context)} ×${match.count}${match.source ? ` · ${sourceLabel(match.source)}` : ""}`}</text>
+                    <Show when={match.file}>
+                      {(file) => <text fg={theme.text.muted} wrapMode="word">{`  File: ${shortPath(file(), props.context) ?? cleanText(file(), 1_024)}`}</text>}
+                    </Show>
+                  </box>
+                )}
               </For>
               <Show when={displayMatches(hit()).length > 4}>
                 <text fg={theme.text.muted}>{`+${displayMatches(hit()).length - 4} more matches`}</text>
@@ -755,9 +762,11 @@ function cleanText(value: string | undefined, max: number) {
 }
 
 function copyText(hit: ProtectionHit, session: SessionSummary | undefined | null, context: Context) {
-  const matches = displayMatches(hit).map((match) =>
-    `- ${matchText(match, context) ?? "protected value"} ×${match.count}${match.source ? ` (${sourceLabel(match.source)})` : ""}`
-  )
+  const matches = displayMatches(hit).map((match) => {
+    const line = `- ${matchText(match, context) ?? "protected value"} ×${match.count}${match.source ? ` (${sourceLabel(match.source)})` : ""}`
+    const file = cleanText(match.file, 1_024)
+    return file ? `${line}\n  File: ${file}` : line
+  })
   return [
     "Sensitive protection event",
     `What: ${rowTitle(hit)}`,

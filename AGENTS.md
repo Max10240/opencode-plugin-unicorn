@@ -14,6 +14,12 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
 - `bun run test*`: scoped test commands, not complete checks.
 - Test results are never cached or skipped. No check or release stage runs `npm install`.
 
+## Local Shadow Snapshot
+
+- Do not run `bun run shadow:update` or `bun run shadow:clean` unless the user explicitly asks. Both change or remove the
+  snapshot loaded by the live global OpenCode instance.
+- `bun run shadow:status` and `bun run shadow:verify` are read-only checks.
+
 ## Plugin Independence and Unicorn Integration
 
 - Every plugin must remain independently usable and must not require another plugin to run. When plugins cooperate,
