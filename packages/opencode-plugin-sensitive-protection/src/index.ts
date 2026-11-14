@@ -5,7 +5,7 @@ import { parseProtectionOptions } from "./options.js"
 import { ProtectionRegistry, REDACTION_TOKEN, resolveProtectedPath } from "./registry.js"
 import { builtinFiles, customFiles as buildCustomFiles, ManagedFiles } from "./builtins.js"
 import { ProtectionHistory } from "./history.js"
-import { ProtectionRpc, type ProtectionHit, type ProtectionHistoryResult, type ProtectionMatch } from "./rpc.js"
+import { ProtectionRpc, type ProtectionFilesResult, type ProtectionHit, type ProtectionHistoryResult, type ProtectionMatch } from "./rpc.js"
 
 export { REDACTION_TOKEN } from "./registry.js"
 
@@ -30,6 +30,7 @@ export async function setupSensitiveProtection(context: PluginContext) {
   let notifyHit: ((hit: ProtectionHit) => void) | undefined
   let notifyCleared: (() => void) | undefined
   let rpcDispose: (() => Promise<void> | void) | undefined
+  let disposeFiles: (() => void) | undefined
   if (context.rpc) {
     try {
       const registration = await context.rpc.register(ProtectionRpc, {
@@ -37,6 +38,11 @@ export async function setupSensitiveProtection(context: PluginContext) {
           hits: history.list(),
           total: history.size,
           limit: options.historyLimit,
+        }),
+        files: async (): Promise<ProtectionFilesResult> => ({
+          files: registry.list(),
+          total: registry.size,
+          refreshedAt: Date.now(),
         }),
         clear: async () => {
           const cleared = history.clear()
@@ -51,6 +57,9 @@ export async function setupSensitiveProtection(context: PluginContext) {
       notifyCleared = () => {
         void registration.events.emit("cleared", {}).catch(() => {})
       }
+      disposeFiles = registry.onChange(() => {
+        void registration.events.emit("files", { count: registry.size }).catch(() => {})
+      })
     } catch (error) {
       console.warn("Sensitive protection RPC unavailable:", error)
     }
@@ -291,6 +300,7 @@ export async function setupSensitiveProtection(context: PluginContext) {
       })
     }))
   } catch (error) {
+    disposeFiles?.()
     await Promise.allSettled(disposals.map((item) => item.dispose()))
     await manager.stop()
     await rpcDispose?.()
@@ -299,6 +309,7 @@ export async function setupSensitiveProtection(context: PluginContext) {
   }
 
   return async () => {
+    disposeFiles?.()
     await Promise.allSettled(disposals.map((item) => item.dispose()))
     await manager.stop()
     await rpcDispose?.()

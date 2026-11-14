@@ -1,7 +1,7 @@
 import type { Context } from "@opencode/plugin/tui/context"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { ProtectionRpc, type ProtectionHistoryResult, type ProtectionHit, type ProtectionMatch } from "./rpc.js"
+import { ProtectionRpc, type ProtectionFileInfo, type ProtectionFilesResult, type ProtectionHistoryResult, type ProtectionHit, type ProtectionMatch } from "./rpc.js"
 
 export const HISTORY_COMMAND_ID = "sensitive-protection.history"
 export const HISTORY_SLASH_NAME = "protection-history"
@@ -163,6 +163,76 @@ export function createProtectionHistoryStore(
   }
 }
 
+export type ProtectionFilesStore = {
+  readonly files: () => ProtectionFileInfo[]
+  readonly loading: () => boolean
+  readonly error: () => string | undefined
+  readonly refreshedAt: () => number | undefined
+  readonly load: () => Promise<void>
+  readonly dispose: () => void
+}
+
+export function createProtectionFilesStore(context: Context): ProtectionFilesStore {
+  const [files, setFiles] = createSignal<ProtectionFileInfo[]>([])
+  const [loading, setLoading] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+  const [refreshedAt, setRefreshedAt] = createSignal<number>()
+  let disposed = false
+  let pending: Promise<void> | undefined
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
+  let disposeEvents: (() => void) | undefined
+
+  const load = () => {
+    if (pending) return pending
+    if (typeof context.client?.rpc !== "function") {
+      setError("Protected files are unavailable in this client.")
+      return Promise.resolve()
+    }
+    pending = (async () => {
+      setLoading(true)
+      try {
+        const result = await context.client.rpc(ProtectionRpc).files({}, { location: context.location }) as ProtectionFilesResult
+        if (disposed) return
+        setFiles(result.files)
+        setRefreshedAt(result.refreshedAt)
+        setError(undefined)
+      } catch (cause) {
+        if (!disposed) setError(cause instanceof Error ? cause.message : "Unable to load protected files.")
+      } finally {
+        if (!disposed) setLoading(false)
+        pending = undefined
+      }
+    })()
+    return pending
+  }
+
+  try {
+    disposeEvents = context.client?.rpc?.(ProtectionRpc)?.events?.on("files", () => {
+      if (disposed) return
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined
+        void load()
+      }, 200)
+    })
+  } catch {
+    // A client without event support can still load files manually.
+  }
+
+  return {
+    files: () => files(),
+    loading: () => loading(),
+    error: () => error(),
+    refreshedAt: () => refreshedAt(),
+    load,
+    dispose: () => {
+      disposed = true
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      disposeEvents?.()
+    },
+  }
+}
+
 export function openProtectionHistory(
   context: Context,
   store: ProtectionHistoryStore,
@@ -243,14 +313,17 @@ export function RecentProtectionChip(props: {
 }
 
 type Filter = "all" | "blocked" | "redacted" | "error"
+type FileFilter = "all" | "builtin" | "custom" | "manual"
+type View = "history" | "files"
 type Scope = "all" | "session"
 type SessionSummary = {
   readonly title?: string
   readonly directory?: string
   readonly parentID?: string
 }
+type MenuOption = { readonly value: string; readonly label: string }
 
-const FILTERS: readonly Filter[] = ["all", "blocked", "redacted", "error"]
+
 
 export function ProtectionHistoryDialog(props: {
   context: Context
@@ -259,7 +332,14 @@ export function ProtectionHistoryDialog(props: {
   initialScope?: Scope
 }) {
   const theme = props.context.theme.surface("dialog")
+  const files = createProtectionFilesStore(props.context)
+  const [view, setView] = createSignal<View>("history")
   const [filter, setFilter] = createSignal<Filter>("all")
+  const [fileFilter, setFileFilter] = createSignal<FileFilter>("all")
+  const [fileFilterPath, setFileFilterPath] = createSignal<string>()
+  const [selectedFile, setSelectedFile] = createSignal<string>()
+  const [menuOpen, setMenuOpen] = createSignal(false)
+  const [menuIndex, setMenuIndex] = createSignal(0)
   const [scope, setScope] = createSignal<Scope>(props.initialScope ?? (props.sessionID ? "session" : "all"))
   const [selected, setSelected] = createSignal<string>()
   const [scrollTarget, setScrollTarget] = createSignal<ScrollBoxRenderable>()
@@ -285,14 +365,80 @@ export function ProtectionHistoryDialog(props: {
     }
   }
 
+  const matchesFile = (hit: ProtectionHit, path: string) =>
+    hit.file === path || hit.matches?.some((match) => match.file === path) === true
+
   const filtered = createMemo(() => {
     const value = filter()
+    const path = fileFilterPath()
     return props.store.hits().filter((hit) =>
-      (scope() === "all" || inSession(hit)) && (value === "all" || hit.kind === value)
+      (scope() === "all" || inSession(hit))
+      && (value === "all" || hit.kind === value)
+      && (path === undefined || matchesFile(hit, path))
     )
   })
   const visible = createMemo(() => filtered().slice(0, HISTORY_RENDER_LIMIT))
   const selectedHit = createMemo(() => visible().find((hit) => hit.id === selected()))
+
+  const lastHitFor = (path: string) => {
+    let latest: ProtectionHit | undefined
+    for (const hit of props.store.hits()) {
+      if (!matchesFile(hit, path)) continue
+      if (!latest || hit.time > latest.time) latest = hit
+    }
+    return latest
+  }
+
+  const filteredFiles = createMemo(() => {
+    const value = fileFilter()
+    return files.files()
+      .filter((file) => value === "all" || file.source === value)
+      .sort((left, right) => {
+        const leftHit = lastHitFor(left.path)?.time ?? 0
+        const rightHit = lastHitFor(right.path)?.time ?? 0
+        return rightHit - leftHit || left.path.localeCompare(right.path)
+      })
+  })
+  const selectedFileInfo = createMemo(() => filteredFiles().find((file) => file.path === selectedFile()))
+
+  const menuOptions = (): readonly MenuOption[] => view() === "history"
+    ? [
+        { value: "all", label: "All events" },
+        { value: "blocked", label: "Blocked" },
+        { value: "redacted", label: "Redacted" },
+        { value: "error", label: "Error" },
+      ]
+    : [
+        { value: "all", label: "All sources" },
+        { value: "builtin", label: "Built-in" },
+        { value: "custom", label: "Custom" },
+        { value: "manual", label: "Manual" },
+      ]
+  const currentFilter = () => view() === "history" ? filter() : fileFilter()
+  const currentFilterLabel = () => menuOptions().find((option) => option.value === currentFilter())?.label ?? "All"
+  const openFilterMenu = () => {
+    const options = menuOptions()
+    const index = options.findIndex((option) => option.value === currentFilter())
+    setMenuIndex(index < 0 ? 0 : index)
+    setMenuOpen(true)
+  }
+  const applyFilterMenu = () => {
+    const option = menuOptions()[menuIndex()]
+    if (option) {
+      if (view() === "history") setFilter(option.value as Filter)
+      else setFileFilter(option.value as FileFilter)
+    }
+    setMenuOpen(false)
+  }
+  const resetFilter = () => {
+    if (view() === "history") {
+      setFilter("all")
+      setFileFilterPath(undefined)
+    } else {
+      setFileFilter("all")
+    }
+    setMenuOpen(false)
+  }
 
   const resolveSessions = () => {
     const ids = new Set<string>()
@@ -354,11 +500,23 @@ export function ProtectionHistoryDialog(props: {
   })
 
   createEffect(() => {
-    const index = visible().findIndex((hit) => hit.id === selected())
+    const entries = filteredFiles()
+    if (entries.length === 0) {
+      if (selectedFile() !== undefined) setSelectedFile(undefined)
+      return
+    }
+    if (!entries.some((file) => file.path === selectedFile())) setSelectedFile(entries[0]?.path)
+  })
+
+  createEffect(() => {
+    const index = view() === "history"
+      ? visible().findIndex((hit) => hit.id === selected())
+      : filteredFiles().findIndex((file) => file.path === selectedFile())
     const box = scrollTarget()
     if (index < 0 || !box) return
+    const id = view() === "history" ? `protection-hit-${index}` : `protection-file-${index}`
     const timer = setTimeout(() => {
-      if (!box.isDestroyed) box.scrollChildIntoView(`protection-hit-${index}`)
+      if (!box.isDestroyed) box.scrollChildIntoView(id)
     }, 0)
     onCleanup(() => clearTimeout(timer))
   })
@@ -377,15 +535,23 @@ export function ProtectionHistoryDialog(props: {
   }
 
   const move = (delta: number) => {
+    if (menuOpen()) {
+      const length = menuOptions().length
+      if (length === 0) return
+      setMenuIndex((index) => Math.max(0, Math.min(length - 1, index + delta)))
+      return
+    }
+    if (view() === "files") {
+      const entries = filteredFiles()
+      if (entries.length === 0) return
+      const index = Math.max(0, entries.findIndex((file) => file.path === selectedFile()))
+      setSelectedFile(entries[Math.max(0, Math.min(entries.length - 1, index + delta))]?.path)
+      return
+    }
     const entries = visible()
     if (entries.length === 0) return
     const index = Math.max(0, entries.findIndex((hit) => hit.id === selected()))
     setSelected(entries[Math.max(0, Math.min(entries.length - 1, index + delta))]?.id)
-  }
-
-  const cycleFilter = () => {
-    const index = FILTERS.indexOf(filter())
-    setFilter(FILTERS[(index + 1) % FILTERS.length]!)
   }
 
   const toggleScope = () => {
@@ -410,7 +576,70 @@ export function ProtectionHistoryDialog(props: {
     props.context.ui.router.navigate({ type: "session", sessionID: hit.sessionID })
   }
 
+  const fileForHit = (hit: ProtectionHit | undefined) => hit?.file ?? hit?.matches?.find((match) => match.file)?.file
+
+  const switchView = (next?: View) => {
+    const target = next ?? (view() === "history" ? "files" : "history")
+    setMenuOpen(false)
+    if (target === "files") {
+      const file = fileForHit(selectedHit())
+      if (file) {
+        setSelectedFile(file)
+        setFileFilter("all")
+      }
+      setView("files")
+      void files.load()
+      return
+    }
+    setView("history")
+  }
+
+  const openFileHistory = () => {
+    const file = selectedFileInfo()
+    if (!file) {
+      void props.context.ui.toast.show({ message: "Select a protected file", variant: "warning" })
+      return
+    }
+    setFileFilterPath(file.path)
+    setFilter("all")
+    setView("history")
+    setMenuOpen(false)
+  }
+
+  const copyFile = () => {
+    const file = selectedFileInfo()
+    if (!file) {
+      void props.context.ui.toast.show({ message: "Select a protected file to copy", variant: "warning" })
+      return
+    }
+    const latest = lastHitFor(file.path)
+    const text = [
+      "Sensitive protection file",
+      `File: ${file.path}`,
+      `Source: ${sourceLabel(file.source)}`,
+      ...(file.label === undefined ? [] : [`Label: ${file.label}`]),
+      `Policy: read ${file.read} · write ${file.write}`,
+      ...(file.keys.length === 0 ? ["Keys: none"] : ["Keys:", ...file.keys.map((key) => `- ${key}`)]),
+      ...(file.keyID === undefined ? [] : [`Key ID: ${file.keyID}`]),
+      ...(latest === undefined ? [] : [`Last hit: ${new Date(latest.time).toISOString()}`]),
+      "Secret values are never included in this report.",
+    ].join("\n")
+    let copied = false
+    try {
+      copied = props.context.renderer.copyToClipboardOSC52(text)
+    } catch {}
+    if (!copied) {
+      void props.context.ui.toast.show({ message: "Could not copy file details", variant: "error" })
+      return
+    }
+    void props.context.ui.toast.show({ message: "Copied protected file", variant: "success" })
+  }
+
   const copy = () => {
+    if (view() === "files") {
+      copyFile()
+      return
+    }
     const hit = selectedHit()
     if (!hit) {
       void props.context.ui.toast.show({ message: "Select an event to copy", variant: "warning" })
@@ -459,17 +688,53 @@ export function ProtectionHistoryDialog(props: {
     mode: "modal",
     priority: 20,
     commands: [
-      { bind: "up", title: "Previous protection event", run: () => move(-1) },
-      { bind: "down", title: "Next protection event", run: () => move(1) },
-      { bind: "k", title: "Previous protection event", run: () => move(-1) },
-      { bind: "j", title: "Next protection event", run: () => move(1) },
-      { bind: "tab", title: "Cycle protection event filter", run: cycleFilter },
-      { bind: "s", title: "Toggle protection session scope", run: toggleScope },
-      { bind: "return", title: "Open triggering session", run: openSession },
+      { bind: "up", title: "Previous protection item", run: () => move(-1) },
+      { bind: "down", title: "Next protection item", run: () => move(1) },
+      { bind: "k", title: "Previous protection item", run: () => move(-1) },
+      { bind: "j", title: "Next protection item", run: () => move(1) },
+      { bind: "t", title: "Open protection filter", run: openFilterMenu },
+      { bind: "0", title: "Reset protection filter", run: resetFilter },
+      { bind: "f", title: "Switch protection view", run: () => switchView() },
+      { bind: "s", title: "Toggle protection session scope", run: () => {
+        if (view() === "files") {
+          void props.context.ui.toast.show({ message: "Protected files are global", variant: "warning" })
+          return
+        }
+        toggleScope()
+      } },
+      { bind: "backspace", title: "Clear protection file filter", run: () => setFileFilterPath(undefined) },
+      { bind: "return", title: "Open selected protection item", run: () => {
+        if (menuOpen()) {
+          applyFilterMenu()
+        } else if (view() === "files") {
+          openFileHistory()
+        } else {
+          openSession()
+        }
+      } },
       { bind: "c", title: "Copy protection event", run: copy },
-      { bind: "x", title: "Clear protection history", run: () => void clear() },
-      { bind: "r", title: "Reload protection history", run: reload },
-      { bind: "escape", title: "Close protection history", run: () => props.context.ui.dialog.clear() },
+      { bind: "x", title: "Clear protection history", run: () => {
+        if (view() === "files") {
+          void props.context.ui.toast.show({ message: "Clear history from the History view", variant: "warning" })
+          return
+        }
+        void clear()
+      } },
+      { bind: "r", title: "Reload protection history", run: () => {
+        if (view() === "files") void files.load()
+        else reload()
+      } },
+      { bind: "escape", title: "Close protection history", run: () => {
+        if (menuOpen()) {
+          setMenuOpen(false)
+          return
+        }
+        if (view() === "history" && fileFilterPath() !== undefined) {
+          setFileFilterPath(undefined)
+          return
+        }
+        props.context.ui.dialog.clear()
+      } },
     ],
   }))
 
@@ -481,16 +746,23 @@ export function ProtectionHistoryDialog(props: {
   })
 
   onCleanup(() => {
+    files.dispose()
     if (focusTimer !== undefined) clearTimeout(focusTimer)
     if (clockTimer !== undefined) clearInterval(clockTimer)
     if (clearTimer !== undefined) clearTimeout(clearTimer)
   })
 
   const summaryLine = () => {
+    if (view() === "files") {
+      const keys = filteredFiles().reduce((total, file) => total + file.keyCount, 0)
+      const status = files.loading() ? "loading…" : files.error() ? "refresh failed" : "live"
+      return `Protected now · ${currentFilterLabel()} · ${filteredFiles().length} files · ${keys} keys · ${status}`
+    }
     const scopeLabel = scope() === "session" && props.sessionID ? "This session" : "All sessions"
-    const filterLabel = filter() === "all" ? "all events" : `${filter()} events`
     const shown = visible().length < filtered().length ? ` · showing ${visible().length}` : ""
-    return `${scopeLabel} · ${filterLabel} · ${filtered().length}${shown}`
+    const file = fileFilterPath()
+    const fileLabel = file ? ` · File: ${shortPath(file, props.context) ?? file} (backspace clear)` : ""
+    return `${scopeLabel} · filter: ${filter()} · ${filtered().length}${shown}${fileLabel}`
   }
 
   const emptyMessage = () => {
@@ -501,7 +773,15 @@ export function ProtectionHistoryDialog(props: {
       const inScope = props.store.hits().filter(inSession)
       if (inScope.length === 0) return "No events in this session. Press s to show all sessions."
     }
-    return "No events match this filter. Press tab to change it."
+    if (fileFilterPath()) return "No events match this file. Press backspace to clear the file filter."
+    return "No events match this filter. Press t to choose a filter or 0 to reset."
+  }
+
+  const filesEmptyMessage = () => {
+    if (files.loading()) return "Loading protected files…"
+    if (files.error()) return files.error()!
+    if (files.files().length === 0) return "No files are currently protected."
+    return "No protected files match this filter. Press t to choose a filter or 0 to reset."
   }
 
   const sessionText = (hit: ProtectionHit) => {
@@ -517,74 +797,213 @@ export function ProtectionHistoryDialog(props: {
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Sensitive protection</text>
-        <text fg={theme.text.muted}>{loading() ? "loading…" : error() ? "history unavailable" : "live · esc close"}</text>
+        <text fg={theme.text.muted}>
+          {view() === "files"
+            ? files.loading() ? "loading…" : files.error() ? "files unavailable" : "live · esc close"
+            : loading() ? "loading…" : error() ? "history unavailable" : "live · esc close"}
+        </text>
+      </box>
+      <box flexDirection="row" gap={2}>
+        <box onMouseUp={(event) => { if (event.button === 0) switchView("history") }}>
+          <text
+            attributes={view() === "history" ? TextAttributes.BOLD : undefined}
+            fg={view() === "history" ? theme.text.base : theme.text.muted}
+          >History</text>
+        </box>
+        <box onMouseUp={(event) => { if (event.button === 0) switchView("files") }}>
+          <text
+            attributes={view() === "files" ? TextAttributes.BOLD : undefined}
+            fg={view() === "files" ? theme.text.base : theme.text.muted}
+          >Protected files</text>
+        </box>
       </box>
       <text fg={theme.text.muted}>{summaryLine()}</text>
-      <Show when={error()}>
+      <Show when={view() === "history" ? error() : files.error()}>
         {(value) => <text fg={theme.text.feedback.warning.base} wrapMode="word">{value()}</text>}
+      </Show>
+      <Show when={menuOpen()}>
+        <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Filter</text>
+          <For each={menuOptions()}>
+            {(option, index) => (
+              <text fg={index() === menuIndex() ? theme.text.base : theme.text.muted}>
+                {`${index() === menuIndex() ? ">" : " "} ${option.label}${option.value === currentFilter() ? " (current)" : ""}`}
+              </text>
+            )}
+          </For>
+          <text fg={theme.text.muted}>↑/↓ select · enter apply · 0 all · esc cancel</text>
+        </box>
       </Show>
       <scrollbox ref={(value) => setScrollTarget(value)} focusable maxHeight={18}>
         <Show
-          when={visible().length > 0}
+          when={view() === "history"}
           fallback={
-            <text fg={theme.text.muted} wrapMode="word">
-              {emptyMessage()}
-            </text>
-          }
-        >
-          <For each={visible()}>
-            {(hit, index) => (
-              <HitRow
-                hit={hit}
-                selected={hit.id === selected()}
-                theme={theme}
-                now={now()}
-                session={sessionText(hit)}
-                summary={rowSummary(hit, props.context)}
-                title={rowTitle(hit)}
-                onSelect={() => {
-                  setSelected(hit.id)
-                  scrollTarget()?.focus()
-                }}
-                index={index()}
-              />
-            )}
-          </For>
-        </Show>
-      </scrollbox>
-      <Show when={selectedHit()}>
-        {(hit) => (
-          <box flexDirection="column" gap={0}>
-            <text fg={theme.text.base} wrapMode="word">{reason(hit())}</text>
-            <Show when={displayMatches(hit()).length}>
-              <For each={displayMatches(hit()).slice(0, 4)}>
-                {(match) => (
-                  <box flexDirection="column" gap={0}>
-                    <text fg={theme.text.muted} wrapMode="word">{`• ${matchText(match, props.context)} ×${match.count}${match.source ? ` · ${sourceLabel(match.source)}` : ""}`}</text>
-                    <Show when={match.file}>
-                      {(file) => <text fg={theme.text.muted} wrapMode="word">{`  File: ${shortPath(file(), props.context) ?? cleanText(file(), 1_024)}`}</text>}
-                    </Show>
-                  </box>
+            <Show
+              when={filteredFiles().length > 0}
+              fallback={<text fg={theme.text.muted} wrapMode="word">{filesEmptyMessage()}</text>}
+            >
+              <For each={filteredFiles()}>
+                {(file, index) => (
+                  <FileRow
+                    file={file}
+                    selected={file.path === selectedFile()}
+                    theme={theme}
+                    context={props.context}
+                    now={now()}
+                    latest={lastHitFor(file.path)}
+                    onSelect={() => {
+                      setSelectedFile(file.path)
+                      scrollTarget()?.focus()
+                    }}
+                    index={index()}
+                  />
                 )}
               </For>
-              <Show when={displayMatches(hit()).length > 4}>
-                <text fg={theme.text.muted}>{`+${displayMatches(hit()).length - 4} more matches`}</text>
+            </Show>
+          }
+        >
+          <Show
+            when={visible().length > 0}
+            fallback={
+              <text fg={theme.text.muted} wrapMode="word">
+                {emptyMessage()}
+              </text>
+            }
+          >
+            <For each={visible()}>
+              {(hit, index) => (
+                <HitRow
+                  hit={hit}
+                  selected={hit.id === selected()}
+                  theme={theme}
+                  now={now()}
+                  session={sessionText(hit)}
+                  summary={rowSummary(hit, props.context)}
+                  title={rowTitle(hit)}
+                  onSelect={() => {
+                    setSelected(hit.id)
+                    scrollTarget()?.focus()
+                  }}
+                  index={index()}
+                />
+              )}
+            </For>
+          </Show>
+        </Show>
+      </scrollbox>
+      <Show when={view() === "history"}>
+        <Show when={selectedHit()}>
+          {(hit) => (
+            <box flexDirection="column" gap={0}>
+              <text fg={theme.text.base} wrapMode="word">{reason(hit())}</text>
+              <Show when={displayMatches(hit()).length}>
+                <For each={displayMatches(hit()).slice(0, 4)}>
+                  {(match) => (
+                    <box flexDirection="column" gap={0}>
+                      <text fg={theme.text.muted} wrapMode="word">{`• ${matchText(match, props.context)} ×${match.count}${match.source ? ` · ${sourceLabel(match.source)}` : ""}`}</text>
+                      <Show when={match.file}>
+                        {(file) => <text fg={theme.text.muted} wrapMode="word">{`  File: ${shortPath(file(), props.context) ?? cleanText(file(), 1_024)}`}</text>}
+                      </Show>
+                    </box>
+                  )}
+                </For>
+                <Show when={displayMatches(hit()).length > 4}>
+                  <text fg={theme.text.muted}>{`+${displayMatches(hit()).length - 4} more matches`}</text>
+                </Show>
               </Show>
-            </Show>
-            <text fg={theme.text.muted} wrapMode="word">
-              {`${sessionText(hit())} · first ${absoluteTime(hit().firstTime)} · last ${absoluteTime(hit().time)} · ${hit().occurrences} ${hit().occurrences === 1 ? "occurrence" : "occurrences"}`}
-            </text>
-            <Show when={hit().file}>
-              {(file) => <text fg={theme.text.muted} wrapMode="word">{`File: ${shortPath(file(), props.context) ?? "unknown"}`}</text>}
-            </Show>
-          </box>
-        )}
+              <text fg={theme.text.muted} wrapMode="word">
+                {`${sessionText(hit())} · first ${absoluteTime(hit().firstTime)} · last ${absoluteTime(hit().time)} · ${hit().occurrences} ${hit().occurrences === 1 ? "occurrence" : "occurrences"}`}
+              </text>
+              <Show when={hit().file}>
+                {(file) => <text fg={theme.text.muted} wrapMode="word">{`File: ${shortPath(file(), props.context) ?? "unknown"}`}</text>}
+              </Show>
+            </box>
+          )}
+        </Show>
+      </Show>
+      <Show when={view() === "files"}>
+        <Show when={selectedFileInfo()}>
+          {(file) => (
+            <box flexDirection="column" gap={0}>
+              <text fg={theme.text.base} wrapMode="word">{`File: ${shortPath(file().path, props.context) ?? file().path}`}</text>
+              <text fg={theme.text.muted}>{`Source: ${sourceLabel(file().source)}${file().label ? ` · ${file().label}` : ""}`}</text>
+              <text fg={theme.text.muted}>{`Policy: read ${file().read} · write ${file().write}${file().keyID ? ` · keyID: ${file().keyID}` : ""}`}</text>
+              <Show when={file().keys.length > 0} fallback={<text fg={theme.text.muted}>Keys: none extracted</text>}>
+                <text fg={theme.text.muted}>Keys:</text>
+                <For each={file().keys.slice(0, 6)}>
+                  {(key) => <text fg={theme.text.muted}>{`  ${key}`}</text>}
+                </For>
+                <Show when={file().keys.length > 6}>
+                  <text fg={theme.text.muted}>{`  +${file().keys.length - 6} more keys`}</text>
+                </Show>
+              </Show>
+              <text fg={theme.text.muted}>
+                {(() => {
+                  const latest = lastHitFor(file().path)
+                  return latest ? `Recent: ${absoluteTime(latest.time)}` : "Recent: no hit in this history"
+                })()}
+              </text>
+              <text fg={theme.text.muted}>enter history · c copy · f history</text>
+            </box>
+          )}
+        </Show>
       </Show>
       <text fg={clearArmed() ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="word">
-        {clearArmed()
-          ? "Press x again to clear all protection history"
-          : "↑/↓ select · enter session · c copy · tab filter · s scope · x clear all · r reload · esc close"}
+        {view() === "files"
+          ? "↑/↓ select · enter history · c copy · t filter · 0 all · f history · r reload · esc close"
+          : clearArmed()
+            ? "Press x again to clear all protection history"
+            : `↑/↓ select · enter session · c copy · t filter: ${filter()} · s scope · f files · 0 all · r reload · esc close`}
       </text>
+    </box>
+  )
+}
+
+function FileRow(props: {
+  file: ProtectionFileInfo
+  selected: boolean
+  theme: any
+  context: Context
+  now: number
+  latest?: ProtectionHit
+  index: number
+  onSelect: () => void
+}) {
+  const keys = () => {
+    if (props.file.keys.length === 0) return "no key labels"
+    const shown = props.file.keys.slice(0, 3).join(" · ")
+    return props.file.keys.length > 3 ? `${shown} +${props.file.keys.length - 3}` : shown
+  }
+  return (
+    <box
+      id={`protection-file-${props.index}`}
+      flexDirection="column"
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
+      onMouseUp={(event) => {
+        if (event.button === 0) props.onSelect()
+      }}
+    >
+      <box flexDirection="row" gap={1}>
+        <text fg={props.theme.text.feedback.info.base} flexShrink={0}>●</text>
+        <text
+          fg={props.selected ? props.theme.text.base : props.theme.text.muted}
+          attributes={props.selected ? TextAttributes.BOLD : undefined}
+          wrapMode="none"
+          truncate
+        >
+          {shortPath(props.file.path, props.context) ?? props.file.path}
+        </text>
+        <box flexGrow={1} />
+        <text fg={props.theme.text.muted} wrapMode="none" flexShrink={0}>
+          {props.latest ? relativeTime(props.latest.time, props.now) : "no recent hit"}
+        </text>
+      </box>
+      <text fg={props.selected ? props.theme.text.base : props.theme.text.muted} wrapMode="word">
+        {`${sourceLabel(props.file.source)}${props.file.label ? ` · ${props.file.label}` : ""} · read ${props.file.read} · write ${props.file.write} · ${props.file.keyCount} ${props.file.keyCount === 1 ? "key" : "keys"}`}
+      </text>
+      <text fg={props.theme.text.muted} wrapMode="word" truncate>{keys()}</text>
     </box>
   )
 }

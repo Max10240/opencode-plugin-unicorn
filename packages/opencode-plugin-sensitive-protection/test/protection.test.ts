@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info } from "@opencode/plugin/promise/tool"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { setupSensitiveProtection } from "../src/index.js"
@@ -35,7 +35,7 @@ async function fixture(run: (value: {
   }
 }
 
-async function setup(directory: string, data: string, options: Record<string, unknown>) {
+async function setup(directory: string, data: string, options: Record<string, unknown>, rpc?: unknown) {
   const tools = new Map<string, Info>()
   const hooks = new Map<string, (event: any) => Promise<void>>()
   const sessions = new Map<string, (event: any) => Promise<void>>()
@@ -65,6 +65,7 @@ async function setup(directory: string, data: string, options: Record<string, un
         return { dispose: async () => {} }
       },
     },
+    ...(rpc ? { rpc } : {}),
   } as unknown as Pick<Context, "options" | "location" | "tool" | "session" | "command">
   const oldData = process.env.XDG_DATA_HOME
   process.env.XDG_DATA_HOME = data
@@ -205,5 +206,37 @@ test("persists registrations and supports a per-project escape hatch", async () 
       expect(disabled.tools.size).toBe(0)
       expect(disabled.hooks.size).toBe(0)
     } finally { await disabled.cleanup() }
+  })
+})
+
+test("publishes active files with key metadata and no secret values", async () => {
+  await fixture(async ({ root, data, file, options }) => {
+    let service: any
+    const events: string[] = []
+    const rpc = {
+      register: async (_definition: unknown, value: any) => {
+        service = value
+        return {
+          dispose: async () => {},
+          events: { emit: async (name: string) => { events.push(name) } },
+        }
+      },
+    }
+    const { tools, cleanup } = await setup(root, data, options, rpc)
+    try {
+      await tools.get("register_sensitive_file")!.execute({ file, role: "manual", label: "manual secret" }, { sessionID: "s1" } as never)
+      const result = await service.files({})
+      expect(result.total).toBe(1)
+      expect(result.files[0]).toMatchObject({
+        path: await realpath(file),
+        source: "manual",
+        label: "manual secret",
+      })
+      expect(result.files[0].keys).toEqual(expect.arrayContaining(["whole file", "whole file (base64)"]))
+      expect(JSON.stringify(result)).not.toContain("TOPSECRET_LINE_123")
+      expect(events).toContain("files")
+    } finally {
+      await cleanup()
+    }
   })
 })

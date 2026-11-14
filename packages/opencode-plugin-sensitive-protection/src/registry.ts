@@ -2,6 +2,7 @@ import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "nod
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import os from "node:os"
+import { extractPrivateKey, patternsForValues } from "./extractors.js"
 import type { ReadPolicy, WritePolicy } from "./options.js"
 import type { ProtectionMatch, ProtectionPattern, ProtectionSource } from "./types.js"
 
@@ -20,6 +21,11 @@ export type ProtectionEntry = {
   readonly source: ProtectionSource
 }
 
+export type ProtectionFileInfo = ProtectionEntry & {
+  readonly keys: readonly string[]
+  readonly keyCount: number
+}
+
 type Entry = ProtectionEntry & {
   readonly patterns: readonly ProtectionPattern[]
 }
@@ -30,6 +36,7 @@ type StoredEntry = ProtectionEntry
 
 export class ProtectionRegistry {
   private readonly entries = new Map<string, Entry>()
+  private readonly listeners = new Set<() => void>()
   private saveQueue: Promise<void> = Promise.resolve()
   private patternsCache: readonly string[] | undefined
   private directCache: readonly string[] | undefined
@@ -43,6 +50,20 @@ export class ProtectionRegistry {
 
   get size() {
     return this.entries.size
+  }
+
+  onChange(listener: () => void) {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  list(): ProtectionFileInfo[] {
+    return [...this.entries.values()]
+      .map(({ patterns, ...entry }) => {
+        const keys = [...new Set(patterns.map((pattern) => pattern.key).filter((key): key is string => typeof key === "string" && key.length > 0))]
+        return { ...entry, keys, keyCount: keys.length }
+      })
+      .sort((left, right) => left.path.localeCompare(right.path))
   }
 
   has(value: string) {
@@ -105,7 +126,7 @@ export class ProtectionRegistry {
     if (info.size > this.maxContentBytes) throw new Error(`Protected file exceeds the ${this.maxContentBytes} byte limit`)
 
     const content = await readFile(resolved)
-    const result = this.setEntry(resolved, buildPatterns(content), {
+    const result = this.setEntry(resolved, manualPatterns(content), {
       ...input,
       read: input.read ?? "block",
       write: input.write ?? "allow",
@@ -143,6 +164,7 @@ export class ProtectionRegistry {
     const removed = this.entries.delete(value)
     if (!removed) return false
     this.invalidate()
+    this.notifyChange()
     return true
   }
 
@@ -291,8 +313,19 @@ export class ProtectionRegistry {
     }
     this.entries.set(resolved, entry)
     this.invalidate()
+    this.notifyChange()
     if (input.persist !== false && entry.source === "manual") void this.queueSave()
     return { path: resolved, bytes: entry.patterns.reduce((total, pattern) => total + pattern.value.length, 0) }
+  }
+
+  private notifyChange() {
+    for (const listener of this.listeners) {
+      try {
+        listener()
+      } catch {
+        // A listener failure must not break registry updates.
+      }
+    }
   }
 
   private invalidate() {
@@ -327,31 +360,42 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+function manualPatterns(content: Buffer): ProtectionPattern[] {
+  const text = content.toString("utf8")
+  if (!text) return []
+  const privateKey = extractPrivateKey(text)
+  if (privateKey.length > 0) return patternsForValues(privateKey)
+  // A private key marker with no usable body has no secret to extract; do not
+  // fall back to registering the marker lines themselves.
+  if (text.includes("PRIVATE KEY")) return []
+  return buildPatterns(content)
+}
+
 function buildPatterns(content: Buffer): ProtectionPattern[] {
   const text = content.toString("utf8")
   if (!text) return []
-  const patterns = new Set<string>()
-  const add = (value: string | undefined) => {
-    if (value && value.length >= 8) patterns.add(value)
+  const patterns = new Map<string, string>()
+  const add = (value: string | undefined, key: string) => {
+    if (value && value.length >= 8 && !patterns.has(value)) patterns.set(value, key)
   }
-  add(text)
+  add(text, "whole file")
   for (const line of text.split("\n")) {
-    add(line.replace(/\r$/, ""))
+    add(line.replace(/\r$/, ""), "line")
   }
   const escaped = JSON.stringify(text).slice(1, -1)
   if (escaped !== text) {
-    add(escaped)
-    for (const line of escaped.split("\\n")) add(line)
+    add(escaped, "whole file")
+    for (const line of escaped.split("\\n")) add(line, "line")
   }
   if (content.length <= 1024 * 1024) {
-    add(content.toString("base64"))
-    add(content.toString("base64url"))
-    add(content.toString("hex"))
-    add(content.toString("hex").toUpperCase())
+    add(content.toString("base64"), "whole file (base64)")
+    add(content.toString("base64url"), "whole file (base64url)")
+    add(content.toString("hex"), "whole file (hex)")
+    add(content.toString("hex").toUpperCase(), "whole file (hex)")
   }
   return [...patterns]
-    .sort((left, right) => right.length - left.length)
-    .map((value) => ({ value, key: "whole file" }))
+    .sort(([left], [right]) => right.length - left.length)
+    .map(([value, key]) => ({ value, key }))
 }
 
 export async function resolveProtectedPath(value: string, directory: string) {

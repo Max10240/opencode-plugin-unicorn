@@ -92,9 +92,14 @@ The history dialog shows recent triggers with the information needed to decide w
 - the triggering session title, short session ID, and project folder;
 - when the condition was first and last seen, and how many times it occurred.
 
-The list updates live while the dialog is open. Use `tab` to filter by event kind, `s` to switch between this session
-and all sessions, `c` to copy the selected report, `enter` to open the triggering session, and `x` twice to clear the
-history. A deleted session is shown as unavailable instead of failing the dialog.
+The list updates live while the dialog is open. Press `t` to open the filter menu, `0` to reset it, `s` to switch
+between this session and all sessions, `c` to copy the selected report, `enter` to open the triggering session, and
+`x` twice to clear the history. A deleted session is shown as unavailable instead of failing the dialog.
+
+Press `f` to switch to Protected files. That view lists the files currently in the protection registry with their
+source, read/write policy, extracted key labels, and most recent hit. Press `enter` to return to History filtered to
+the selected file, `backspace` to clear that file filter, and `c` to copy the path and key labels. Values are never
+shown. The file list refreshes when the registry changes and can be reloaded with `r`.
 
 History is metadata only. It never contains a secret value, is kept in memory on the server, and disappears when the
 server exits. The client keeps at most 1,000 events and renders at most 100 rows at a time. Repeated conditions are

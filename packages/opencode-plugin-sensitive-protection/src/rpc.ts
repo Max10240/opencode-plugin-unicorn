@@ -39,11 +39,30 @@ const hit = {
 
 const empty = { type: "object", properties: {}, additionalProperties: false } as const
 
+const file = {
+  type: "object",
+  properties: {
+    path: { type: "string" },
+    role: { type: "string" },
+    keyID: { type: "string" },
+    label: { type: "string" },
+    createdAt: { type: "number" },
+    read: { type: "string", enum: ["redact", "block"] },
+    write: { type: "string", enum: ["block", "allow"] },
+    source: { type: "string", enum: ["manual", "builtin", "custom"] },
+    keys: { type: "array", items: { type: "string" } },
+    keyCount: { type: "number" },
+  },
+  required: ["path", "role", "createdAt", "read", "write", "source", "keys", "keyCount"],
+  additionalProperties: false,
+} as const
+
 export const ProtectionRpc = Rpc.define({
   id: "max10240.sensitive-protection",
   events: {
     hit: { schema: hit },
     cleared: { schema: { type: "object", properties: {}, additionalProperties: false } },
+    files: { schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"], additionalProperties: false } },
   },
   methods: {
     history: {
@@ -59,6 +78,19 @@ export const ProtectionRpc = Rpc.define({
         additionalProperties: false,
       },
     },
+    files: {
+      input: empty,
+      output: {
+        type: "object",
+        properties: {
+          files: { type: "array", items: file },
+          total: { type: "number" },
+          refreshedAt: { type: "number" },
+        },
+        required: ["files", "total", "refreshedAt"],
+        additionalProperties: false,
+      },
+    },
     clear: {
       input: empty,
       output: {
@@ -70,6 +102,25 @@ export const ProtectionRpc = Rpc.define({
     },
   },
 })
+
+export type ProtectionFileInfo = {
+  readonly path: string
+  readonly role: string
+  readonly keyID?: string
+  readonly label?: string
+  readonly createdAt: number
+  readonly read: "redact" | "block"
+  readonly write: "block" | "allow"
+  readonly source: "manual" | "builtin" | "custom"
+  readonly keys: readonly string[]
+  readonly keyCount: number
+}
+
+export type ProtectionFilesResult = {
+  readonly files: ProtectionFileInfo[]
+  readonly total: number
+  readonly refreshedAt: number
+}
 
 export type ProtectionHistoryResult = {
   readonly hits: ProtectionHit[]

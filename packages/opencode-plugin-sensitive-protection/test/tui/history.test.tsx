@@ -38,7 +38,7 @@ function hit(input: Partial<ProtectionHit> & Pick<ProtectionHit, "id" | "kind" |
   }
 }
 
-function createHarness(initial: ProtectionHit[]) {
+function createHarness(initial: ProtectionHit[], rpc?: (id: unknown) => any) {
   const [hits, setHits] = createSignal(initial)
   const layers: any[] = []
   const notices: any[] = []
@@ -66,7 +66,7 @@ function createHarness(initial: ProtectionHit[]) {
         }),
       },
     },
-    client: { session: { get: async () => undefined } },
+    client: { session: { get: async () => undefined }, ...(rpc ? { rpc } : {}) },
     renderer: { copyToClipboardOSC52: (value: string) => { copied = value; return true } },
     ui: {
       dialog: { set() {}, clear() {} },
@@ -76,6 +76,10 @@ function createHarness(initial: ProtectionHit[]) {
     },
   } as unknown as Context
   return { context, store, layers, notices, setHits, copied: () => copied }
+}
+
+function commands(harness: ReturnType<typeof createHarness>) {
+  return harness.layers.flatMap((layer) => layer.commands)
 }
 
 async function render(harness: ReturnType<typeof createHarness>) {
@@ -252,6 +256,104 @@ test("detail and copy include the matched file path and key", async () => {
     copy?.run()
     expect(harness.copied()).toContain("_authToken @ registry.npmjs.org")
     expect(harness.copied()).toContain("File: /Users/max/.npmrc")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("filter menu shows the current filter and resets to all", async () => {
+  const harness = createHarness([
+    hit({
+      id: "hit-filter",
+      kind: "redacted",
+      source: "context",
+      count: 1,
+      sessionID: "ses_one",
+      matches: [{ file: "/Users/max/.npmrc", label: "npm auth", source: "builtin", key: "_authToken", count: 1 }],
+    }),
+  ])
+  const app = await render(harness)
+  try {
+    await waitFor(app, () => app.captureCharFrame().includes("Model context"), "history did not render")
+    commands(harness).find((command) => command.title === "Open protection filter")?.run()
+    await waitFor(app, () => app.captureCharFrame().includes("All events"), "filter menu did not open")
+    expect(app.captureCharFrame()).toContain("(current)")
+
+    commands(harness).find((command) => command.title === "Next protection item")?.run()
+    commands(harness).find((command) => command.title === "Open selected protection item")?.run()
+    await waitFor(app, () => app.captureCharFrame().includes("filter: blocked"), "filter did not apply")
+
+    commands(harness).find((command) => command.title === "Reset protection filter")?.run()
+    await waitFor(app, () => app.captureCharFrame().includes("filter: all"), "filter did not reset")
+    expect(commands(harness).some((command) => command.title === "Cycle protection event filter")).toBe(false)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("switches between history and protected files and links file context", async () => {
+  const file = "/Users/max/.npmrc"
+  const rpc = () => ({
+    files: async () => ({
+      files: [
+        {
+          path: file,
+          role: "builtin",
+          label: "npm auth",
+          createdAt: now,
+          read: "redact",
+          write: "block",
+          source: "builtin",
+          keys: ["_authToken @ registry.npmjs.org", "_auth @ registry.npmjs.org"],
+          keyCount: 2,
+        },
+        {
+          path: "/Users/max/.ssh/id_ed25519",
+          role: "builtin",
+          label: "SSH private key",
+          createdAt: now,
+          read: "block",
+          write: "block",
+          source: "builtin",
+          keys: ["private key line"],
+          keyCount: 1,
+        },
+      ],
+      total: 2,
+      refreshedAt: now,
+    }),
+    events: { on: () => () => {} },
+  })
+  const harness = createHarness([
+    hit({
+      id: "hit-files",
+      kind: "redacted",
+      source: "tool",
+      count: 2,
+      tool: "shell",
+      sessionID: "ses_one",
+      matches: [{ file, label: "npm auth", source: "builtin", key: "_authToken @ registry.npmjs.org", count: 2 }],
+    }),
+  ], rpc)
+  const app = await render(harness)
+  try {
+    await waitFor(app, () => app.captureCharFrame().includes("Tool output"), "history did not render")
+    commands(harness).find((command) => command.title === "Switch protection view")?.run()
+    await waitFor(app, () => app.captureCharFrame().includes("Protected now"), "files view did not load")
+    const filesFrame = app.captureCharFrame()
+    expect(filesFrame).toContain("~/.npmrc")
+    expect(filesFrame).toContain("_authToken @ registry.npmjs.org")
+    expect(filesFrame).toContain("read redact · write block")
+
+    commands(harness).find((command) => command.title === "Copy protection event")?.run()
+    expect(harness.copied()).toContain(`File: ${file}`)
+    expect(harness.copied()).toContain("_authToken @ registry.npmjs.org")
+    expect(harness.copied()).not.toContain("NOTIFY_SECRET_VALUE")
+
+    commands(harness).find((command) => command.title === "Open selected protection item")?.run()
+    await waitFor(app, () => app.captureCharFrame().includes("File: ~/.npmrc"), "file history filter did not apply")
+    expect(app.captureCharFrame()).toContain("filter: all")
+    expect(app.captureCharFrame()).toContain("_authToken @ registry.npmjs.org")
   } finally {
     app.renderer.destroy()
   }
