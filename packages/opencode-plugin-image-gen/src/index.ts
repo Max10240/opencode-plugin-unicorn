@@ -41,6 +41,10 @@ export async function setupImageGen(context: Context) {
             items: { type: "string" },
             description: "Reference image paths for editing, relative to the session directory unless absolute; null means no references.",
           },
+          mask: {
+            type: ["string", "null"],
+            description: "Optional mask for the first reference image; requires images. Relative to the session directory unless absolute.",
+          },
         },
         required: ["prompt", "out"],
         additionalProperties: false,
@@ -51,6 +55,8 @@ export async function setupImageGen(context: Context) {
 
         const credential = await resolveCredential(context, model.integrationID)
         const images = await readImageFiles(input.images, model.directory)
+        const mask = input.mask == null ? undefined : (await readImageFiles([input.mask], model.directory))[0]
+        if (mask && images.length === 0) throw new Error("A mask requires at least one reference image")
         const runtime = credentialSettings(model.settings, model.body, credential)
         const runtimeSettings = runtime.settings
         const headers = { ...model.headers }
@@ -77,6 +83,7 @@ export async function setupImageGen(context: Context) {
             quality: input.quality,
             size: input.size,
             images,
+            ...(mask ? { mask } : {}),
           },
         )
         const saved = await saveGeneratedImage(input.out, model.directory, image.data)
@@ -114,6 +121,7 @@ export function normalizeImageInput(input: ImageToolInput) {
     ...(input.quality == null ? {} : { quality: input.quality }),
     ...(input.size == null ? {} : { size: input.size }),
     ...(input.images == null ? {} : { images: input.images }),
+    ...(input.mask == null ? {} : { mask: input.mask }),
   }
 }
 

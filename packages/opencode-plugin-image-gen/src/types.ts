@@ -16,6 +16,7 @@ export type ImageToolInput = {
   readonly quality?: ImageQuality | null
   readonly size?: string | null
   readonly images?: string[] | null
+  readonly mask?: string | null
 }
 
 export type ModelReference = {

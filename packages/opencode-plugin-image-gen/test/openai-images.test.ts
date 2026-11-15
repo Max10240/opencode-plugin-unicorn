@@ -480,3 +480,36 @@ test("passes raw size hints through to native providers", async () => {
     response_format: "b64_json",
   })
 })
+
+test("sends an edit mask as a multipart file and rejects a mask without an image", async () => {
+  let request: Request | undefined
+  currentFetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = new Request(input, init)
+    return Response.json({ data: [{ b64_json: Buffer.from("EDIT").toString("base64") }] })
+  }) as unknown as typeof fetch
+  const reference = { path: "/reference.png", name: "reference.png", mediaType: "image/png", data: new Uint8Array([80, 78, 71]) }
+  const mask = { path: "/mask.png", name: "mask.png", mediaType: "image/png", data: new Uint8Array([77, 65, 83, 75]) }
+  const result = await generateImage({
+    providerID: "gateway",
+    packageName: "@opencode/ai/providers/openai-compatible",
+    baseURL: "https://custom.example/v1",
+    token: "synthetic",
+    model: "image",
+    prompt: "edit this",
+    images: [reference],
+    mask,
+  })
+  expect(new TextDecoder().decode(result.data)).toBe("EDIT")
+  const form = await request!.formData()
+  expect(form.get("image[]")).toBeInstanceOf(File)
+  expect(form.get("mask")).toBeInstanceOf(File)
+  await expect(generateImage({
+    providerID: "gateway",
+    packageName: "@opencode/ai/providers/openai-compatible",
+    baseURL: "https://custom.example/v1",
+    token: "synthetic",
+    model: "image",
+    prompt: "edit this",
+    mask,
+  })).rejects.toThrow("requires at least one reference image")
+})

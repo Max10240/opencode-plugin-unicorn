@@ -26,6 +26,7 @@ export type ImageRequest = {
   readonly quality?: ImageQuality
   readonly size?: string
   readonly images?: readonly ImageFile[]
+  readonly mask?: ImageFile
 }
 
 type ImageGenerationOptions = {
@@ -67,15 +68,20 @@ export async function readImageFiles(paths: readonly string[] | undefined, direc
 
 export async function generateImage(request: ImageRequest): Promise<GeneratedImage> {
   request.signal?.throwIfAborted()
+  if (request.mask && (request.images ?? []).length === 0) throw new Error("An image mask requires at least one reference image")
   const { model, family } = await prepareImageModel(request)
   const size = request.size === undefined ? undefined : parseImageSize(request.size)
   const imageClient = makeAIClient()
   try {
+    const options = imageOptions(family, request.quality, size)
+    const mask = request.mask === undefined ? undefined : Media.bytes(request.mask.data, request.mask.mediaType)
+    const providerOptions = mask === undefined ? options.providerOptions : { ...(options.providerOptions ?? {}), mask }
     const response = await imageClient.image.generate({
       model,
       prompt: request.prompt,
       images: (request.images ?? []).map((image) => Media.bytes(image.data, image.mediaType)),
-      ...imageOptions(family, request.quality, size),
+      ...options,
+      ...(providerOptions === undefined ? {} : { providerOptions }),
       ...(request.sessionID ? { headers: { "x-opencode-session-id": request.sessionID } } : {}),
     }, { signal: request.signal }).catch((error: unknown) => {
       const image = model.route.id === "openai-images" ? openAICompatibleImage(error) : undefined

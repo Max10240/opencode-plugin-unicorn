@@ -95,7 +95,22 @@ Agent 会调用 `image_gen`：
 }
 ```
 
-可选字段：`model`、`quality`、`size`、`images`。`prompt` 和 `out` 必填。
+需要局部 mask 编辑时，加上 `mask`：
+
+```json
+{
+  "prompt": "只把标记区域替换成一朵小云",
+  "out": "kite-masked.png",
+  "images": ["kite.png"],
+  "mask": "mask.png"
+}
+```
+
+Mask 的具体语义由 provider 决定。OpenAI 用完全透明像素表示可编辑区，并要求 mask 与第一张参考图尺寸一致；
+部分 provider 也接受白色（`>127`）区域。支持 masked compositing 的 provider 可以让 mask 外像素逐字节保持不变；
+边界默认是硬合成，除非 provider 自己加羽化。这不一定是原生 inpaint。
+
+可选字段：`model`、`quality`、`size`、`images`、`mask`。`prompt` 和 `out` 必填。
 
 ## 配置
 
@@ -105,6 +120,7 @@ Agent 会调用 `image_gen`：
 | 质量 | 工具参数 | `low`、`medium`、`high`、`xhigh`、`max` 或 `auto`；`xhigh` 和 `max` 需要模型支持 |
 | 尺寸 | 工具参数 | 取决于 provider 支持范围 |
 | 参考图 | 工具参数 | 相对于 session 目录 |
+| Mask | 工具参数 | 相对于 session 目录；需要参考图和 provider mask 支持 |
 
 默认 provider 是 OpenAI，不会自动跟随当前对话模型。使用其他 provider 时，请写完整的 `provider/model`。你在 provider
 中配置的 headers、base URL 和 variant 会被沿用。
@@ -112,7 +128,7 @@ Agent 会调用 `image_gen`：
 ## 注意事项
 
 - **Provider 必须支持图片接口。** OpenAI-compatible endpoint 需要实现 `/images/generations` 和 `/images/edits`；
-  能对话不代表能生图。
+  能对话不代表能生图。Mask 编辑还要求 `/images/edits` 支持 mask。
 - **生图和预览是分开的。** 预览缺失、关闭或失败，不会影响生成的文件，也不会触发第二次生成。
 - **图片是文件引用，不是聊天附件。** 图片保存在磁盘上，模型只拿到路径和预览引用。
 - **某些高级认证方式可能需要额外配置。** 如果 provider 依赖其他插件来签名请求或注入路由，那部分行为不在本插件控制范围内。

@@ -99,7 +99,23 @@ Add `images` to edit existing images. Paths are relative to the current session 
 }
 ```
 
-Optional fields: `model`, `quality`, `size`, and `images`. The `prompt` and `out` fields are required.
+For a masked edit, add `mask`:
+
+```json
+{
+  "prompt": "Replace only the marked area with a small cloud",
+  "out": "kite-masked.png",
+  "images": ["kite.png"],
+  "mask": "mask.png"
+}
+```
+
+The mask follows the provider's edit contract. OpenAI treats fully transparent pixels as the editable region and
+requires the same dimensions as the first reference image. Some providers also accept white (`>127`) pixels. A provider
+that implements masked compositing can keep pixels outside the mask byte-for-byte unchanged; the boundary is hard
+unless the provider adds feathering. This is not necessarily native inpainting.
+
+Optional fields: `model`, `quality`, `size`, `images`, and `mask`. The `prompt` and `out` fields are required.
 
 ## Configuration
 
@@ -109,6 +125,7 @@ Optional fields: `model`, `quality`, `size`, and `images`. The `prompt` and `out
 | Quality | Tool argument | `low`, `medium`, `high`, `xhigh`, `max`, or `auto`; `xhigh` and `max` require model support |
 | Size | Tool argument | Depends on what the provider supports |
 | Reference images | Tool argument | Relative to the session directory |
+| Mask | Tool argument | Relative to the session directory; requires reference images and provider mask support |
 
 The default provider is OpenAI and does not follow your conversation model automatically. If you use another provider,
 give it a full `provider/model` name. Your provider's headers, base URL, and variant settings are respected.
@@ -116,7 +133,7 @@ give it a full `provider/model` name. Your provider's headers, base URL, and var
 ## Good to know
 
 - **The provider must support images.** An OpenAI-compatible endpoint must implement `/images/generations` and
-  `/images/edits`. Chat support alone is not enough.
+  `/images/edits`. Chat support alone is not enough. Masked edits also require `/images/edits` mask support.
 - **Generation and preview are separate.** A missing, disabled, or failing preview never affects the generated file and
   never triggers a second generation.
 - **Files are references, not chat attachments.** The image lives on disk; the model only gets a path and a preview

@@ -30,10 +30,10 @@ async function fixture(directory: string, baseURL: string, options = {}, oauth =
 }
 
 test("null optional fields are omitted without changing required fields or valid values", () => {
-  expect(normalizeImageInput({ prompt: "proof", out: "proof.png", model: null, quality: null, size: null, images: null })).toEqual({ prompt: "proof", out: "proof.png" })
-  const input = { prompt: "proof", out: "proof.png", model: "openai/image", quality: "high" as const, size: "1024x1024", images: ["reference.png"] }
+  expect(normalizeImageInput({ prompt: "proof", out: "proof.png", model: null, quality: null, size: null, images: null, mask: null })).toEqual({ prompt: "proof", out: "proof.png" })
+  const input = { prompt: "proof", out: "proof.png", model: "openai/image", quality: "high" as const, size: "1024x1024", images: ["reference.png"], mask: "mask.png" }
   expect(normalizeImageInput(input)).toEqual(input)
-  for (const field of ["model", "quality", "size", "images"]) {
+  for (const field of ["model", "quality", "size", "images", "mask"]) {
     const normalized: Record<string, unknown> = normalizeImageInput({ ...input, [field]: null })
     expect(normalized).toEqual(Object.fromEntries(Object.entries(input).filter(([key]) => key !== field)))
   }
@@ -54,11 +54,11 @@ test("the tool schema accepts null for every optional field and null never reach
       const schema = registered.input as any
       expect(schema.required).toEqual(["prompt", "out"])
       expect(schema.additionalProperties).toBe(false)
-      for (const field of ["model", "quality", "size", "images"]) expect(schema.properties[field].type).toContain("null")
+      for (const field of ["model", "quality", "size", "images", "mask"]) expect(schema.properties[field].type).toContain("null")
       expect(schema.properties.quality.enum).toContain(null)
       expect(schema.properties.prompt.type).toBe("string")
       expect(schema.properties.out.type).toBe("string")
-      await registered.execute(undefined, { model: null, quality: null, size: null, images: null })
+      await registered.execute(undefined, { model: null, quality: null, size: null, images: null, mask: null })
       expect(requests).toBe(1)
       expect(await readFile(path.join(directory, "proof.png"), "utf8")).toBe("PNG")
     } finally { await registered.dispose() }
