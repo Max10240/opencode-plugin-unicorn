@@ -1,56 +1,66 @@
 import { expect, test } from "bun:test"
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ProtectionRegistry, REDACTION_TOKEN } from "../src/registry.js"
+import { extractContent, patternsForValues } from "../src/spec.js"
 
-test("manual private key registration protects body lines without marker patterns", async () => {
+test("registry redacts extracted values and reports key attribution", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-registry-"))
   try {
-    const file = path.join(root, "decrypt-private.pem")
-    const data = path.join(root, "data")
-    await mkdir(data)
-    const begin = ["-----BEGIN", "OPENSSH", "PRIVATE KEY-----"].join(" ")
-    const end = ["-----END", "OPENSSH", "PRIVATE KEY-----"].join(" ")
-    const body = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="
-    await writeFile(file, `${begin}\n${body}\n${end}\n`)
+    const file = path.join(root, "settings.json")
+    await writeFile(file, JSON.stringify({ apiKey: "ATTRIBUTION_SECRET_123" }))
+    const registry = new ProtectionRegistry()
+    const result = extractContent(JSON.stringify({ apiKey: "ATTRIBUTION_SECRET_123" }), "json", ["apiKey"], { strict: true })
+    registry.set({
+      path: file,
+      source: "config",
+      format: "json",
+      keys: ["apiKey"],
+      label: "settings",
+      createdAt: Date.now(),
+    }, patternsForValues(result.values))
 
-    const registry = new ProtectionRegistry(data, 1024 * 1024)
-    await registry.register(file, { role: "manual", label: "decrypt private key" })
-
-    const [entry] = registry.list()
-    expect(entry).toMatchObject({
-      path: await realpath(file),
-      label: "decrypt private key",
-      source: "manual",
-      keys: ["private key line"],
+    const collector = registry.createMatchCollector()
+    const redacted = registry.redactWithCount("prefix ATTRIBUTION_SECRET_123 suffix", collector)
+    expect(redacted.text).toBe(`prefix ${REDACTION_TOKEN} suffix`)
+    expect(redacted.count).toBe(1)
+    expect(registry.list()).toEqual([{
+      path: file,
+      source: "config",
+      format: "json",
+      keys: ["apiKey"],
+      label: "settings",
+      createdAt: expect.any(Number),
       keyCount: 1,
-    })
-    expect(registry.redact(begin)).toBe(begin)
-    expect(registry.redact(end)).toBe(end)
-    const redacted = registry.redact(body)
-    expect(redacted).not.toContain(body)
-    expect(redacted).toContain(REDACTION_TOKEN)
+    }])
+    expect(registry.matchList(collector)).toEqual([{
+      file,
+      source: "config",
+      label: "settings",
+      key: "apiKey",
+      count: 1,
+    }])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test("manual generic files distinguish whole-file and line patterns", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-registry-"))
-  try {
-    const file = path.join(root, "secrets.txt")
-    const data = path.join(root, "data")
-    await mkdir(data)
-    await writeFile(file, "GENERIC_SECRET_VALUE_123\nordinary configuration\n")
-    const registry = new ProtectionRegistry(data, 1024 * 1024)
-    await registry.register(file, { role: "manual", label: "generic secret" })
-
-    const [entry] = registry.list()
-    expect(entry?.keys).toEqual(expect.arrayContaining(["whole file", "line"]))
-    expect(entry?.keys).not.toContain("GENERIC_SECRET_VALUE_123")
-    expect(registry.redact("GENERIC_SECRET_VALUE_123")).toContain(REDACTION_TOKEN)
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
+test("registry removal drops patterns and emits changes", async () => {
+  const registry = new ProtectionRegistry()
+  const file = path.join(os.tmpdir(), `sensitive-${randomUUID()}.txt`)
+  let changes = 0
+  registry.onChange(() => changes++)
+  registry.set({
+    path: file,
+    source: "manual",
+    format: "line",
+    keys: ["line"],
+    createdAt: Date.now(),
+  }, patternsForValues([{ value: "REMOVE_ME_123", key: "line" }]))
+  expect(registry.redact("REMOVE_ME_123")).toBe(REDACTION_TOKEN)
+  expect(registry.remove(file)).toBe(true)
+  expect(registry.redact("REMOVE_ME_123")).toBe("REMOVE_ME_123")
+  expect(changes).toBe(2)
 })

@@ -1,10 +1,5 @@
-import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises"
-import { randomUUID } from "node:crypto"
-import path from "node:path"
-import os from "node:os"
-import { extractPrivateKey, patternsForValues } from "./extractors.js"
-import type { ReadPolicy, WritePolicy } from "./options.js"
 import type { ProtectionMatch, ProtectionPattern, ProtectionSource } from "./types.js"
+import type { ExtractFormat } from "./spec.js"
 
 export const REDACTION_TOKEN = "[REDACTED:PROTECTED]"
 
@@ -12,18 +7,22 @@ export type { ProtectionSource } from "./types.js"
 
 export type ProtectionEntry = {
   readonly path: string
-  readonly role: string
-  readonly keyID?: string
-  readonly label?: string
-  readonly createdAt: number
-  readonly read: ReadPolicy
-  readonly write: WritePolicy
   readonly source: ProtectionSource
+  readonly format?: ExtractFormat
+  readonly keys: readonly string[]
+  readonly label?: string
+  readonly role?: string
+  readonly keyID?: string
+  readonly createdAt: number
+  readonly invalid?: string
 }
 
 export type ProtectionFileInfo = ProtectionEntry & {
-  readonly keys: readonly string[]
   readonly keyCount: number
+  readonly project?: string
+  readonly projects?: readonly string[]
+  readonly disabled?: boolean
+  readonly pending?: boolean
 }
 
 type Entry = ProtectionEntry & {
@@ -32,21 +31,13 @@ type Entry = ProtectionEntry & {
 
 export type MatchCollector = Map<string, ProtectionMatch>
 
-type StoredEntry = ProtectionEntry
-
 export class ProtectionRegistry {
   private readonly entries = new Map<string, Entry>()
   private readonly listeners = new Set<() => void>()
-  private saveQueue: Promise<void> = Promise.resolve()
   private patternsCache: readonly string[] | undefined
   private directCache: readonly string[] | undefined
   private shortCache: readonly string[] | undefined
   private matcher: RegExp | undefined
-
-  constructor(
-    private readonly directory: string,
-    private readonly maxContentBytes: number,
-  ) {}
 
   get size() {
     return this.entries.size
@@ -59,10 +50,7 @@ export class ProtectionRegistry {
 
   list(): ProtectionFileInfo[] {
     return [...this.entries.values()]
-      .map(({ patterns, ...entry }) => {
-        const keys = [...new Set(patterns.map((pattern) => pattern.key).filter((key): key is string => typeof key === "string" && key.length > 0))]
-        return { ...entry, keys, keyCount: keys.length }
-      })
+      .map(({ patterns: _patterns, ...entry }) => ({ ...entry, keyCount: entry.keys.length }))
       .sort((left, right) => left.path.localeCompare(right.path))
   }
 
@@ -77,87 +65,17 @@ export class ProtectionRegistry {
     return publicEntry
   }
 
-  async load() {
-    const file = path.join(this.directory, "registry.json")
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await readFile(file, "utf8"))
-    } catch {
-      return
+  set(entry: ProtectionEntry, patterns: readonly ProtectionPattern[]) {
+    const unique = new Map<string, ProtectionPattern>()
+    for (const pattern of patterns) if (pattern.value && !unique.has(pattern.value)) unique.set(pattern.value, pattern)
+    const next: Entry = {
+      ...entry,
+      keys: [...new Set(entry.keys)],
+      patterns: [...unique.values()].sort((left, right) => right.value.length - left.value.length),
     }
-    if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { entries?: unknown }).entries)) return
-    for (const raw of (parsed as { entries: unknown[] }).entries) {
-      if (!raw || typeof raw !== "object") continue
-      const entry = raw as StoredEntry
-      if (typeof entry.path !== "string" || typeof entry.role !== "string" || typeof entry.createdAt !== "number") continue
-      try {
-        await this.register(entry.path, {
-          role: entry.role,
-          keyID: entry.keyID,
-          label: entry.label,
-          createdAt: entry.createdAt,
-          read: entry.read,
-          write: entry.write,
-          source: entry.source ?? "manual",
-          persist: false,
-        })
-      } catch {
-        // The file may have been removed since the registry was written.
-      }
-    }
-  }
-
-  async register(
-    value: string,
-    input: {
-      role: string
-      keyID?: string
-      label?: string
-      createdAt?: number
-      read?: ReadPolicy
-      write?: WritePolicy
-      source?: ProtectionSource
-      persist?: boolean
-    },
-  ) {
-    const resolved = await realpath(value)
-    const info = await lstat(resolved)
-    if (!info.isFile()) throw new Error("Protected file must be a regular file")
-    if (info.size > this.maxContentBytes) throw new Error(`Protected file exceeds the ${this.maxContentBytes} byte limit`)
-
-    const content = await readFile(resolved)
-    const result = this.setEntry(resolved, manualPatterns(content), {
-      ...input,
-      read: input.read ?? "block",
-      write: input.write ?? "allow",
-      source: input.source ?? "manual",
-    })
-    return { path: result.path, bytes: content.length }
-  }
-
-  async registerPatterns(
-    value: string,
-    patterns: readonly ProtectionPattern[],
-    input: {
-      role: string
-      keyID?: string
-      label?: string
-      createdAt?: number
-      read?: ReadPolicy
-      write?: WritePolicy
-      source?: ProtectionSource
-      persist?: boolean
-    },
-  ) {
-    const resolved = await realpath(value)
-    const info = await lstat(resolved)
-    if (!info.isFile()) throw new Error("Protected file must be a regular file")
-    return this.setEntry(resolved, patterns, {
-      ...input,
-      read: input.read ?? "redact",
-      write: input.write ?? "block",
-      source: input.source ?? "custom",
-    })
+    this.entries.set(entry.path, next)
+    this.invalidate()
+    this.notifyChange()
   }
 
   remove(value: string) {
@@ -207,40 +125,6 @@ export class ProtectionRegistry {
     return { text: value, count }
   }
 
-  private collectMatch(collector: MatchCollector, entry: Entry, pattern: ProtectionPattern, count: number) {
-    const key = `${entry.path}\u0000${entry.source}\u0000${pattern.key ?? ""}`
-    const existing = collector.get(key)
-    if (existing) {
-      collector.set(key, { ...existing, count: existing.count + count })
-      return
-    }
-    collector.set(key, {
-      file: entry.path,
-      ...(entry.label === undefined ? {} : { label: entry.label }),
-      source: entry.source,
-      ...(pattern.key === undefined ? {} : { key: pattern.key }),
-      count,
-    })
-  }
-
-  private matchesShort(text: string, patterns: readonly string[]) {
-    if (patterns.length === 0) return false
-    const regex = this.regex(patterns)
-    if (!regex) return patterns.some((pattern) => text.includes(pattern))
-    return regex.test(text)
-  }
-
-  private regex(patterns: readonly string[]) {
-    if (this.matcher) return this.matcher
-    if (patterns.length > 5_000) return undefined
-    try {
-      this.matcher = new RegExp(patterns.map(escapeRegExp).join("|"))
-      return this.matcher
-    } catch {
-      return undefined
-    }
-  }
-
   redactValue(value: unknown, collector?: MatchCollector): { value: unknown; changed: boolean; count: number } {
     if (this.entries.size === 0) return { value, changed: false, count: 0 }
     if (typeof value === "string") {
@@ -280,42 +164,38 @@ export class ProtectionRegistry {
     return { value, changed: false, count: 0 }
   }
 
-  async flush() {
-    await this.queueSave()
+  private collectMatch(collector: MatchCollector, entry: Entry, pattern: ProtectionPattern, count: number) {
+    const key = `${entry.path}\u0000${entry.source}\u0000${pattern.key ?? ""}`
+    const existing = collector.get(key)
+    if (existing) {
+      collector.set(key, { ...existing, count: existing.count + count })
+      return
+    }
+    collector.set(key, {
+      file: entry.path,
+      ...(entry.label === undefined ? {} : { label: entry.label }),
+      source: entry.source,
+      ...(pattern.key === undefined ? {} : { key: pattern.key }),
+      count,
+    })
   }
 
-  private setEntry(
-    resolved: string,
-    patterns: readonly ProtectionPattern[],
-    input: {
-      role: string
-      keyID?: string
-      label?: string
-      createdAt?: number
-      read: ReadPolicy
-      write: WritePolicy
-      source: ProtectionSource
-      persist?: boolean
-    },
-  ) {
-    const unique = new Map<string, ProtectionPattern>()
-    for (const pattern of patterns) if (pattern.value && !unique.has(pattern.value)) unique.set(pattern.value, pattern)
-    const entry: Entry = {
-      path: resolved,
-      role: input.role,
-      ...(input.keyID === undefined ? {} : { keyID: input.keyID }),
-      ...(input.label === undefined ? {} : { label: input.label }),
-      createdAt: input.createdAt ?? Date.now(),
-      read: input.read,
-      write: input.write,
-      source: input.source,
-      patterns: [...unique.values()].sort((left, right) => right.value.length - left.value.length),
+  private matchesShort(text: string, patterns: readonly string[]) {
+    if (patterns.length === 0) return false
+    const regex = this.regex(patterns)
+    if (!regex) return patterns.some((pattern) => text.includes(pattern))
+    return regex.test(text)
+  }
+
+  private regex(patterns: readonly string[]) {
+    if (this.matcher) return this.matcher
+    if (patterns.length > 5_000) return undefined
+    try {
+      this.matcher = new RegExp(patterns.map(escapeRegExp).join("|"))
+      return this.matcher
+    } catch {
+      return undefined
     }
-    this.entries.set(resolved, entry)
-    this.invalidate()
-    this.notifyChange()
-    if (input.persist !== false && entry.source === "manual") void this.queueSave()
-    return { path: resolved, bytes: entry.patterns.reduce((total, pattern) => total + pattern.value.length, 0) }
   }
 
   private notifyChange() {
@@ -334,79 +214,8 @@ export class ProtectionRegistry {
     this.shortCache = undefined
     this.matcher = undefined
   }
-
-  private queueSave() {
-    this.saveQueue = this.saveQueue.then(() => this.save()).catch(() => {})
-    return this.saveQueue
-  }
-
-  private async save() {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    const file = path.join(this.directory, "registry.json")
-    const temporary = path.join(this.directory, `.registry.${randomUUID()}.tmp`)
-    const entries: StoredEntry[] = [...this.entries.values()]
-      .filter((entry) => entry.source === "manual")
-      .map(({ patterns: _patterns, ...entry }) => entry)
-    try {
-      await writeFile(temporary, JSON.stringify({ version: 2, entries }, null, 2), { mode: 0o600, flag: "wx" })
-      await rename(temporary, file)
-    } finally {
-      await unlink(temporary).catch(() => {})
-    }
-  }
 }
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-function manualPatterns(content: Buffer): ProtectionPattern[] {
-  const text = content.toString("utf8")
-  if (!text) return []
-  const privateKey = extractPrivateKey(text)
-  if (privateKey.length > 0) return patternsForValues(privateKey)
-  // A private key marker with no usable body has no secret to extract; do not
-  // fall back to registering the marker lines themselves.
-  if (text.includes("PRIVATE KEY")) return []
-  return buildPatterns(content)
-}
-
-function buildPatterns(content: Buffer): ProtectionPattern[] {
-  const text = content.toString("utf8")
-  if (!text) return []
-  const patterns = new Map<string, string>()
-  const add = (value: string | undefined, key: string) => {
-    if (value && value.length >= 8 && !patterns.has(value)) patterns.set(value, key)
-  }
-  add(text, "whole file")
-  for (const line of text.split("\n")) {
-    add(line.replace(/\r$/, ""), "line")
-  }
-  const escaped = JSON.stringify(text).slice(1, -1)
-  if (escaped !== text) {
-    add(escaped, "whole file")
-    for (const line of escaped.split("\\n")) add(line, "line")
-  }
-  if (content.length <= 1024 * 1024) {
-    add(content.toString("base64"), "whole file (base64)")
-    add(content.toString("base64url"), "whole file (base64url)")
-    add(content.toString("hex"), "whole file (hex)")
-    add(content.toString("hex").toUpperCase(), "whole file (hex)")
-  }
-  return [...patterns]
-    .sort(([left], [right]) => right.length - left.length)
-    .map(([value, key]) => ({ value, key }))
-}
-
-export async function resolveProtectedPath(value: string, directory: string) {
-  if (typeof value !== "string" || !value.trim()) throw new Error("file must be a non-empty path")
-  const root = path.resolve(os.tmpdir())
-  const expanded = value === "~" ? process.env.HOME ?? "" : value.startsWith("~/") ? path.join(process.env.HOME ?? "", value.slice(2)) : value === "$TMPDIR" || value === "${TMPDIR}" ? root : value.startsWith("$TMPDIR/") ? path.join(root, value.slice(8)) : value.startsWith("${TMPDIR}/") ? path.join(root, value.slice(11)) : value
-  const candidate = path.isAbsolute(expanded) ? expanded : path.resolve(directory, expanded)
-  return realpath(candidate)
-}
-
-export async function fileIsRegular(value: string) {
-  const info = await lstat(value).catch(() => undefined)
-  return info?.isFile() === true
 }

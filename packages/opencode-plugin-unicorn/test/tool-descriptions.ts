@@ -9,5 +9,7 @@ export const toolDescriptions = {
   sensitive_key_info: "Show the configured public key and fingerprint without exposing private key material.",
   list_online_sessions: "List other online OpenCode sessions across working directories.",
   register_sensitive_file:
-    "Register an existing file as protected. The file is read locally for redaction; its contents are never output.",
+    "Register a file for local redaction. The file is parsed locally; values are never returned.",
+  request_sensitive_unprotect:
+    "Request user approval to unprotect a file. Protection is removed only after the user approves in the TUI.",
 }

@@ -168,7 +168,7 @@ test("renders attribution, session metadata, and live updates without secret val
       label: "SSH private key",
       tool: "read",
       sessionID: "ses_one",
-      matches: [{ file: "/Users/max/.ssh/id_ed25519", label: "SSH private key", source: "builtin", count: 1 }],
+      matches: [{ file: "/Users/max/.ssh/id_ed25519", label: "SSH private key", source: "default", count: 1 }],
     }),
     hit({
       id: "hit-2",
@@ -176,7 +176,7 @@ test("renders attribution, session metadata, and live updates without secret val
       source: "context",
       count: 8,
       sessionID: "ses_one",
-      matches: [{ file: "/Users/max/.aws/credentials", label: "AWS credentials", source: "builtin", key: "default.aws_secret_access_key", count: 8 }],
+      matches: [{ file: "/Users/max/.aws/credentials", label: "AWS credentials", source: "default", key: "default.aws_secret_access_key", count: 8 }],
     }),
   ])
   const app = await render(harness)
@@ -202,7 +202,7 @@ test("renders attribution, session metadata, and live updates without secret val
         file: "/Users/max/.npmrc",
         label: "npm auth",
         sessionID: "ses_two",
-        matches: [{ file: "/Users/max/.npmrc", label: "npm auth", source: "builtin", count: 0 }],
+        matches: [{ file: "/Users/max/.npmrc", label: "npm auth", source: "default", count: 0 }],
       }),
     ])
     const toggleScope = harness.layers
@@ -237,7 +237,7 @@ test("detail and copy include the matched file path and key", async () => {
       matches: [{
         file: "/Users/max/.npmrc",
         label: "npm auth",
-        source: "builtin",
+        source: "default",
         key: "_authToken @ registry.npmjs.org",
         count: 2,
       }],
@@ -269,7 +269,7 @@ test("filter menu shows the current filter and resets to all", async () => {
       source: "context",
       count: 1,
       sessionID: "ses_one",
-      matches: [{ file: "/Users/max/.npmrc", label: "npm auth", source: "builtin", key: "_authToken", count: 1 }],
+      matches: [{ file: "/Users/max/.npmrc", label: "npm auth", source: "default", key: "_authToken", count: 1 }],
     }),
   ])
   const app = await render(harness)
@@ -298,24 +298,20 @@ test("switches between history and protected files and links file context", asyn
       files: [
         {
           path: file,
-          role: "builtin",
           label: "npm auth",
+          format: "ini",
           createdAt: now,
-          read: "redact",
-          write: "block",
-          source: "builtin",
-          keys: ["_authToken @ registry.npmjs.org", "_auth @ registry.npmjs.org"],
+          source: "default",
+          keys: ["*_authToken", "*_auth"],
           keyCount: 2,
         },
         {
           path: "/Users/max/.ssh/id_ed25519",
-          role: "builtin",
           label: "SSH private key",
+          format: "private-key",
           createdAt: now,
-          read: "block",
-          write: "block",
-          source: "builtin",
-          keys: ["private key line"],
+          source: "default",
+          keys: ["private key body"],
           keyCount: 1,
         },
       ],
@@ -332,7 +328,7 @@ test("switches between history and protected files and links file context", asyn
       count: 2,
       tool: "shell",
       sessionID: "ses_one",
-      matches: [{ file, label: "npm auth", source: "builtin", key: "_authToken @ registry.npmjs.org", count: 2 }],
+      matches: [{ file, label: "npm auth", source: "default", key: "_authToken @ registry.npmjs.org", count: 2 }],
     }),
   ], rpc)
   const app = await render(harness)
@@ -342,12 +338,13 @@ test("switches between history and protected files and links file context", asyn
     await waitFor(app, () => app.captureCharFrame().includes("Protected now"), "files view did not load")
     const filesFrame = app.captureCharFrame()
     expect(filesFrame).toContain("~/.npmrc")
-    expect(filesFrame).toContain("_authToken @ registry.npmjs.org")
-    expect(filesFrame).toContain("read redact · write block")
+    expect(filesFrame).toContain("ini")
+    expect(filesFrame).toContain("*_authToken")
+    expect(filesFrame).toContain("2 keys")
 
     commands(harness).find((command) => command.title === "Copy protection event")?.run()
     expect(harness.copied()).toContain(`File: ${file}`)
-    expect(harness.copied()).toContain("_authToken @ registry.npmjs.org")
+    expect(harness.copied()).toContain("*_authToken")
     expect(harness.copied()).not.toContain("NOTIFY_SECRET_VALUE")
 
     commands(harness).find((command) => command.title === "Open selected protection item")?.run()

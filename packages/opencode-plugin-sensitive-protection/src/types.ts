@@ -1,4 +1,4 @@
-export type ProtectionSource = "manual" | "builtin" | "custom"
+export type ProtectionSource = "manual" | "default" | "config"
 
 export type ProtectionPattern = {
   readonly value: string

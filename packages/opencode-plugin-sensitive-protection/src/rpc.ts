@@ -8,7 +8,7 @@ const match = {
   properties: {
     file: { type: "string" },
     label: { type: "string" },
-    source: { type: "string", enum: ["manual", "builtin", "custom"] },
+    source: { type: "string", enum: ["manual", "default", "config"] },
     key: { type: "string" },
     count: { type: "number" },
   },
@@ -43,17 +43,36 @@ const file = {
   type: "object",
   properties: {
     path: { type: "string" },
-    role: { type: "string" },
-    keyID: { type: "string" },
-    label: { type: "string" },
-    createdAt: { type: "number" },
-    read: { type: "string", enum: ["redact", "block"] },
-    write: { type: "string", enum: ["block", "allow"] },
-    source: { type: "string", enum: ["manual", "builtin", "custom"] },
+    source: { type: "string", enum: ["manual", "default", "config"] },
+    format: { type: "string" },
     keys: { type: "array", items: { type: "string" } },
     keyCount: { type: "number" },
+    label: { type: "string" },
+    role: { type: "string" },
+    keyID: { type: "string" },
+    createdAt: { type: "number" },
+    invalid: { type: "string" },
+    project: { type: "string" },
+    projects: { type: "array", items: { type: "string" } },
+    disabled: { type: "boolean" },
+    pending: { type: "boolean" },
   },
-  required: ["path", "role", "createdAt", "read", "write", "source", "keys", "keyCount"],
+  required: ["path", "source", "keys", "keyCount", "createdAt"],
+  additionalProperties: false,
+} as const
+
+const request = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    path: { type: "string" },
+    source: { type: "string", enum: ["manual", "default", "config"] },
+    project: { type: "string" },
+    sessionID: { type: "string" },
+    reason: { type: "string" },
+    createdAt: { type: "number" },
+  },
+  required: ["id", "path", "source", "createdAt"],
   additionalProperties: false,
 } as const
 
@@ -63,6 +82,7 @@ export const ProtectionRpc = Rpc.define({
     hit: { schema: hit },
     cleared: { schema: { type: "object", properties: {}, additionalProperties: false } },
     files: { schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"], additionalProperties: false } },
+    pending: { schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"], additionalProperties: false } },
   },
   methods: {
     history: {
@@ -100,20 +120,84 @@ export const ProtectionRpc = Rpc.define({
         additionalProperties: false,
       },
     },
+    unprotect: {
+      input: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: {
+          removed: { type: "boolean" },
+          disabled: { type: "boolean" },
+        },
+        required: ["removed", "disabled"],
+        additionalProperties: false,
+      },
+    },
+    restore: {
+      input: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { restored: { type: "boolean" } },
+        required: ["restored"],
+        additionalProperties: false,
+      },
+    },
+    pending: {
+      input: empty,
+      output: {
+        type: "object",
+        properties: {
+          requests: { type: "array", items: request },
+          count: { type: "number" },
+        },
+        required: ["requests", "count"],
+        additionalProperties: false,
+      },
+    },
+    resolve: {
+      input: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          approve: { type: "boolean" },
+        },
+        required: ["id", "approve"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { resolved: { type: "boolean" } },
+        required: ["resolved"],
+        additionalProperties: false,
+      },
+    },
   },
 })
 
 export type ProtectionFileInfo = {
   readonly path: string
-  readonly role: string
-  readonly keyID?: string
-  readonly label?: string
-  readonly createdAt: number
-  readonly read: "redact" | "block"
-  readonly write: "block" | "allow"
-  readonly source: "manual" | "builtin" | "custom"
+  readonly source: "manual" | "default" | "config"
+  readonly format?: string
   readonly keys: readonly string[]
   readonly keyCount: number
+  readonly label?: string
+  readonly role?: string
+  readonly keyID?: string
+  readonly createdAt: number
+  readonly invalid?: string
+  readonly project?: string
+  readonly projects?: readonly string[]
+  readonly disabled?: boolean
+  readonly pending?: boolean
 }
 
 export type ProtectionFilesResult = {
@@ -126,4 +210,19 @@ export type ProtectionHistoryResult = {
   readonly hits: ProtectionHit[]
   readonly total: number
   readonly limit: number
+}
+
+export type ProtectionRequest = {
+  readonly id: string
+  readonly path: string
+  readonly source: "manual" | "default" | "config"
+  readonly project?: string
+  readonly sessionID?: string
+  readonly reason?: string
+  readonly createdAt: number
+}
+
+export type ProtectionPendingResult = {
+  readonly requests: ProtectionRequest[]
+  readonly count: number
 }

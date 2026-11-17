@@ -120,11 +120,13 @@ test("Unicorn protects the decrypt private key from read by default", async () =
       return true
     }, "The decrypt private key was not initialized")
 
+    const pem = await readFile(privateKey, "utf8")
+    const body = pem.split(/\r?\n/).filter((line) => line && !line.includes("PRIVATE KEY")).join("\n")
     const part = await callTool(e2e, "READ_PRIVATE_KEY", "read", { path: privateKey })
-    expect(part?.state.status).toBe("error")
-    expect(JSON.stringify(part)).toContain("Blocked: this file is protected")
-    expect(JSON.stringify(part)).not.toContain("PRIVATE KEY")
-    expect(JSON.stringify(e2e.proxy.requests)).not.toContain("PRIVATE KEY")
+    expect(part?.state.status).toBe("completed")
+    expect(JSON.stringify(part)).toContain("[REDACTED:PROTECTED]")
+    expect(JSON.stringify(part)).not.toContain(body)
+    expect(JSON.stringify(e2e.proxy.requests)).not.toContain(body)
   } finally {
     await e2e.close()
   }

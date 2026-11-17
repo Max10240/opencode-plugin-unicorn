@@ -3,12 +3,16 @@ import type { Context } from "@opencode/plugin/tui/context"
 import type { ProtectionHit } from "./rpc.js"
 import {
   createProtectionHistoryStore,
+  createProtectionRequestStore,
   HISTORY_COMMAND_ID,
   HISTORY_SLASH_NAME,
   openProtectionHistory,
+  openProtectionRequests,
+  PendingProtectionChip,
   RecentProtectionChip,
   type ProtectionHistoryStore,
-} from "./tui-history.jsx"
+  type ProtectionRequestStore,
+} from "./tui-history.js"
 
 export default Plugin.define({
   id: "max10240.sensitive-protection.tui",
@@ -19,6 +23,7 @@ export function setupSensitiveProtectionTui(context: Context) {
   if (context.options.enabled === false) return
 
   let store: ProtectionHistoryStore | undefined
+  let requests: ProtectionRequestStore | undefined
   if (typeof context.client?.rpc === "function") {
     try {
       store = createProtectionHistoryStore(context, context.options.notifications === false ? undefined : (hit) => {
@@ -29,6 +34,15 @@ export function setupSensitiveProtectionTui(context: Context) {
           variant: hit.kind === "redacted" ? "info" : "warning",
           duration: 6_000,
           ...(hit.sessionID === undefined ? {} : { sessionID: hit.sessionID }),
+        })
+      })
+      requests = createProtectionRequestStore(context, (request) => {
+        context.ui.toast.show({
+          title: "Sensitive protection",
+          message: `Agent requests to unprotect ${shortPath(request.path) ?? request.path}`,
+          variant: "warning",
+          duration: 6_000,
+          ...(request.sessionID === undefined ? {} : { sessionID: request.sessionID }),
         })
       })
     } catch {
@@ -44,7 +58,7 @@ export function setupSensitiveProtectionTui(context: Context) {
         title: "Protect sensitive file",
         description: "Register an existing file as protected",
         group: "Sensitive",
-        bind: false,
+        bind: false as const,
         palette: true,
         slash: { name: "protect-sensitive-file-ui" },
         run: async () => {
@@ -83,20 +97,36 @@ export function setupSensitiveProtectionTui(context: Context) {
         slash: { name: HISTORY_SLASH_NAME, aliases: ["sp-history"] },
         run: () => {
           const route = context.ui.router.current()
-          openProtectionHistory(context, store, route.type === "session" ? route.sessionID : undefined, "all")
+          openProtectionHistory(context, store!, route.type === "session" ? route.sessionID : undefined, "all")
         },
+      }] : []),
+      ...(requests ? [{
+        id: "sensitive-protection.requests",
+        title: "Unprotect requests",
+        description: "Review files the agent asked to unprotect",
+        group: "Sensitive",
+        bind: false as const,
+        palette: true as const,
+        slash: { name: "protection-requests", aliases: ["sp-requests"] },
+        run: () => openProtectionRequests(context, requests!),
       }] : []),
     ],
   }))
 
   if (!store) return
   const activeStore = store
+  const activeRequests = requests
   let disposeSlot: (() => void) | undefined
-  if (context.options.notifications !== false && typeof context.ui?.slot === "function") {
+  if (typeof context.ui?.slot === "function") {
     try {
       disposeSlot = context.ui.slot({
         append: "prompt.footer.status",
-        render: (input) => <RecentProtectionChip context={context} store={activeStore} sessionID={input.sessionID} />,
+        render: (input) => (
+          <box flexDirection="row" gap={1}>
+            {activeRequests ? <PendingProtectionChip context={context} store={activeRequests} /> : null}
+            <RecentProtectionChip context={context} store={activeStore} sessionID={input.sessionID} />
+          </box>
+        ),
       })
     } catch {
       // The history command and toast still work without a footer slot.
@@ -106,6 +136,7 @@ export function setupSensitiveProtectionTui(context: Context) {
   return () => {
     disposeSlot?.()
     activeStore.dispose()
+    activeRequests?.dispose()
   }
 }
 

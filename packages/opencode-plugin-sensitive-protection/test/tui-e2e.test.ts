@@ -8,15 +8,14 @@ import { createTui } from "../../../test/tui-support.js"
 
 setDefaultTimeout(180_000)
 
-test("reports a blocked read in the toast, footer chip, and history dialog", async () => {
+test("reports a redacted read in the toast, footer chip, and history dialog", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-protection-tui-"))
   const secret = path.join(root, "secret.json")
   await writeFile(secret, JSON.stringify({ token: "TUI_NOTIFY_TOKEN_123" }))
   const pluginPackage = path.resolve(import.meta.dir, "../dist")
   const options = {
-    builtins: false,
     notifications: true,
-    customFiles: [{ path: secret, label: "Test credential", format: "json", fields: ["token"], read: "block" }],
+    files: [{ path: secret, label: "Test credential", format: "json", keys: ["token"] }],
   }
   const e2e = await createOpenCodeE2E({
     plugin: "sensitive-protection",
@@ -40,8 +39,8 @@ test("reports a blocked read in the toast, footer chip, and history dialog", asy
       e2e.proxy.mock.prependFixture({ match: { toolCallId: "call_protected_read" }, response: { content: "TOAST_DONE" } })
       await prompt(e2e, sessionID, "E2E_PROTECTION_TOAST")
       await tui.waitFor("Sensitive protection", "protection toast did not appear")
-      await tui.waitFor("Blocked read", "protection toast did not identify the blocked read")
-      await tui.waitFor("access blocked · details", "protection footer chip did not appear")
+      await tui.waitFor("from read output", "protection toast did not identify the redacted read")
+      await tui.waitFor("redacted · details", "protection footer chip did not appear")
       expect(tui.pane()).not.toContain("TUI_NOTIFY_TOKEN_123")
 
       tui.type("/protection-history")

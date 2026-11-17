@@ -5,6 +5,7 @@ import path from "node:path"
 import { ProtectionHistory } from "../src/history.js"
 import { ProtectionRegistry } from "../src/registry.js"
 import { parseProtectionOptions } from "../src/options.js"
+import { extractContent, patternsForValues } from "../src/spec.js"
 
 test("aggregates repeated conditions without growing the history", () => {
   const history = new ProtectionHistory(10)
@@ -13,7 +14,7 @@ test("aggregates repeated conditions without growing the history", () => {
     source: "context" as const,
     count: 8,
     sessionID: "ses_test",
-    matches: [{ file: "/home/user/.npmrc", label: "npm auth", source: "builtin" as const, key: "_authToken", count: 8 }],
+    matches: [{ file: "/home/user/.npmrc", label: "npm auth", source: "default" as const, key: "_authToken", count: 8 }],
   }
   const first = history.record(input)
   const second = history.record(input)
@@ -29,7 +30,7 @@ test("aggregates repeated conditions without growing the history", () => {
   expect(history.size).toBe(1)
 
   history.record({ ...input, file: "/home/user/.aws/credentials", matches: [
-    { file: "/home/user/.aws/credentials", label: "AWS credentials", source: "builtin", key: "default.aws_secret_access_key", count: 1 },
+    { file: "/home/user/.aws/credentials", label: "AWS credentials", source: "default", key: "default.aws_secret_access_key", count: 1 },
   ], count: 1 })
   expect(history.size).toBe(2)
 })
@@ -93,21 +94,20 @@ test("history options default, validate, and allow disabling", async () => {
 
 test("registry attribution reports the matched file, key, and count only", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-attribution-"))
-  const registry = new ProtectionRegistry(path.join(root, "data"), 1024)
+  const registry = new ProtectionRegistry()
   try {
     const file = path.join(root, "settings.json")
     await writeFile(file, JSON.stringify({ apiKey: "ATTRIBUTION_SECRET_123" }))
     const resolved = await realpath(file)
-    await registry.registerPatterns(file, [
-      { value: "ATTRIBUTION_SECRET_123", key: "apiKey" },
-    ], {
-      role: "custom",
+    const extracted = extractContent(JSON.stringify({ apiKey: "ATTRIBUTION_SECRET_123" }), "json", ["apiKey"], { strict: true })
+    registry.set({
+      path: resolved,
+      format: "json",
+      keys: ["apiKey"],
       label: "settings",
-      read: "redact",
-      write: "block",
-      source: "custom",
-      persist: false,
-    })
+      source: "config",
+      createdAt: Date.now(),
+    }, patternsForValues(extracted.values))
     const collector = registry.createMatchCollector()
     const result = registry.redactValue({ text: "prefix ATTRIBUTION_SECRET_123 suffix" }, collector)
     expect(result.count).toBe(1)
@@ -115,7 +115,7 @@ test("registry attribution reports the matched file, key, and count only", async
     expect(registry.matchList(collector)).toEqual([{
       file: resolved,
       label: "settings",
-      source: "custom",
+      source: "config",
       key: "apiKey",
       count: 1,
     }])

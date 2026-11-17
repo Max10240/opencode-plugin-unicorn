@@ -1,7 +1,7 @@
 import type { Context } from "@opencode/plugin/tui/context"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { ProtectionRpc, type ProtectionFileInfo, type ProtectionFilesResult, type ProtectionHistoryResult, type ProtectionHit, type ProtectionMatch } from "./rpc.js"
+import { ProtectionRpc, type ProtectionFileInfo, type ProtectionFilesResult, type ProtectionHistoryResult, type ProtectionHit, type ProtectionMatch, type ProtectionPendingResult, type ProtectionRequest } from "./rpc.js"
 
 export const HISTORY_COMMAND_ID = "sensitive-protection.history"
 export const HISTORY_SLASH_NAME = "protection-history"
@@ -233,6 +233,76 @@ export function createProtectionFilesStore(context: Context): ProtectionFilesSto
   }
 }
 
+export type ProtectionRequestStore = {
+  readonly requests: () => ProtectionRequest[]
+  readonly count: () => number
+  readonly loading: () => boolean
+  readonly load: () => Promise<void>
+  readonly resolve: (id: string, approve: boolean) => Promise<boolean>
+  readonly dispose: () => void
+}
+
+export function createProtectionRequestStore(
+  context: Context,
+  onRequest?: (request: ProtectionRequest) => void,
+): ProtectionRequestStore {
+  const [requests, setRequests] = createSignal<ProtectionRequest[]>([])
+  const [loading, setLoading] = createSignal(false)
+  let disposed = false
+  let pending: Promise<void> | undefined
+  let disposeEvents: (() => void) | undefined
+
+  const load = () => {
+    if (pending) return pending
+    if (typeof context.client?.rpc !== "function") return Promise.resolve()
+    pending = (async () => {
+      setLoading(true)
+      try {
+        const result = await context.client.rpc(ProtectionRpc).pending({}, { location: context.location }) as ProtectionPendingResult
+        if (!disposed) {
+          const known = new Set(requests().map((request) => request.id))
+          setRequests(result.requests)
+          for (const request of result.requests) {
+            if (!known.has(request.id)) onRequest?.(request)
+          }
+        }
+      } catch {
+        if (!disposed) setRequests([])
+      } finally {
+        if (!disposed) setLoading(false)
+        pending = undefined
+      }
+    })()
+    return pending
+  }
+
+  try {
+    disposeEvents = context.client?.rpc?.(ProtectionRpc)?.events?.on("pending", () => {
+      if (!disposed) void load()
+    })
+  } catch {
+    // A client without event support can still load requests manually.
+  }
+
+  void load()
+
+  return {
+    requests: () => requests(),
+    count: () => requests().length,
+    loading: () => loading(),
+    load,
+    resolve: async (id, approve) => {
+      const result = await context.client.rpc(ProtectionRpc).resolve({ id, approve }, { location: context.location }) as { resolved: boolean }
+      await load()
+      return result.resolved
+    },
+    dispose: () => {
+      disposed = true
+      disposeEvents?.()
+    },
+  }
+}
+
 export function openProtectionHistory(
   context: Context,
   store: ProtectionHistoryStore,
@@ -312,8 +382,174 @@ export function RecentProtectionChip(props: {
   )
 }
 
+export function PendingProtectionChip(props: {
+  context: Context
+  store: ProtectionRequestStore
+}) {
+  const [hovered, setHovered] = createSignal(false)
+  const theme = () => props.context.theme
+  return (
+    <Show when={props.store.count() > 0}>
+      <box
+        id="sensitive-protection-pending-chip"
+        flexShrink={0}
+        onMouseOver={() => setHovered(true)}
+        onMouseOut={() => setHovered(false)}
+        onMouseUp={(event) => {
+          if (event.button === 0) {
+            event.stopPropagation()
+            openProtectionRequests(props.context, props.store)
+          }
+        }}
+      >
+        <text
+          fg={hovered() ? theme().text.action.primary.base : theme().text.feedback.warning.base}
+          attributes={hovered() ? TextAttributes.BOLD : undefined}
+          wrapMode="none"
+        >
+          {`⚠ ${props.store.count()} unprotect ${props.store.count() === 1 ? "request" : "requests"} · review`}
+        </text>
+      </box>
+    </Show>
+  )
+}
+
+export function openProtectionRequests(context: Context, store: ProtectionRequestStore) {
+  context.ui.dialog.show(() => <ProtectionRequestsDialog context={context} store={store} />)
+}
+
+function ProtectionRequestsDialog(props: {
+  context: Context
+  store: ProtectionRequestStore
+}) {
+  const theme = props.context.theme.surface("dialog")
+  const [selected, setSelected] = createSignal<string>()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let clock: ReturnType<typeof setInterval> | undefined
+  const [now, setNow] = createSignal(Date.now())
+
+  createEffect(() => {
+    const requests = props.store.requests()
+    if (requests.length === 0) {
+      setSelected(undefined)
+      return
+    }
+    if (!requests.some((request) => request.id === selected())) setSelected(requests[0]?.id)
+  })
+
+  const selectedRequest = () => props.store.requests().find((request) => request.id === selected())
+
+  const resolve = async (approve: boolean) => {
+    const request = selectedRequest()
+    if (!request) return
+    try {
+      await props.store.resolve(request.id, approve)
+      void props.context.ui.toast.show({
+        message: approve ? `Unprotected ${shortPath(request.path, props.context) ?? request.path}` : "Unprotect request rejected",
+        variant: approve ? "success" : "info",
+      })
+    } catch (error) {
+      void props.context.ui.toast.show({
+        message: error instanceof Error ? error.message : "Could not resolve request",
+        variant: "error",
+      })
+    }
+  }
+
+  props.context.keymap.layer(() => ({
+    mode: "modal",
+    priority: 20,
+    commands: [
+      { bind: "up", title: "Previous request", run: () => {
+        const requests = props.store.requests()
+        const index = Math.max(0, requests.findIndex((request) => request.id === selected()))
+        setSelected(requests[Math.max(0, index - 1)]?.id)
+      } },
+      { bind: "k", title: "Previous request", run: () => {
+        const requests = props.store.requests()
+        const index = Math.max(0, requests.findIndex((request) => request.id === selected()))
+        setSelected(requests[Math.max(0, index - 1)]?.id)
+      } },
+      { bind: "down", title: "Next request", run: () => {
+        const requests = props.store.requests()
+        const index = Math.max(0, requests.findIndex((request) => request.id === selected()))
+        setSelected(requests[Math.min(requests.length - 1, index + 1)]?.id)
+      } },
+      { bind: "j", title: "Next request", run: () => {
+        const requests = props.store.requests()
+        const index = Math.max(0, requests.findIndex((request) => request.id === selected()))
+        setSelected(requests[Math.min(requests.length - 1, index + 1)]?.id)
+      } },
+      { bind: "a", title: "Approve unprotect", run: () => { void resolve(true) } },
+      { bind: "r", title: "Reject unprotect", run: () => { void resolve(false) } },
+      { bind: "escape", title: "Close requests", run: () => props.context.ui.dialog.clear() },
+    ],
+  }))
+
+  onMount(() => {
+    props.context.ui.dialog.set({ size: "large", centered: true })
+    clock = setInterval(() => setNow(Date.now()), 30_000)
+    void props.store.load()
+  })
+  onCleanup(() => {
+    if (timer !== undefined) clearTimeout(timer)
+    if (clock !== undefined) clearInterval(clock)
+  })
+
+  return (
+    <box paddingLeft={2} paddingRight={2} gap={1}>
+      <box flexDirection="row" justifyContent="space-between">
+        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Unprotect requests</text>
+        <text fg={theme.text.muted}>{props.store.loading() ? "loading…" : "pending · esc close"}</text>
+      </box>
+      <Show
+        when={props.store.requests().length > 0}
+        fallback={<text fg={theme.text.muted} wrapMode="word">No pending unprotect requests.</text>}
+      >
+        <scrollbox focusable maxHeight={18}>
+          <For each={props.store.requests()}>
+            {(request) => (
+              <box
+                flexDirection="column"
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={request.id === selected() ? theme.background.raised.high : undefined}
+                onMouseUp={(event) => { if (event.button === 0) setSelected(request.id) }}
+              >
+                <box flexDirection="row" gap={1}>
+                  <text fg={theme.text.feedback.warning.base}>●</text>
+                  <text fg={request.id === selected() ? theme.text.base : theme.text.muted} attributes={request.id === selected() ? TextAttributes.BOLD : undefined} wrapMode="none" truncate>
+                    {shortPath(request.path, props.context) ?? request.path}
+                  </text>
+                  <box flexGrow={1} />
+                  <text fg={theme.text.muted}>{relativeTime(request.createdAt, now())}</text>
+                </box>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {`${sourceLabel(request.source)}${request.project ? ` · ${shortPath(request.project, props.context) ?? request.project}` : ""}${request.reason ? ` · ${cleanText(request.reason, 160)}` : ""}`}
+                </text>
+              </box>
+            )}
+          </For>
+        </scrollbox>
+        <Show when={selectedRequest()}>
+          {(request) => (
+            <box flexDirection="column" gap={0}>
+              <text fg={theme.text.base} wrapMode="word">{request().path}</text>
+              <text fg={theme.text.muted} wrapMode="word">
+                {`Source: ${sourceLabel(request().source)} · ${request().sessionID ? shortID(request().sessionID ?? "") : "no session"}`}
+              </text>
+              <text fg={theme.text.muted}>a approve · r reject · esc close</text>
+            </box>
+          )}
+        </Show>
+      </Show>
+      <text fg={theme.text.muted}>↑/↓ select · a approve · r reject · esc close</text>
+    </box>
+  )
+}
+
 type Filter = "all" | "blocked" | "redacted" | "error"
-type FileFilter = "all" | "builtin" | "custom" | "manual"
+type FileFilter = "all" | "default" | "config" | "manual" | "disabled"
 type View = "history" | "files"
 type Scope = "all" | "session"
 type SessionSummary = {
@@ -346,12 +582,14 @@ export function ProtectionHistoryDialog(props: {
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string>()
   const [clearArmed, setClearArmed] = createSignal(false)
+  const [unprotectArmed, setUnprotectArmed] = createSignal(false)
   const [now, setNow] = createSignal(Date.now())
   const [sessions, setSessions] = createSignal<Record<string, SessionSummary | null>>({})
   const requested = new Set<string>()
   let focusTimer: ReturnType<typeof setTimeout> | undefined
   let clockTimer: ReturnType<typeof setInterval> | undefined
   let clearTimer: ReturnType<typeof setTimeout> | undefined
+  let unprotectTimer: ReturnType<typeof setTimeout> | undefined
 
   const inSession = (hit: ProtectionHit) => {
     const current = props.sessionID
@@ -392,7 +630,7 @@ export function ProtectionHistoryDialog(props: {
   const filteredFiles = createMemo(() => {
     const value = fileFilter()
     return files.files()
-      .filter((file) => value === "all" || file.source === value)
+      .filter((file) => value === "all" ? file.disabled !== true : value === "disabled" ? file.disabled === true : file.source === value && file.disabled !== true)
       .sort((left, right) => {
         const leftHit = lastHitFor(left.path)?.time ?? 0
         const rightHit = lastHitFor(right.path)?.time ?? 0
@@ -410,9 +648,10 @@ export function ProtectionHistoryDialog(props: {
       ]
     : [
         { value: "all", label: "All sources" },
-        { value: "builtin", label: "Built-in" },
-        { value: "custom", label: "Custom" },
+        { value: "default", label: "Default" },
+        { value: "config", label: "Config" },
         { value: "manual", label: "Manual" },
+        { value: "disabled", label: "Disabled" },
       ]
   const currentFilter = () => view() === "history" ? filter() : fileFilter()
   const currentFilterLabel = () => menuOptions().find((option) => option.value === currentFilter())?.label ?? "All"
@@ -617,8 +856,10 @@ export function ProtectionHistoryDialog(props: {
       "Sensitive protection file",
       `File: ${file.path}`,
       `Source: ${sourceLabel(file.source)}`,
+      ...(file.format === undefined ? [] : [`Format: ${file.format}`]),
       ...(file.label === undefined ? [] : [`Label: ${file.label}`]),
-      `Policy: read ${file.read} · write ${file.write}`,
+      ...(file.project === undefined ? [] : [`Project: ${file.project}`]),
+      ...(file.disabled ? ["State: disabled"] : file.invalid ? [`State: error · ${file.invalid}`] : ["State: protected"]),
       ...(file.keys.length === 0 ? ["Keys: none"] : ["Keys:", ...file.keys.map((key) => `- ${key}`)]),
       ...(file.keyID === undefined ? [] : [`Key ID: ${file.keyID}`]),
       ...(latest === undefined ? [] : [`Last hit: ${new Date(latest.time).toISOString()}`]),
@@ -655,6 +896,46 @@ export function ProtectionHistoryDialog(props: {
       return
     }
     void props.context.ui.toast.show({ message: "Copied protection event", variant: "success" })
+  }
+
+  const unprotectSelected = async () => {
+    const file = selectedFileInfo()
+    if (!file) {
+      void props.context.ui.toast.show({ message: "Select a protected file", variant: "warning" })
+      return
+    }
+    if (!unprotectArmed()) {
+      setUnprotectArmed(true)
+      if (unprotectTimer !== undefined) clearTimeout(unprotectTimer)
+      unprotectTimer = setTimeout(() => {
+        unprotectTimer = undefined
+        setUnprotectArmed(false)
+      }, 3_000)
+      return
+    }
+    setUnprotectArmed(false)
+    if (unprotectTimer !== undefined) {
+      clearTimeout(unprotectTimer)
+      unprotectTimer = undefined
+    }
+    try {
+      if (file.disabled) {
+        await props.context.client.rpc(ProtectionRpc).restore({ path: file.path }, { location: props.context.location })
+        void props.context.ui.toast.show({ message: "Protection restored", variant: "success" })
+      } else {
+        const result = await props.context.client.rpc(ProtectionRpc).unprotect({ path: file.path }, { location: props.context.location }) as { removed: boolean; disabled: boolean }
+        void props.context.ui.toast.show({
+          message: result.disabled ? "Protection disabled" : "Protection removed",
+          variant: "success",
+        })
+      }
+      await files.load()
+    } catch (error) {
+      void props.context.ui.toast.show({
+        message: error instanceof Error ? error.message : "Could not update protection",
+        variant: "error",
+      })
+    }
   }
 
   const clear = async () => {
@@ -712,6 +993,13 @@ export function ProtectionHistoryDialog(props: {
           openSession()
         }
       } },
+      { bind: "u", title: "Unprotect or restore selected file", run: () => {
+        if (view() !== "files") {
+          void props.context.ui.toast.show({ message: "Open Protected files to unprotect", variant: "warning" })
+          return
+        }
+        void unprotectSelected()
+      } },
       { bind: "c", title: "Copy protection event", run: copy },
       { bind: "x", title: "Clear protection history", run: () => {
         if (view() === "files") {
@@ -750,6 +1038,7 @@ export function ProtectionHistoryDialog(props: {
     if (focusTimer !== undefined) clearTimeout(focusTimer)
     if (clockTimer !== undefined) clearInterval(clockTimer)
     if (clearTimer !== undefined) clearTimeout(clearTimer)
+    if (unprotectTimer !== undefined) clearTimeout(unprotectTimer)
   })
 
   const summaryLine = () => {
@@ -926,9 +1215,12 @@ export function ProtectionHistoryDialog(props: {
           {(file) => (
             <box flexDirection="column" gap={0}>
               <text fg={theme.text.base} wrapMode="word">{`File: ${shortPath(file().path, props.context) ?? file().path}`}</text>
-              <text fg={theme.text.muted}>{`Source: ${sourceLabel(file().source)}${file().label ? ` · ${file().label}` : ""}`}</text>
-              <text fg={theme.text.muted}>{`Policy: read ${file().read} · write ${file().write}${file().keyID ? ` · keyID: ${file().keyID}` : ""}`}</text>
-              <Show when={file().keys.length > 0} fallback={<text fg={theme.text.muted}>Keys: none extracted</text>}>
+              <text fg={theme.text.muted}>{`Source: ${sourceLabel(file().source)}${file().format ? ` · ${file().format}` : ""}${file().label ? ` · ${file().label}` : ""}`}</text>
+              <text fg={theme.text.muted}>{`${file().disabled ? "Disabled" : file().invalid ? `Error: ${file().invalid}` : "Protected"}${file().pending ? " · unprotect pending" : ""}${file().keyID ? ` · keyID: ${file().keyID}` : ""}`}</text>
+              <Show when={file().projects && file().projects!.length > 0}>
+                <text fg={theme.text.muted} wrapMode="word">{`Projects: ${file().projects!.map((project) => shortPath(project, props.context) ?? project).join(" · ")}`}</text>
+              </Show>
+              <Show when={file().keys.length > 0} fallback={<text fg={theme.text.muted}>Keys: none</text>}>
                 <text fg={theme.text.muted}>Keys:</text>
                 <For each={file().keys.slice(0, 6)}>
                   {(key) => <text fg={theme.text.muted}>{`  ${key}`}</text>}
@@ -943,14 +1235,16 @@ export function ProtectionHistoryDialog(props: {
                   return latest ? `Recent: ${absoluteTime(latest.time)}` : "Recent: no hit in this history"
                 })()}
               </text>
-              <text fg={theme.text.muted}>enter history · c copy · f history</text>
+              <text fg={theme.text.muted}>{`enter history · c copy · u ${file().disabled ? "restore" : "unprotect"} · f history`}</text>
             </box>
           )}
         </Show>
       </Show>
-      <text fg={clearArmed() ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="word">
+      <text fg={unprotectArmed() || clearArmed() ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="word">
         {view() === "files"
-          ? "↑/↓ select · enter history · c copy · t filter · 0 all · f history · r reload · esc close"
+          ? unprotectArmed()
+            ? "Press u again to confirm unprotect/restore"
+            : "↑/↓ select · enter history · c copy · u unprotect/restore · t filter · 0 all · f history · r reload · esc close"
           : clearArmed()
             ? "Press x again to clear all protection history"
             : `↑/↓ select · enter session · c copy · t filter: ${filter()} · s scope · f files · 0 all · r reload · esc close`}
@@ -973,6 +1267,10 @@ function FileRow(props: {
     if (props.file.keys.length === 0) return "no key labels"
     const shown = props.file.keys.slice(0, 3).join(" · ")
     return props.file.keys.length > 3 ? `${shown} +${props.file.keys.length - 3}` : shown
+  }
+  const project = () => {
+    const value = props.file.project ?? props.file.projects?.[0]
+    return value ? shortPath(value, props.context) ?? value : undefined
   }
   return (
     <box
@@ -1001,7 +1299,7 @@ function FileRow(props: {
         </text>
       </box>
       <text fg={props.selected ? props.theme.text.base : props.theme.text.muted} wrapMode="word">
-        {`${sourceLabel(props.file.source)}${props.file.label ? ` · ${props.file.label}` : ""} · read ${props.file.read} · write ${props.file.write} · ${props.file.keyCount} ${props.file.keyCount === 1 ? "key" : "keys"}`}
+        {`${sourceLabel(props.file.source)}${props.file.format ? ` · ${props.file.format}` : ""}${project() ? ` · ${project()}` : ""}${props.file.label ? ` · ${props.file.label}` : ""} · ${props.file.disabled ? "disabled" : props.file.invalid ? "error" : "protected"}${props.file.pending ? " · pending" : ""} · ${props.file.keyCount} ${props.file.keyCount === 1 ? "key" : "keys"}`}
       </text>
       <text fg={props.theme.text.muted} wrapMode="word" truncate>{keys()}</text>
     </box>
@@ -1146,7 +1444,7 @@ function matchText(match: ProtectionMatch | undefined, context: Context) {
 }
 
 function sourceLabel(value: NonNullable<ProtectionMatch["source"]>) {
-  return value === "builtin" ? "built-in" : value
+  return value === "default" ? "default" : value
 }
 
 function readableLabel(value: string | undefined, context: Context) {
@@ -1248,7 +1546,7 @@ function isSource(value: unknown): value is ProtectionHit["source"] {
 }
 
 function isProtectionSource(value: unknown): value is NonNullable<ProtectionMatch["source"]> {
-  return value === "manual" || value === "builtin" || value === "custom"
+  return value === "manual" || value === "default" || value === "config"
 }
 
 function hash(value: string) {
