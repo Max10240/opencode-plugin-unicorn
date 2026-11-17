@@ -42,7 +42,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
               type: "string",
               enum: ["steer", "queue"],
               description:
-                '"steer" (default) delivers the message after the target\'s next tool call; "queue" waits until the target\'s next turn.',
+                '"steer" (default) delivers immediately. "queue" waits until the target is fully idle; this can take a long time and the message may be stale, so use it only for non-urgent messages.',
             },
           },
           required: ["message"],

@@ -63,8 +63,8 @@ it does not know which session you mean, it returns the list and asks you to cho
 
 | Mode | Behavior | Good for |
 | --- | --- | --- |
-| `steer` (default) | If the target is busy, inject after its next tool call in the current turn; if idle, start a turn immediately | Time-sensitive coordination |
-| `queue` | Wait for the target's current turn to finish, then deliver in the next turn | Avoiding interruptions |
+| `steer` (default) | Delivers immediately | Time-sensitive coordination |
+| `queue` | Waits until the target is fully idle; this can take a long time and the message may be stale | Non-urgent messages |
 
 ## Good to know
 
