@@ -196,14 +196,22 @@ function createEncryptTool(context: PluginContext, options: ResolvedSensitiveEnc
     },
     execute: async (rawInput: unknown, tool: ToolContext) => {
       const result = await encryptFile(options, publicKey, rawInput as { file?: unknown; out?: unknown })
-      await notifyProtection(context, tool, {
+      const protectedFile = await notifyProtection(context, tool, {
         file: result.input,
         role: "encrypt-input",
         keyID: publicKey.kid,
         sessionID: tool.sessionID,
         toolCallID: tool.id,
       })
-      return { content: result.content, metadata: result.metadata }
+      const warning = protectedFile
+        ? undefined
+        : "Warning: the input file was not registered for local protection. It must be a single-line secret, a private key, or a structured file registered with format and keys."
+      return {
+        // Inline encryption returns ciphertext as content; keep that contract and
+        // surface the protection warning in metadata.
+        content: result.out === undefined || warning === undefined ? result.content : `${result.content}\n${warning}`,
+        metadata: { ...result.metadata, protected: protectedFile, ...(warning === undefined ? {} : { warning }) },
+      }
     },
   }
 }
@@ -247,7 +255,7 @@ function createDecryptTool(
         out,
         plaintextBytes: plaintext.length,
       }
-      await notifyProtection(context, tool, {
+      const protectedFile = await notifyProtection(context, tool, {
         file: out,
         role: "decrypt-output",
         keyID: current.keyID,
@@ -255,8 +263,10 @@ function createDecryptTool(
         toolCallID: tool.id,
       })
       return {
-        content: `Decrypted to ${out} (key ${current.keyID}, bytes ${plaintext.length}).`,
-        metadata,
+        content: protectedFile
+          ? `Decrypted to ${out} (key ${current.keyID}, bytes ${plaintext.length}).`
+          : `Decrypted to ${out} (key ${current.keyID}, bytes ${plaintext.length}).\nWarning: the output file was not registered for local protection. It must be a single-line secret, a private key, or a structured file registered with format and keys.`,
+        metadata: { ...metadata, protected: protectedFile },
       }
     },
   }

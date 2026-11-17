@@ -72,7 +72,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | OpenCode Go 用量 | `features.opencodeGoUsage` | 展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量 |
 | 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
 | 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
-| 敏感信息保护 | `features.sensitiveProtection` | 保护凭据文件，脱敏 secret 值并阻断私钥 |
+| 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `features.recommendedOpencodeConfig` | 补充精选全局规则和命令，并设置 OpenAI `store:false` |
 
 ## 功能配置
@@ -91,7 +91,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
-| 敏感信息保护 | `sensitiveProtection` | `builtins`、`disabledBuiltinGroups`、`customFiles`、`blockReads`、`redactContext`、`redactHttp`、`maxContentBytes`、`allowCustomExtractors`、`notifications`、`historyLimit`、`historyKeybind` |
+| 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<名称>: false` 永远优先，会关闭对应功能，且不影响其他功能。子插件自己的关闭参数同样有效，例如

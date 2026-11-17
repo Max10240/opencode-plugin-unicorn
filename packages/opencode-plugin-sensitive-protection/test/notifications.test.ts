@@ -22,12 +22,11 @@ test("emits metadata-only hit events and exposes a merging history", async () =>
   let clear: (() => Promise<{ cleared: number }>) | undefined
   const context = {
     options: {
-      builtins: false,
       notifications: true,
-      customFiles: [
-        { path: redactFile, format: "json", fields: ["token"] },
-        { path: blockFile, format: "json", fields: ["token"], read: "block" },
-        { path: badFile, format: "json", fields: ["token"] },
+      files: [
+        { path: redactFile, format: "json", keys: ["token"] },
+        { path: blockFile, format: "json", keys: ["token"] },
+        { path: badFile, format: "json", keys: ["token"] },
       ],
     },
     location: { directory: root },
@@ -67,7 +66,7 @@ test("emits metadata-only hit events and exposes a merging history", async () =>
   try {
     await expect(hooks.get("execute.before")!({
       tool: "read",
-      input: { path: blockFile },
+      input: { path: badFile },
       sessionID: "ses_notify",
     })).rejects.toThrow("Blocked")
 
@@ -81,12 +80,12 @@ test("emits metadata-only hit events and exposes a merging history", async () =>
     await sessions.get("context")!({ sessionID: "ses_notify", messages: [{ content: "NOTIFY_TOKEN_123" }] })
     await sessions.get("context")!({ sessionID: "ses_notify", messages: [{ content: "NOTIFY_TOKEN_123" }] })
 
-    const blocked = hits.find((hit) => hit.kind === "blocked" && hit.source === "read")
+    const blocked = hits.find((hit) => hit.kind === "error" && hit.source === "parser" && hit.tool === "read")
     expect(blocked?.tool).toBe("read")
     expect(blocked?.sessionID).toBe("ses_notify")
-    expect(blocked?.matches?.[0]).toMatchObject({ count: 1 })
+    expect(blocked?.matches?.[0]).toMatchObject({ count: 0 })
     expect(blocked?.matches?.[0]).not.toHaveProperty("key")
-    expect(blocked?.matches?.[0]?.file?.endsWith("block.json")).toBe(true)
+    expect(blocked?.matches?.[0]?.file?.endsWith("bad.json")).toBe(true)
 
     const tool = hits.find((hit) => hit.kind === "redacted" && hit.source === "tool")
     expect(tool?.count).toBe(1)

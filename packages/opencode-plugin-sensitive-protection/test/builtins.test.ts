@@ -72,7 +72,7 @@ async function redact(hooks: Map<string, (event: any) => Promise<void>>, text: s
 }
 
 test("builtins redact npmrc, AWS, and AI tokens but leave ordinary fields alone", async () => {
-  await fixture(async ({ home, data, config, root }) => {
+  await fixture(async ({ home, root }) => {
     const npmrc = path.join(home, ".npmrc")
     const aws = path.join(home, ".aws", "credentials")
     const codex = path.join(home, ".codex", "auth.json")
@@ -82,7 +82,7 @@ test("builtins redact npmrc, AWS, and AI tokens but leave ordinary fields alone"
     await writeFile(aws, "[default]\naws_access_key_id = AKIA123456789\naws_secret_access_key = SECRET_123456\nregion = us-east-1\n")
     await writeFile(codex, JSON.stringify({ OPENAI_API_KEY: "sk-codex-123456", tokens: { access_token: "ACCESS_123456", refresh_token: "REFRESH_123456" } }))
 
-    const { hooks, cleanup } = await setup(root, { builtins: true, notifications: false, maxContentBytes: 100_000 })
+    const { hooks, cleanup } = await setup(root, { notifications: false, maxContentBytes: 100_000 })
     try {
       await expect(hooks.get("execute.before")!({ tool: "read", input: { path: npmrc } })).resolves.toBeUndefined()
       const npm = await redact(hooks, "prefix NPM_TOKEN_123 suffix")
@@ -104,23 +104,7 @@ test("builtins redact npmrc, AWS, and AI tokens but leave ordinary fields alone"
   })
 })
 
-test("SSH private keys are blocked for read, edit, and write", async () => {
-  await fixture(async ({ home, root }) => {
-    const ssh = path.join(home, ".ssh", "id_ed25519")
-    await mkdir(path.dirname(ssh), { recursive: true })
-    await writeFile(ssh, "-----BEGIN OPENSSH PRIVATE KEY-----\nPRIVATE_KEY_MATERIAL_123\n-----END OPENSSH PRIVATE KEY-----\n")
-    const { hooks, cleanup } = await setup(root, { builtins: true, notifications: false })
-    try {
-      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: ssh } })).rejects.toThrow("Blocked")
-      await expect(hooks.get("execute.before")!({ tool: "edit", input: { path: ssh } })).rejects.toThrow("Blocked")
-      await expect(hooks.get("execute.before")!({ tool: "write", input: { path: ssh } })).rejects.toThrow("Blocked")
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
-test("SSH private key markers and headers are not redacted as secrets", async () => {
+test("private keys redact only the key body and not the markers", async () => {
   await fixture(async ({ home, root }) => {
     const ssh = path.join(home, ".ssh", "id_ed25519")
     await mkdir(path.dirname(ssh), { recursive: true })
@@ -128,12 +112,14 @@ test("SSH private key markers and headers are not redacted as secrets", async ()
     const end = ["-----END", "OPENSSH", "PRIVATE KEY-----"].join(" ")
     const body = ["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="]
     await writeFile(ssh, `${begin}\n${body.join("\n")}\n${end}\n`)
-    const { hooks, cleanup } = await setup(root, { builtins: true, notifications: false })
+    const { hooks, cleanup } = await setup(root, { notifications: false })
     try {
+      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: ssh } })).resolves.toBeUndefined()
       expect(await redact(hooks, begin)).toBe(begin)
       expect(await redact(hooks, end)).toBe(end)
-      const joined = await redact(hooks, body.join(""))
-      for (const line of body) expect(joined).not.toContain(line)
+      const joined = await redact(hooks, body.join("\n"))
+      expect(joined).not.toContain(body[0]!)
+      expect(joined).not.toContain(body[1]!)
       expect(joined).toContain("[REDACTED:PROTECTED]")
     } finally {
       await cleanup()
@@ -141,33 +127,69 @@ test("SSH private key markers and headers are not redacted as secrets", async ()
   })
 })
 
-test("disabled builtin groups and changed files are respected", async () => {
+test("exclusions remove default files at the source", async () => {
   await fixture(async ({ home, root }) => {
-    const ssh = path.join(home, ".ssh", "id_ed25519")
     const npmrc = path.join(home, ".npmrc")
-    await mkdir(path.dirname(ssh), { recursive: true })
-    await writeFile(ssh, "-----BEGIN OPENSSH PRIVATE KEY-----\nKEY\n-----END OPENSSH PRIVATE KEY-----\n")
-    await writeFile(npmrc, "//registry.npmjs.org/:_authToken=OLD_TOKEN_123\n")
-
-    const disabled = await setup(root, { builtins: true, disabledBuiltinGroups: ["sshKeys"], notifications: false })
+    await writeFile(npmrc, "//registry.npmjs.org/:_authToken=NPM_TOKEN_123\n")
+    const { hooks, cleanup } = await setup(root, {
+      notifications: false,
+      files: ["!~/.npmrc"],
+    })
     try {
-      await expect(disabled.hooks.get("execute.before")!({ tool: "read", input: { path: ssh } })).resolves.toBeUndefined()
+      expect(await redact(hooks, "NPM_TOKEN_123")).toBe("NPM_TOKEN_123")
     } finally {
-      await disabled.cleanup()
+      await cleanup()
     }
+  })
+})
 
-    const { hooks, cleanup } = await setup(root, { builtins: true, notifications: false })
+test("structured config files use fields and reject missing keys", async () => {
+  await fixture(async ({ root }) => {
+    const file = path.join(root, "settings.json")
+    await writeFile(file, JSON.stringify({ auth: { token: "CONFIG_TOKEN_123" }, servers: [{ password: "SERVER_PASSWORD_1" }] }))
+    const { hooks, cleanup } = await setup(root, {
+      notifications: false,
+      files: [{
+        path: file,
+        format: "json",
+        keys: ["auth.token", "servers[].password"],
+      }],
+    })
     try {
-      expect(await redact(hooks, "OLD_TOKEN_123")).not.toContain("OLD_TOKEN_123")
-      await writeFile(npmrc, "//registry.npmjs.org/:_authToken=NEW_TOKEN_456\n")
-      const deadline = Date.now() + 3_000
-      let text = ""
-      while (Date.now() < deadline) {
-        await Bun.sleep(100)
-        text = await redact(hooks, "NEW_TOKEN_456")
-        if (!text.includes("NEW_TOKEN_456")) break
-      }
-      expect(text).not.toContain("NEW_TOKEN_456")
+      const text = await redact(hooks, "CONFIG_TOKEN_123 SERVER_PASSWORD_1 ordinary")
+      expect(text).toBe("[REDACTED:PROTECTED] [REDACTED:PROTECTED] ordinary")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  await fixture(async ({ root }) => {
+    const file = path.join(root, "settings.json")
+    await writeFile(file, JSON.stringify({ auth: { token: "CONFIG_TOKEN_123" } }))
+    const { hooks, cleanup } = await setup(root, {
+      notifications: false,
+      files: [{
+        path: file,
+        format: "json",
+        keys: ["auth.missing", "servers[].password"],
+      }],
+    })
+    try {
+      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: file } })).rejects.toThrow("Blocked")
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+test("default files without secrets are not blocked", async () => {
+  await fixture(async ({ home, root }) => {
+    const npmrc = path.join(home, ".npmrc")
+    await writeFile(npmrc, "registry=https://registry.npmjs.org/\n")
+    const { hooks, cleanup } = await setup(root, { notifications: false })
+    try {
+      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: npmrc } })).resolves.toBeUndefined()
+      expect(await redact(hooks, "registry=https://registry.npmjs.org/")).toBe("registry=https://registry.npmjs.org/")
     } finally {
       await cleanup()
     }

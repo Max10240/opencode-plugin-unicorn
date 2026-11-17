@@ -1,48 +1,21 @@
 import { readFile, realpath, stat } from "node:fs/promises"
-import { readFileSync, statSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { parse as parseIni } from "ini"
-import { parse as parseToml } from "smol-toml"
-import { parse as parseYaml } from "yaml"
 import type { ProtectionRegistry } from "./registry.js"
-import type { CustomFileOptions, ExtractFormat, ReadPolicy, WritePolicy } from "./options.js"
+import type { FileConfig } from "./options.js"
+import type { ExtractFormat } from "./spec.js"
+import { extractContent, patternsForValues, type ExtractResult } from "./spec.js"
 import type { ProtectionSource } from "./types.js"
-import type { ExtractedValue } from "./extractors.js"
-import {
-  extractAwsCredentials,
-  extractByFormat,
-  extractCargoCredentials,
-  extractDockerConfig,
-  extractGitCredentials,
-  extractKubeconfig,
-  extractNetrc,
-  extractNpmrc,
-  extractPrivateKey,
-  extractPypirc,
-  extractVaultToken,
-  patternsForValues,
-  type ExtractorContext,
-} from "./extractors.js"
-
-export type BuiltinGroup =
-  | "aiAgents"
-  | "cloud"
-  | "sourceControl"
-  | "packageRegistries"
-  | "infrastructure"
-  | "plaintextTokens"
-  | "sshKeys"
+import type { ProtectionHub } from "./hub.js"
 
 export type ManagedFile = {
   readonly id: string
   readonly label: string
-  readonly group?: BuiltinGroup
   readonly path: string
-  readonly read: ReadPolicy
-  readonly write: WritePolicy
-  readonly source: "builtin" | "custom"
-  readonly extract: (content: string) => ExtractedValue[]
+  readonly format: ExtractFormat
+  readonly keys: readonly string[]
+  readonly source: "default" | "config"
+  readonly project?: string
 }
 
 export type ManagedHitError = {
@@ -54,77 +27,60 @@ export type ManagedHitError = {
 
 type Definition = {
   readonly id: string
-  readonly group: BuiltinGroup
   readonly label: string
   readonly paths: () => readonly string[]
-  readonly read: ReadPolicy
-  readonly write: WritePolicy
-  readonly extract: (content: string) => ExtractedValue[]
+  readonly format: ExtractFormat
+  readonly keys: readonly string[]
 }
 
 export function builtinFiles(options: {
-  readonly disabledGroups: ReadonlySet<string>
   readonly directory: string
   readonly home?: string
 }): ManagedFile[] {
   const home = options.home ?? process.env.HOME ?? os.homedir()
-  return BUILTIN_DEFINITIONS.filter((definition) => !options.disabledGroups.has(definition.group)).flatMap((definition) =>
+  return BUILTIN_DEFINITIONS.flatMap((definition) =>
     definition.paths().map((file) => ({
       id: definition.id,
       label: definition.label,
-      group: definition.group,
       path: expandPath(file, home, options.directory),
-      read: definition.read,
-      write: definition.write,
-      source: "builtin" as const,
-      extract: definition.extract,
+      format: definition.format,
+      keys: definition.keys,
+      source: "default" as const,
     })),
   )
 }
 
-export function customFiles(options: {
-  readonly files: readonly CustomFileOptions[]
-  readonly maxContentBytes: number
+export function configFiles(options: {
+  readonly files: readonly FileConfig[]
   readonly directory: string
   readonly home?: string
-  readonly onError?: (error: ManagedHitError) => void
 }): ManagedFile[] {
   const home = options.home ?? process.env.HOME ?? os.homedir()
-  const result: ManagedFile[] = []
-  for (const file of options.files) {
-    const resolved = expandPath(file.path, home, options.directory)
-    const compile = file.extractor ? compileExtractor(file.extractor, resolved, home, options.maxContentBytes) : undefined
-    const extract = file.extractor
-      ? compile && ((content: string) => compile(content).map((value) => ({ value })))
-      : (content: string) => extractByFormat(content, file.format!, file.fields!)
-    if (!extract) {
-      options.onError?.({ label: file.label, file: resolved, source: "custom", error: new Error("Invalid custom extractor") })
-      result.push({
-        id: file.id,
-        label: file.label,
-        path: resolved,
-        read: "block",
-        write: "block",
-        source: "custom",
-        extract: () => [],
-      })
-      continue
-    }
-    result.push({
-      id: file.id,
-      label: file.label,
-      path: resolved,
-      read: file.read,
-      write: file.write,
-      source: "custom",
-      extract,
-    })
-  }
-  return result
+  return options.files.map((file, index) => ({
+    id: `config-${index}`,
+    label: file.label ?? file.path,
+    path: expandPath(file.path, home, options.directory),
+    format: file.format,
+    keys: file.keys,
+    source: "config" as const,
+    project: options.directory,
+  }))
 }
+
+const SOURCE_PRIORITY: Record<ProtectionSource, number> = { default: 0, manual: 1, config: 2 }
 
 export class ManagedFiles {
   private readonly states = new Map<string, string>()
+  private readonly locationFiles = new Map<string, {
+    path: string
+    source: "default" | "config"
+    format: ExtractFormat
+    keys: readonly string[]
+    keyCount: number
+    label?: string
+    project?: string
+    invalid?: string
+  }>()
   private timer: NodeJS.Timeout | undefined
   private running: Promise<void> | undefined
 
@@ -132,6 +88,9 @@ export class ManagedFiles {
     private readonly registry: ProtectionRegistry,
     private readonly files: readonly ManagedFile[],
     private readonly maxContentBytes: number,
+    private readonly hub: ProtectionHub,
+    private readonly locationKey: string,
+    private readonly directory: string,
     private readonly onError: (error: ManagedHitError) => void,
   ) {}
 
@@ -149,17 +108,19 @@ export class ManagedFiles {
       this.timer = undefined
     }
     await this.running
-    for (const file of this.files) {
-      await this.remove(file)
-    }
+    for (const file of this.files) await this.remove(file)
+    this.hub.removeLocation(this.locationKey)
+  }
+
+  invalidate() {
+    this.states.clear()
   }
 
   async refreshAll() {
     if (this.running) return this.running
     this.running = (async () => {
-      for (const file of this.files) {
-        await this.refresh(file)
-      }
+      for (const file of this.files) await this.refresh(file)
+      this.hub.setLocation(this.locationKey, this.directory, [...this.locationFiles.values()])
     })().finally(() => {
       this.running = undefined
     })
@@ -180,110 +141,114 @@ export class ManagedFiles {
       await this.remove(file)
       return
     }
-
+    if (this.hub.isDisabled(resolved, this.directory, file.source)) {
+      await this.remove(file)
+      return
+    }
     const current = this.registry.get(resolved)
-    if (current && current.source !== file.source && !(file.source === "custom" && current.source === "builtin")) return
-
+    if (current && SOURCE_PRIORITY[current.source] > SOURCE_PRIORITY[file.source]) return
     const signature = `${info.mtimeMs}:${info.size}:${info.ino}`
     if (this.states.get(resolved) === signature) return
     this.states.set(resolved, signature)
     if (info.size > this.maxContentBytes) {
-      this.onError({ label: file.label, file: resolved, source: file.source, error: new Error("File exceeds maxContentBytes") })
-      await this.blockOnError(file, resolved)
+      await this.blockOnError(file, resolved, new Error("File exceeds maxContentBytes"))
       return
     }
-
     let content: string
     try {
       content = await readFile(resolved, "utf8")
     } catch (error) {
-      this.onError({ label: file.label, file: resolved, source: file.source, error })
-      await this.blockOnError(file, resolved)
+      await this.blockOnError(file, resolved, error)
       return
     }
-
-    let values: ExtractedValue[]
+    let result: ExtractResult
     try {
-      values = file.extract(content)
+      result = extractContent(content, file.format, file.keys, { strict: file.source === "config" })
     } catch (error) {
-      this.onError({ label: file.label, file: resolved, source: file.source, error })
-      await this.blockOnError(file, resolved)
+      await this.blockOnError(file, resolved, error)
       return
     }
-
-    const patterns = patternsForValues(values)
-    if (patterns.length === 0 && file.read !== "block") {
-      await this.remove(file)
+    if (file.source === "config" && result.missing.length > 0) {
+      await this.blockOnError(
+        file,
+        resolved,
+        new Error(`Missing keys: ${result.missing.join(", ")}. Available keys: ${result.available.join(", ")}`),
+      )
       return
     }
-    try {
-      await this.registry.registerPatterns(resolved, patterns, {
-        role: file.source,
-        label: file.label,
-        read: file.read,
-        write: file.write,
-        source: file.source,
-        persist: false,
-      })
-    } catch (error) {
-      this.onError({ label: file.label, file: resolved, source: file.source, error })
+    if (result.values.length === 0) {
+      if (file.source === "default" && file.format !== "private-key" && file.format !== "line") {
+        await this.remove(file, resolved)
+        return
+      }
+      await this.blockOnError(file, resolved, new Error(`No values matched keys: ${file.keys.join(", ")}`))
+      return
     }
+    const patterns = patternsForValues(result.values)
+    if (patterns.length === 0) {
+      if (file.source === "default") {
+        await this.remove(file, resolved)
+        return
+      }
+      await this.blockOnError(file, resolved, new Error("No protectable secret value was found"))
+      return
+    }
+    this.registry.set({
+      path: resolved,
+      source: file.source,
+      format: file.format,
+      keys: file.keys,
+      label: file.label,
+      createdAt: Date.now(),
+    }, patterns)
+    this.locationFiles.set(resolved, {
+      path: resolved,
+      source: file.source,
+      format: file.format,
+      keys: file.keys,
+      keyCount: file.keys.length,
+      ...(file.label === undefined ? {} : { label: file.label }),
+      ...(file.project === undefined ? {} : { project: file.project }),
+    })
   }
 
-  private async blockOnError(file: ManagedFile, resolved: string) {
-    try {
-      await this.registry.registerPatterns(resolved, [], {
-        role: file.source,
-        label: file.label,
-        read: "block",
-        write: "block",
-        source: file.source,
-        persist: false,
-      })
-    } catch {
-      // The path may have disappeared between stat and registration.
-    }
+  private async blockOnError(file: ManagedFile, resolved: string, error: unknown) {
+    const current = this.registry.get(resolved)
+    if (current && SOURCE_PRIORITY[current.source] > SOURCE_PRIORITY[file.source]) return
+    this.onError({ label: file.label, file: resolved, source: file.source, error })
+    this.registry.set({
+      path: resolved,
+      source: file.source,
+      format: file.format,
+      keys: file.keys,
+      label: file.label,
+      createdAt: Date.now(),
+      invalid: safeError(error),
+    }, [])
+    this.locationFiles.set(resolved, {
+      path: resolved,
+      source: file.source,
+      format: file.format,
+      keys: file.keys,
+      keyCount: 0,
+      ...(file.label === undefined ? {} : { label: file.label }),
+      ...(file.project === undefined ? {} : { project: file.project }),
+      invalid: safeError(error),
+    })
   }
 
-  private async remove(file: ManagedFile) {
-    let resolved: string
-    try {
-      resolved = await realpath(file.path)
-    } catch {
-      resolved = file.path
+  private async remove(file: ManagedFile, resolved?: string) {
+    if (resolved === undefined) {
+      try {
+        resolved = await realpath(file.path)
+      } catch {
+        resolved = file.path
+      }
     }
     this.states.delete(resolved)
+    this.locationFiles.delete(resolved)
     const current = this.registry.get(resolved)
     if (current?.source === file.source) this.registry.remove(resolved)
-  }
-}
-
-function compileExtractor(code: string, file: string, home: string, maxContentBytes: number) {
-  try {
-    const read = (value?: string) => {
-      const target = value ? expandPath(value, home, path.dirname(file)) : file
-      const info = statSync(target)
-      if (!info.isFile()) throw new Error("Protected file must be a regular file")
-      if (info.size > maxContentBytes) throw new Error(`File exceeds ${maxContentBytes} bytes`)
-      return readFileSync(target, "utf8")
-    }
-    const context: ExtractorContext = Object.freeze({
-      file,
-      home,
-      readFile: read,
-      parseJson: (text?: string) => JSON.parse(text ?? read()),
-      parseYaml: (text?: string) => parseYaml(text ?? read()),
-      parseIni: (text?: string) => parseIni(text ?? read()),
-      parseToml: (text?: string) => parseToml(text ?? read()) as unknown,
-    }) as ExtractorContext
-    const fn = new Function("context", `"use strict";\n${code}`) as (context: ExtractorContext) => unknown
-    return (content: string) => {
-      const result = fn({ ...context, file, readFile: (value?: string) => (value ? read(value) : content) })
-      if (!Array.isArray(result)) throw new Error("Extractor must return string[]")
-      return result.filter((value): value is string => typeof value === "string")
-    }
-  } catch {
-    return undefined
   }
 }
 
@@ -292,177 +257,10 @@ function expandPath(value: string, home: string, directory: string) {
   return path.isAbsolute(expanded) ? expanded : path.resolve(directory, expanded)
 }
 
-function fields(format: ExtractFormat, values: readonly string[]) {
-  return (content: string) => extractByFormat(content, format, values)
+function safeError(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "File could not be parsed"
+  return message.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").slice(0, 300)
 }
-
-const BUILTIN_DEFINITIONS: readonly Definition[] = [
-  {
-    id: "opencode-auth",
-    group: "aiAgents",
-    label: "OpenCode auth",
-    paths: () => [path.join(dataHome(), "opencode", "auth.json")],
-    read: "redact",
-    write: "block",
-    extract: fields("json", ["key", "token", "access", "refresh"]),
-  },
-  {
-    id: "codex-auth",
-    group: "aiAgents",
-    label: "Codex auth",
-    paths: () => [path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "auth.json")],
-    read: "redact",
-    write: "block",
-    extract: fields("json", ["OPENAI_API_KEY", "personal_access_token", "access_token", "refresh_token", "id_token"]),
-  },
-  {
-    id: "claude-credentials",
-    group: "aiAgents",
-    label: "Claude credentials",
-    paths: () => [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), ".credentials.json")],
-    read: "redact",
-    write: "block",
-    extract: fields("json", ["accessToken", "refreshToken"]),
-  },
-  {
-    id: "gemini-oauth",
-    group: "aiAgents",
-    label: "Gemini credentials",
-    paths: () => [path.join(process.env.GEMINI_CLI_HOME || home(), ".gemini", "oauth_creds.json")],
-    read: "redact",
-    write: "block",
-    extract: fields("json", ["access_token", "refresh_token", "id_token"]),
-  },
-  {
-    id: "gcp-adc",
-    group: "cloud",
-    label: "Google ADC",
-    paths: () => [path.join(cloudSdkConfig(), "application_default_credentials.json")],
-    read: "redact",
-    write: "block",
-    extract: fields("json", ["client_secret", "refresh_token", "private_key", "access_token"]),
-  },
-  {
-    id: "aws-credentials",
-    group: "cloud",
-    label: "AWS credentials",
-    paths: () => [process.env.AWS_SHARED_CREDENTIALS_FILE || path.join(home(), ".aws", "credentials")],
-    read: "redact",
-    write: "block",
-    extract: extractAwsCredentials,
-  },
-  {
-    id: "kubeconfig",
-    group: "cloud",
-    label: "Kubernetes kubeconfig",
-    paths: () => kubeconfigPaths(),
-    read: "redact",
-    write: "block",
-    extract: extractKubeconfig,
-  },
-  {
-    id: "gh-hosts",
-    group: "sourceControl",
-    label: "GitHub CLI hosts",
-    paths: () => [githubHostsPath()],
-    read: "redact",
-    write: "block",
-    extract: fields("yaml", ["oauth_token", "token"]),
-  },
-  {
-    id: "npmrc",
-    group: "packageRegistries",
-    label: "npm auth",
-    paths: () => [process.env.NPM_CONFIG_USERCONFIG || path.join(home(), ".npmrc")],
-    read: "redact",
-    write: "block",
-    extract: extractNpmrc,
-  },
-  {
-    id: "pypirc",
-    group: "packageRegistries",
-    label: "PyPI auth",
-    paths: () => [path.join(home(), ".pypirc")],
-    read: "redact",
-    write: "block",
-    extract: extractPypirc,
-  },
-  {
-    id: "cargo-credentials",
-    group: "packageRegistries",
-    label: "Cargo credentials",
-    paths: () => {
-      const root = process.env.CARGO_HOME || path.join(home(), ".cargo")
-      return [path.join(root, "credentials.toml"), path.join(root, "credentials")]
-    },
-    read: "redact",
-    write: "block",
-    extract: extractCargoCredentials,
-  },
-  {
-    id: "terraform-credentials",
-    group: "infrastructure",
-    label: "Terraform credentials",
-    paths: () => [path.join(terraformDirectory(), "credentials.tfrc.json")],
-    read: "redact",
-    write: "block",
-    extract: (content) => {
-      const parsed = JSON.parse(content) as Record<string, unknown>
-      const credentials = parsed.credentials
-      if (!credentials || typeof credentials !== "object" || Array.isArray(credentials)) return []
-      return Object.entries(credentials).flatMap(([host, value]) => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) return []
-        const token = (value as Record<string, unknown>).token
-        return typeof token === "string" ? [{ value: token, key: `credentials.${host}.token` }] : []
-      })
-    },
-  },
-  {
-    id: "docker-config",
-    group: "infrastructure",
-    label: "Docker registry credentials",
-    paths: () => [path.join(process.env.DOCKER_CONFIG || path.join(home(), ".docker"), "config.json")],
-    read: "redact",
-    write: "block",
-    extract: extractDockerConfig,
-  },
-  {
-    id: "git-credentials",
-    group: "sourceControl",
-    label: "Git credentials",
-    paths: () => [path.join(home(), ".git-credentials"), path.join(configHome(), "git", "credentials")],
-    read: "redact",
-    write: "block",
-    extract: extractGitCredentials,
-  },
-  {
-    id: "netrc",
-    group: "plaintextTokens",
-    label: "netrc credentials",
-    paths: () => [path.join(home(), ".netrc"), path.join(home(), "_netrc")],
-    read: "redact",
-    write: "block",
-    extract: extractNetrc,
-  },
-  {
-    id: "vault-token",
-    group: "plaintextTokens",
-    label: "Vault token",
-    paths: () => [path.join(home(), ".vault-token")],
-    read: "block",
-    write: "block",
-    extract: extractVaultToken,
-  },
-  {
-    id: "ssh-private",
-    group: "sshKeys",
-    label: "SSH private key",
-    paths: () => ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].map((name) => path.join(home(), ".ssh", name)),
-    read: "block",
-    write: "block",
-    extract: extractPrivateKey,
-  },
-]
 
 function home() {
   return process.env.HOME || os.homedir()
@@ -497,3 +295,128 @@ function kubeconfigPaths() {
   if (configured) return configured.split(path.delimiter).filter(Boolean).map((value) => expandPath(value, home(), home()))
   return [path.join(home(), ".kube", "config")]
 }
+
+const BUILTIN_DEFINITIONS: readonly Definition[] = [
+  {
+    id: "opencode-auth",
+    label: "OpenCode auth",
+    paths: () => [path.join(dataHome(), "opencode", "auth.json")],
+    format: "json",
+    keys: ["key", "token", "access", "refresh"],
+  },
+  {
+    id: "codex-auth",
+    label: "Codex auth",
+    paths: () => [path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "auth.json")],
+    format: "json",
+    keys: ["OPENAI_API_KEY", "personal_access_token", "access_token", "refresh_token", "id_token"],
+  },
+  {
+    id: "claude-credentials",
+    label: "Claude credentials",
+    paths: () => [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), ".credentials.json")],
+    format: "json",
+    keys: ["accessToken", "refreshToken"],
+  },
+  {
+    id: "gemini-oauth",
+    label: "Gemini credentials",
+    paths: () => [path.join(process.env.GEMINI_CLI_HOME || home(), ".gemini", "oauth_creds.json")],
+    format: "json",
+    keys: ["access_token", "refresh_token", "id_token"],
+  },
+  {
+    id: "gcp-adc",
+    label: "Google ADC",
+    paths: () => [path.join(cloudSdkConfig(), "application_default_credentials.json")],
+    format: "json",
+    keys: ["client_secret", "refresh_token", "private_key", "access_token"],
+  },
+  {
+    id: "aws-credentials",
+    label: "AWS credentials",
+    paths: () => [process.env.AWS_SHARED_CREDENTIALS_FILE || path.join(home(), ".aws", "credentials")],
+    format: "ini",
+    keys: ["aws_access_key_id", "aws_secret_access_key", "aws_session_token"],
+  },
+  {
+    id: "kubeconfig",
+    label: "Kubernetes kubeconfig",
+    paths: () => kubeconfigPaths(),
+    format: "yaml",
+    keys: ["token", "password", "client-key-data"],
+  },
+  {
+    id: "gh-hosts",
+    label: "GitHub CLI hosts",
+    paths: () => [githubHostsPath()],
+    format: "yaml",
+    keys: ["oauth_token", "token"],
+  },
+  {
+    id: "npmrc",
+    label: "npm auth",
+    paths: () => [process.env.NPM_CONFIG_USERCONFIG || path.join(home(), ".npmrc")],
+    format: "ini",
+    keys: ["*_authToken", "*_auth", "*_password"],
+  },
+  {
+    id: "pypirc",
+    label: "PyPI auth",
+    paths: () => [path.join(home(), ".pypirc")],
+    format: "ini",
+    keys: ["password"],
+  },
+  {
+    id: "cargo-credentials",
+    label: "Cargo credentials",
+    paths: () => {
+      const root = process.env.CARGO_HOME || path.join(home(), ".cargo")
+      return [path.join(root, "credentials.toml"), path.join(root, "credentials")]
+    },
+    format: "toml",
+    keys: ["token"],
+  },
+  {
+    id: "terraform-credentials",
+    label: "Terraform credentials",
+    paths: () => [path.join(terraformDirectory(), "credentials.tfrc.json")],
+    format: "json",
+    keys: ["token"],
+  },
+  {
+    id: "docker-config",
+    label: "Docker registry credentials",
+    paths: () => [path.join(process.env.DOCKER_CONFIG || path.join(home(), ".docker"), "config.json")],
+    format: "json",
+    keys: ["auths.*.auth", "auths.*.identitytoken", "auths.*.registrytoken"],
+  },
+  {
+    id: "git-credentials",
+    label: "Git credentials",
+    paths: () => [path.join(home(), ".git-credentials"), path.join(configHome(), "git", "credentials")],
+    format: "git-credentials",
+    keys: ["password"],
+  },
+  {
+    id: "netrc",
+    label: "netrc credentials",
+    paths: () => [path.join(home(), ".netrc"), path.join(home(), "_netrc")],
+    format: "netrc",
+    keys: ["password"],
+  },
+  {
+    id: "vault-token",
+    label: "Vault token",
+    paths: () => [path.join(home(), ".vault-token")],
+    format: "line",
+    keys: ["line"],
+  },
+  {
+    id: "ssh-private",
+    label: "SSH private key",
+    paths: () => ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].map((name) => path.join(home(), ".ssh", name)),
+    format: "private-key",
+    keys: ["private key body"],
+  },
+]

@@ -74,7 +74,7 @@ the same name:
 | OpenCode Go usage | `features.opencodeGoUsage` | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account |
 | Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
-| Sensitive protection | `features.sensitiveProtection` | Protects credential files by redacting secret values and blocking private keys |
+| Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `features.recommendedOpencodeConfig` | Adds curated global rules and commands, and sets OpenAI `store:false` |
 
 ## Feature configuration
@@ -93,7 +93,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
-| Sensitive protection | `sensitiveProtection` | `builtins`, `disabledBuiltinGroups`, `customFiles`, `blockReads`, `redactContext`, `redactHttp`, `maxContentBytes`, `allowCustomExtractors`, `notifications`, `historyLimit`, `historyKeybind` |
+| Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `recommendedOpencodeConfig` | `enabled` |
 
 `features.<name>: false` always wins and disables that feature without affecting the others. A plugin's own disable

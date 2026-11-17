@@ -14,6 +14,7 @@ function setup(options: Record<string, unknown>) {
 function setupWithRpc(options: Record<string, unknown> = {}) {
   let layer: any
   let handler: ((event: any) => void) | undefined
+  let pendingHandler: ((event: any) => void) | undefined
   const toasts: any[] = []
   const slots: any[] = []
   const context = {
@@ -27,11 +28,14 @@ function setupWithRpc(options: Record<string, unknown> = {}) {
         events: {
           on: (name: string, callback: (event: any) => void) => {
             if (name === "hit") handler = callback
+            if (name === "pending") pendingHandler = callback
             return () => {}
           },
         },
         history: async () => ({ hits: [], total: 0, limit: 200 }),
         clear: async () => ({ cleared: 0 }),
+        pending: async () => ({ requests: [], count: 0 }),
+        resolve: async () => ({ resolved: true }),
       }),
     },
     ui: {
@@ -40,7 +44,7 @@ function setupWithRpc(options: Record<string, unknown> = {}) {
     },
   } as any
   const cleanup = setupSensitiveProtectionTui(context)
-  return { context, layer, toasts, slots, cleanup, emit: (data: any) => handler!({ data }) }
+  return { context, layer, toasts, slots, cleanup, emit: (data: any) => handler!({ data }), emitPending: (data: any) => pendingHandler!({ data }) }
 }
 
 test("registers a keymap command for protecting a file", () => {
@@ -62,7 +66,7 @@ test("does not register when protection is disabled", () => {
 
 test("registers history, a footer chip, and a configurable keybind", () => {
   const harness = setupWithRpc({ notifications: true })
-  expect(harness.layer.commands).toHaveLength(2)
+  expect(harness.layer.commands).toHaveLength(3)
   expect(harness.layer.commands[1]).toMatchObject({
     id: "sensitive-protection.history",
     title: "Sensitive protection history",
@@ -112,8 +116,8 @@ test("deduplicates repeated protection hits and reports the shortcut", () => {
 
 test("does not emit toasts when notifications are disabled", () => {
   const harness = setupWithRpc({ notifications: false })
-  expect(harness.layer.commands).toHaveLength(2)
-  expect(harness.slots).toHaveLength(0)
+  expect(harness.layer.commands).toHaveLength(3)
+  expect(harness.slots).toHaveLength(1)
   harness.emit({ kind: "blocked", source: "read", count: 1, file: "/secret" })
   expect(harness.toasts).toHaveLength(0)
   harness.cleanup?.()

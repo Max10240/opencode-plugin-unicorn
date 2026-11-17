@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
-import type { Info } from "@opencode/plugin/promise/tool"
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -25,7 +24,7 @@ async function fixture(run: (value: {
   process.env.XDG_DATA_HOME = data
   process.env.XDG_CONFIG_HOME = config
   try {
-    await run({ root, data, file, options: { maxContentBytes: 1024, builtins: false } })
+    await run({ root, data, file, options: { maxContentBytes: 1024, notifications: false } })
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]
@@ -35,8 +34,8 @@ async function fixture(run: (value: {
   }
 }
 
-async function setup(directory: string, data: string, options: Record<string, unknown>, rpc?: unknown) {
-  const tools = new Map<string, Info>()
+async function setup(directory: string, options: Record<string, unknown>, rpc?: unknown) {
+  const tools = new Map<string, any>()
   const hooks = new Map<string, (event: any) => Promise<void>>()
   const sessions = new Map<string, (event: any) => Promise<void>>()
   let command: ((input: any) => Promise<void>) | undefined
@@ -45,7 +44,7 @@ async function setup(directory: string, data: string, options: Record<string, un
     location: { directory },
     tool: {
       transform: async (callback: (editor: any) => void) => {
-        callback({ add: (tool: Info) => { tools.set(tool.name, tool) } })
+        callback({ add: (tool: any) => { tools.set(tool.name, tool) } })
         return { dispose: async () => {} }
       },
       hook: async (name: string, callback: (event: any) => Promise<void>) => {
@@ -68,7 +67,7 @@ async function setup(directory: string, data: string, options: Record<string, un
     ...(rpc ? { rpc } : {}),
   } as unknown as Pick<Context, "options" | "location" | "tool" | "session" | "command">
   const oldData = process.env.XDG_DATA_HOME
-  process.env.XDG_DATA_HOME = data
+  process.env.XDG_DATA_HOME = options.dataDirectory as string | undefined ?? process.env.XDG_DATA_HOME
   try {
     const cleanup = await setupSensitiveProtection(context)
     return { tools, hooks, sessions, cleanup, command: () => command }
@@ -78,9 +77,24 @@ async function setup(directory: string, data: string, options: Record<string, un
   }
 }
 
-test("registers a file, blocks read, and redacts tool output", async () => {
+function rpcFixture() {
+  let service: any
+  const events: string[] = []
+  const rpc = {
+    register: async (_definition: unknown, value: any) => {
+      service = value
+      return {
+        dispose: async () => {},
+        events: { emit: async (name: string) => { events.push(name) } },
+      }
+    },
+  }
+  return { rpc, service: () => service, events }
+}
+
+test("registers a single-line secret and redacts output", async () => {
   await fixture(async ({ root, data, file, options }) => {
-    const { tools, hooks, cleanup } = await setup(root, data, options)
+    const { tools, hooks, cleanup } = await setup(root, { ...options }, (rpcFixture()).rpc)
     try {
       const register = tools.get("register_sensitive_file")
       expect(register).toBeDefined()
@@ -88,9 +102,9 @@ test("registers a file, blocks read, and redacts tool output", async () => {
       expect(result.content).toBe("Protected file registered.")
       expect(JSON.stringify(result)).not.toContain("TOPSECRET_LINE_123")
 
-      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: file } })).rejects.toThrow("Blocked")
-      await expect(hooks.get("execute.before")!({ tool: "shell", input: { command: `cat ${file}` } })).resolves.toBeUndefined()
-      await expect(hooks.get("execute.before")!({ tool: "edit", input: { path: file } })).resolves.toBeUndefined()
+      await expect(hooks.get("execute.before")!({ tool: "read", input: { path: file } })).resolves.toBeUndefined()
+      await expect(hooks.get("execute.before")!({ tool: "edit", input: { path: file, newString: "changed" } })).resolves.toBeUndefined()
+      await expect(hooks.get("execute.before")!({ tool: "write", input: { path: file, content: "changed" } })).resolves.toBeUndefined()
 
       const after: any = {
         status: "completed",
@@ -100,143 +114,104 @@ test("registers a file, blocks read, and redacts tool output", async () => {
       expect(JSON.stringify(after.result.content)).not.toContain("TOPSECRET_LINE_123")
       expect(JSON.stringify(after.result.content)).toContain("[REDACTED:PROTECTED]")
       expect(after.result.metadata.redacted).toBe(true)
-
-      const failed: any = { status: "error", error: { message: "TOPSECRET_LINE_123" } }
-      await hooks.get("execute.after")!(failed)
-      expect(failed.error.message).toBe("[REDACTED:PROTECTED]")
     } finally { await cleanup() }
   })
 })
 
-test("redacts many patterns without changing unrelated output", async () => {
-  await fixture(async ({ root, data, options }) => {
-    const file = path.join(root, "many-secrets.txt")
-    const lines = Array.from({ length: 300 }, (_, index) => `MANY_SECRET_LINE_${String(index).padStart(3, "0")}_${"x".repeat(24)}`)
-    await writeFile(file, lines.join("\n"), { mode: 0o600 })
-    const { tools, hooks, cleanup } = await setup(root, data, { ...options, maxContentBytes: 100_000 })
-    try {
-      await tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
-      const after: any = {
-        status: "completed",
-        result: {
-          content: [{ type: "text", text: `prefix ${lines[10]} middle ${lines[250]} suffix` }],
-          output: `safe prefix ${lines[1]} safe suffix`,
-          metadata: { unchanged: "metadata stays intact" },
-        },
-      }
-      await hooks.get("execute.after")!(after)
-      const serialized = JSON.stringify(after.result)
-      expect(serialized).not.toContain(lines[10])
-      expect(serialized).not.toContain(lines[250])
-      expect(serialized).not.toContain(lines[1])
-      expect(serialized).toContain("prefix")
-      expect(serialized).toContain("suffix")
-      expect(after.result.metadata.unchanged).toBe("metadata stays intact")
-      expect(serialized).toContain("[REDACTED:PROTECTED]")
-    } finally { await cleanup() }
-  })
-})
-
-test("keeps registration-order replacement for overlapping protected files", async () => {
-  await fixture(async ({ root, data, options }) => {
-    const short = path.join(root, "short-secret.txt")
-    const long = path.join(root, "long-secret.txt")
-    await writeFile(short, "ORDER_OVERLAP_SECRET", { mode: 0o600 })
-    await writeFile(long, "ORDER_OVERLAP_SECRET_EXTRA", { mode: 0o600 })
-    const { tools, hooks, cleanup } = await setup(root, data, options)
-    try {
-      await tools.get("register_sensitive_file")!.execute({ file: short }, { sessionID: "s1" } as never)
-      await tools.get("register_sensitive_file")!.execute({ file: long }, { sessionID: "s1" } as never)
-      const after: any = {
-        status: "completed",
-        result: {
-          content: [{ type: "text", text: "prefix ORDER_OVERLAP_SECRET_EXTRA suffix" }],
-        },
-      }
-      await hooks.get("execute.after")!(after)
-      expect(after.result.content[0].text).toBe("prefix [REDACTED:PROTECTED]_EXTRA suffix")
-    } finally { await cleanup() }
-  })
-})
-
-test("redacts context messages and outgoing HTTP request bodies", async () => {
+test("rejects multi-line manual files and validates structured keys", async () => {
   await fixture(async ({ root, data, file, options }) => {
-    const { tools, sessions, cleanup } = await setup(root, data, options)
+    const { tools, cleanup } = await setup(root, options, (rpcFixture()).rpc)
     try {
-      await tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
+      const register = tools.get("register_sensitive_file")!
+      const multi = path.join(root, "multi.txt")
+      await writeFile(multi, "LINE_ONE_123\nLINE_TWO_123\n")
+      await expect(register.execute({ file: multi }, { sessionID: "s1" } as never)).rejects.toThrow("Split each secret")
 
-      const contextEvent: any = {
-        messages: [{ role: "user", content: "prefix TOPSECRET_LINE_123 suffix" }],
-        system: [{ type: "text", text: "TOPSECRET_LINE_123" }],
-      }
-      await sessions.get("context")!(contextEvent)
-      expect(JSON.stringify(contextEvent)).not.toContain("TOPSECRET_LINE_123")
-      expect(JSON.stringify(contextEvent)).toContain("[REDACTED:PROTECTED]")
+      const structured = path.join(root, "settings.json")
+      await writeFile(structured, JSON.stringify({ auth: { token: "STRUCTURED_TOKEN_123" }, servers: [{ password: "SERVER_PASSWORD_1" }] }))
+      const inspected = await register.execute({ file: structured, format: "json", inspect: true }, { sessionID: "s1" } as never) as any
+      expect(JSON.parse(inspected.content).keys).toEqual(expect.arrayContaining(["auth.token", "servers[0].password"]))
 
-      const request = new Request("http://127.0.0.1/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: "TOPSECRET_LINE_123" }] }),
-      })
-      const httpEvent: any = { request }
-      await sessions.get("http.request")!(httpEvent)
-      const body = await httpEvent.request.clone().text()
-      expect(body).not.toContain("TOPSECRET_LINE_123")
-      expect(body).toContain("[REDACTED:PROTECTED]")
+      await expect(register.execute({
+        file: structured,
+        format: "json",
+        keys: ["auth.token", "servers[].token", "clients[].secret"],
+      }, { sessionID: "s1" } as never)).rejects.toThrow("servers[].token")
+      await expect(register.execute({
+        file: structured,
+        format: "json",
+        keys: ["auth.token", "servers[].token", "clients[].secret"],
+      }, { sessionID: "s1" } as never)).rejects.toThrow("clients[].secret")
+
+      await register.execute({
+        file: structured,
+        format: "json",
+        keys: ["auth.token", "servers[].password"],
+      }, { sessionID: "s1" } as never)
     } finally { await cleanup() }
   })
 })
 
-test("persists registrations and supports a per-project escape hatch", async () => {
+test("persists manual registrations and supports pending unprotect", async () => {
   await fixture(async ({ root, data, file, options }) => {
-    const first = await setup(root, data, options)
-    await first.tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
-    await first.cleanup()
+    const first = rpcFixture()
+    const one = await setup(root, options, first.rpc)
+    await one.tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
+    await one.cleanup()
     expect(await readFile(path.join(data, "opencode/sensitive-protection/registry.json"), "utf8")).toContain(file)
 
-    const second = await setup(root, data, options)
+    const second = rpcFixture()
+    const two = await setup(root, options, second.rpc)
     try {
-      await expect(second.hooks.get("execute.before")!({ tool: "read", input: { path: file } })).rejects.toThrow("Blocked")
-    } finally { await second.cleanup() }
-
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(root, ".opencode"), { recursive: true }))
-    await writeFile(path.join(root, ".opencode", "sensitive-protection.json"), JSON.stringify({ enabled: false }))
-    const disabled = await setup(root, data, options)
-    try {
-      expect(disabled.tools.size).toBe(0)
-      expect(disabled.hooks.size).toBe(0)
-    } finally { await disabled.cleanup() }
+      await expect(two.hooks.get("execute.before")!({ tool: "read", input: { path: file } })).resolves.toBeUndefined()
+      const result = await two.tools.get("request_sensitive_unprotect")!.execute({ file, reason: "test" }, { sessionID: "s1" } as never) as any
+      expect(result.metadata.status).toBe("pending")
+      const pending = await second.service().pending({})
+      expect(pending.count).toBe(1)
+      await second.service().resolve({ id: result.metadata.requestID, approve: true })
+      const files = await second.service().files({})
+      const resolvedFile = await realpath(file)
+      expect(files.files.find((entry: any) => entry.path === resolvedFile)).toBeUndefined()
+      await expect(two.hooks.get("execute.before")!({ tool: "read", input: { path: file } })).resolves.toBeUndefined()
+      const after: any = { status: "completed", result: { content: [{ type: "text", text: "TOPSECRET_LINE_123" }] } }
+      await two.hooks.get("execute.after")!(after)
+      expect(JSON.stringify(after.result)).not.toContain("[REDACTED:PROTECTED]")
+    } finally { await two.cleanup() }
   })
 })
 
-test("publishes active files with key metadata and no secret values", async () => {
+test("blocks writing redaction placeholders back to files", async () => {
   await fixture(async ({ root, data, file, options }) => {
-    let service: any
-    const events: string[] = []
-    const rpc = {
-      register: async (_definition: unknown, value: any) => {
-        service = value
-        return {
-          dispose: async () => {},
-          events: { emit: async (name: string) => { events.push(name) } },
-        }
-      },
-    }
-    const { tools, cleanup } = await setup(root, data, options, rpc)
+    const { tools, hooks, cleanup } = await setup(root, options, (rpcFixture()).rpc)
+    try {
+      await tools.get("register_sensitive_file")!.execute({ file }, { sessionID: "s1" } as never)
+      await expect(hooks.get("execute.before")!({
+        tool: "write",
+        input: { path: file, content: "[REDACTED:PROTECTED]" },
+      })).rejects.toThrow("Do not write")
+      await expect(hooks.get("execute.before")!({
+        tool: "edit",
+        input: { path: file, oldString: "TOPSECRET_LINE_123", newString: "[REDACTED:PROTECTED]" },
+      })).rejects.toThrow("Do not write")
+    } finally { await cleanup() }
+  })
+})
+
+test("exposes active files with source metadata and no secret values", async () => {
+  await fixture(async ({ root, data, file, options }) => {
+    const rpc = rpcFixture()
+    const { tools, cleanup } = await setup(root, options, rpc.rpc)
     try {
       await tools.get("register_sensitive_file")!.execute({ file, role: "manual", label: "manual secret" }, { sessionID: "s1" } as never)
-      const result = await service.files({})
+      const result = await rpc.service().files({})
       expect(result.total).toBe(1)
       expect(result.files[0]).toMatchObject({
         path: await realpath(file),
         source: "manual",
         label: "manual secret",
       })
-      expect(result.files[0].keys).toEqual(expect.arrayContaining(["whole file", "whole file (base64)"]))
+      expect(result.files[0].keys).toEqual(["line"])
       expect(JSON.stringify(result)).not.toContain("TOPSECRET_LINE_123")
-      expect(events).toContain("files")
-    } finally {
-      await cleanup()
-    }
+    } finally { await cleanup() }
   })
 })

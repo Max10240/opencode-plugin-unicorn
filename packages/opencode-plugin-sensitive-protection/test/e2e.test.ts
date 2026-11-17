@@ -35,7 +35,7 @@ async function runTool(
     .find((entry) => entry.type === "tool" && entry.id === id)
 }
 
-test("auto-registers encrypted input, blocks direct reads, and redacts shell output", async () => {
+test("auto-registers encrypted input, redacts direct reads, and redacts shell output", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sensitive-protection-e2e-"))
   const secret = path.join(root, "secret.txt")
   const out = path.join(root, "secret.ocsec")
@@ -62,7 +62,7 @@ test("auto-registers encrypted input, blocks direct reads, and redacts shell out
         sensitiveProtection: true,
       },
       sensitiveEncrypt: { publicKeyFileForEncrypt: publicFile, decrypt: false },
-      sensitiveProtection: { blockReads: true },
+      sensitiveProtection: { notifications: false },
     },
   })
   try {
@@ -80,10 +80,10 @@ test("auto-registers encrypted input, blocks direct reads, and redacts shell out
       return text.includes(secret)
     }, "encrypted input was not registered")
 
-    const blocked = await runTool(e2e, "READ_PROTECTED", "read", { path: secret })
-    expect(blocked?.state.status).toBe("error")
-    expect(JSON.stringify(blocked)).toContain("Blocked")
-    expect(JSON.stringify(blocked)).not.toContain("PROTECTION_E2E_SECRET_123")
+    const read = await runTool(e2e, "READ_PROTECTED", "read", { path: secret })
+    expect(read?.state.status).toBe("completed")
+    expect(JSON.stringify(read)).toContain("[REDACTED:PROTECTED]")
+    expect(JSON.stringify(read)).not.toContain("PROTECTION_E2E_SECRET_123")
 
     const shell = await runTool(e2e, "SHELL_PROTECTED", "shell", {
       command: `cat '${secret.replaceAll("'", "'\\''")}'`,
