@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -99,6 +99,15 @@ test("feature gates win over child options and remain independent", () => {
   expect(sensitiveEncryptFeatureEnabled({})).toBe(true)
   expect(sensitiveProtectionFeatureEnabled(options)).toBe(false)
   expect(sensitiveProtectionFeatureEnabled({})).toBe(true)
+})
+
+test("god is opt-in and can be disabled independently", () => {
+  expect(godFeatureEnabled({})).toBe(false)
+  expect(godFeatureEnabled({ features: { god: true } })).toBe(true)
+  expect(godFeatureEnabled({ god: { models: {} } })).toBe(true)
+  expect(godFeatureEnabled({ god: {}, features: { god: false } })).toBe(false)
+  expect(godFeatureEnabled({ features: { god: "true" } })).toBe(false)
+  expect(godFeatureEnabled({ god: {}, features: { imageGen: false } })).toBe(true)
 })
 
 test("non-blocking is independently enabled and does not affect sibling features", () => {

@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin"
+import { setupGodAgent } from "@max10240/opencode-plugin-god"
 import { setupSendMessageAcrossSessions } from "@max10240/opencode-plugin-send-message-across-sessions/setup"
 import { setupImageGen } from "@max10240/opencode-plugin-image-gen"
 import { setupNotepad } from "@max10240/opencode-plugin-notepad"
@@ -11,6 +12,7 @@ import { disposeAll } from "./cleanup.js"
 import {
   childContext,
   recommendedConfigFeatureOption,
+  godFeatureEnabled,
   imageGenFeatureEnabled,
   notepadFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,
@@ -26,6 +28,7 @@ export default Plugin.define({
     const cleanups: Array<() => Promise<void>> = []
     if (recommendedConfigFeatureOption(ctx.options) !== false)
       await setupRecommendedOpencodeConfig(childContext(ctx, "recommendedOpencodeConfig"))
+    if (godFeatureEnabled(ctx.options)) cleanups.push(await setupGodAgent(childContext(ctx, "god")))
     if (sendMessageAcrossSessionsFeatureEnabled(ctx.options))
       cleanups.push(await setupSendMessageAcrossSessions(childContext(ctx, "sendMessageAcrossSessions")))
     if (imageGenFeatureEnabled(ctx.options)) cleanups.push(await setupImageGen(childContext(ctx, "imageGen")))
@@ -45,6 +48,7 @@ export default Plugin.define({
 
 export {
   recommendedConfigFeatureOption,
+  godFeatureEnabled,
   imageGenFeatureEnabled,
   notepadFeatureEnabled,
   sendMessageAcrossSessionsFeatureEnabled,

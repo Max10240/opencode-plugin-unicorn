@@ -53,6 +53,7 @@ See the [Unicorn README](./packages/opencode-plugin-unicorn/README.md) for every
 | Plugin | What it gives you | Reach for it when |
 | --- | --- | --- |
 | [Unicorn](./packages/opencode-plugin-unicorn) | Everything below in one package, with independent switches | You want the whole toolkit without installing each plugin separately |
+| [God agent](./packages/opencode-plugin-god) | A `god` agent whose system prompt is selected by model ID from local files or HTTP | You want a separate agent with a model-specific prompt without affecting other agents |
 | [Non-blocking](./packages/opencode-plugin-non-blocking) | Long-running Bash and subagent work moves to the background automatically | A build, test run, install, or research subagent is holding up your session |
 | [Prompt search](./packages/opencode-plugin-prompt-search) | Search prompts from every past session and insert one without sending it | You remember a prompt but not where or when you wrote it |
 | [Session search](./packages/opencode-plugin-session-search) | Search the current conversation and jump to the exact message | A long session has buried the decision, command, or error you need |
@@ -69,6 +70,7 @@ See the [Unicorn README](./packages/opencode-plugin-unicorn/README.md) for every
 
 Every plugin also works standalone. Open its README for the exact config, keybindings, and options:
 
+- [God agent](./packages/opencode-plugin-god/README.md)
 - [Non-blocking](./packages/opencode-plugin-non-blocking/README.md)
 - [Prompt search](./packages/opencode-plugin-prompt-search/README.md)
 - [Session search](./packages/opencode-plugin-session-search/README.md)

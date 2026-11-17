@@ -65,6 +65,7 @@ the same name:
 
 | Feature | Switch | What it does |
 | --- | --- | --- |
+| God agent | `features.god` | Registers a `god` agent (opt-in) whose system prompt is selected by model ID |
 | Auto-background | `features.nonBlocking` | Moves long-running Bash and subagent work to the background so you can keep working |
 | Prompt search | `features.promptSearch` | Search prompts from all past sessions and insert one without sending it |
 | Session search | `features.sessionSearch` | Search the current conversation and jump to a matching message or copy it |
@@ -84,6 +85,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 
 | Feature | Nested object | Useful options |
 | --- | --- | --- |
+| God agent | `god` | `models`, `cache`, `cacheTtlMs`, `timeoutMs` |
 | Auto-background | `nonBlocking` | `thresholdMs` (default `10000`) |
 | Prompt search | `promptSearch` | `keybind` (default `ctrl+shift+r`), `maxPrompts` (default `2000`) |
 | Session search | `sessionSearch` | `keybind` (default `ctrl+shift+f`) |

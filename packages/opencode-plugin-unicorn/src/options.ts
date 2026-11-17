@@ -1,5 +1,6 @@
 export interface UnicornOptions {
   readonly recommendedOpencodeConfig?: Readonly<Record<string, unknown>>
+  readonly god?: Readonly<Record<string, unknown>>
   readonly sendMessageAcrossSessions?: Readonly<Record<string, unknown>>
   readonly imageGen?: Readonly<Record<string, unknown>>
   readonly notepad?: Readonly<Record<string, unknown>>
@@ -12,6 +13,7 @@ export interface UnicornOptions {
   readonly opencodeGoUsage?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
+    readonly god?: boolean
     readonly sendMessageAcrossSessions?: boolean
     readonly imageGen?: boolean
     readonly notepad?: boolean
@@ -36,6 +38,15 @@ export function childContext<T extends { readonly options: Readonly<Record<strin
 export function recommendedConfigFeatureOption(options: Readonly<Record<string, unknown>>): boolean | undefined {
   const features = options.features
   return isRecord(features) && typeof features.recommendedOpencodeConfig === "boolean" ? features.recommendedOpencodeConfig : undefined
+}
+
+// Opt-in: enable with features.god: true or by providing a god options object.
+// features.god: false always wins.
+export function godFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  if (isRecord(features) && features.god === false) return false
+  if (isRecord(features) && features.god === true) return true
+  return isRecord(options.god)
 }
 
 export function sendMessageAcrossSessionsFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {

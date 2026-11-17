@@ -23,6 +23,7 @@ const packages = [
   { directory: "opencode-plugin-sensitive-encrypt", kind: "sensitive-encrypt" },
   { directory: "opencode-plugin-sensitive-protection", kind: "sensitive-protection" },
   { directory: "opencode-plugin-recomended-opencode-config", kind: "recommended-config" },
+  { directory: "opencode-plugin-god", kind: "god" },
   { directory: "opencode-plugin-unicorn", kind: "unicorn" },
 ] as const
 

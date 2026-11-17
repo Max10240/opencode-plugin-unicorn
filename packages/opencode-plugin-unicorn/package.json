@@ -30,6 +30,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@max10240/opencode-plugin-god": "1.0.29",
     "@max10240/opencode-plugin-image-gen": "1.0.29",
     "@max10240/opencode-plugin-non-blocking": "1.0.29",
     "@max10240/opencode-plugin-notepad": "1.0.29",
