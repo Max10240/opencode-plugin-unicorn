@@ -63,7 +63,7 @@ See [config.example.jsonc](https://github.com/Max10240/opencode-plugin-unicorn/b
 
 - Keys are matched against the model ID only. The provider is ignored, so the same model served by two providers uses the same prompt.
 - An exact model ID wins over the `"*"` fallback.
-- Without an exact match or `"*"`, the `god` agent keeps the default system prompt.
+- Without an exact match or `"*"`, the request fails with an error.
 - Provider-prefixed keys such as `"openai/model-id"` are ordinary model IDs and do not match `model-id`.
 
 ## Prompt sources
@@ -76,7 +76,9 @@ See [config.example.jsonc](https://github.com/Max10240/opencode-plugin-unicorn/b
 
 Local files are revalidated on each request by modification time and size. HTTP responses are cached for `cacheTtlMs`. Set `cache` to `false` to load every request.
 
-If a source cannot be loaded, is not a file, or contains only whitespace, the current system prompt is left unchanged and a warning is logged.
+If a source cannot be loaded, is not a file, or contains only whitespace, the request fails with an error.
+
+The `god` agent does not fall back to the default system prompt. Configure every model you use with it, or add a `"*"` entry.
 
 ## Notes
 

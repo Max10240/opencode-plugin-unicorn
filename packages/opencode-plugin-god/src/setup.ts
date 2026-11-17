@@ -8,17 +8,9 @@ export type GodPluginContext = Pick<Context, "agent" | "session" | "options"> & 
   }
 }
 
-export type SetupGodAgentDeps = {
-  readonly log?: (message: string) => void
-}
-
 const GOD_AGENT_DESCRIPTION = "Uses the model-specific system prompt configured for this agent."
 
-export async function setupGodAgent(
-  context: GodPluginContext,
-  deps: SetupGodAgentDeps = {},
-): Promise<() => Promise<void>> {
-  const log = deps.log ?? ((message: string) => console.warn(message))
+export async function setupGodAgent(context: GodPluginContext): Promise<() => Promise<void>> {
   const options = parseGodOptions(context.options)
   const loader = new PromptLoader({
     directory: context.location?.directory ?? process.cwd(),
@@ -40,19 +32,20 @@ export async function setupGodAgent(
     .hook("context", async (input) => {
       if (String(input.agent) !== GOD_AGENT_ID) return
 
-      const source = selectPromptSource(options, String(input.model.id))
-      if (!source) return
+      const modelID = String(input.model.id)
+      const source = selectPromptSource(options, modelID)
+      if (!source) {
+        throw new Error(`[god] no system prompt configured for model "${modelID}"`)
+      }
 
       const result = await loader.load(source)
       if (result.error) {
-        log(`[god] unable to load system prompt from ${source}: ${result.error}`)
-        return
+        throw new Error(`[god] failed to load system prompt for model "${modelID}" from ${source}: ${result.error}`)
       }
 
       const text = result.text ?? ""
       if (!text.trim()) {
-        log(`[god] system prompt source is empty: ${source}`)
-        return
+        throw new Error(`[god] system prompt for model "${modelID}" is empty: ${source}`)
       }
 
       input.system.splice(0, input.system.length, { type: "text", text })

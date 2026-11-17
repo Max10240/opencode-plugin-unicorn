@@ -203,9 +203,9 @@ describe("setupGodAgent system prompt replacement", () => {
     const harness = createHarness({ models: { "provider-a/model-a": "prompt.md" } }, root)
     await setupGodAgent(harness.context)
 
-    const system = await harness.run({ model: { providerID: "provider-a", id: "model-a" } })
-
-    expect(system).toEqual([text("base")])
+    await expect(harness.run({ model: { providerID: "provider-a", id: "model-a" } })).rejects.toThrow(
+      'no system prompt configured for model "model-a"',
+    )
   })
 
   test("does not replace the system prompt for other agents", async () => {
@@ -219,14 +219,23 @@ describe("setupGodAgent system prompt replacement", () => {
     expect(system).toEqual([text("base")])
   })
 
-  test("leaves god unchanged when the model has no mapping", async () => {
+  test("does not fail for other agents without a mapping", async () => {
+    const harness = createHarness({ models: {} })
+    await setupGodAgent(harness.context)
+
+    const system = await harness.run({ agent: "build", model: { providerID: "provider-a", id: "unmapped-model" } })
+
+    expect(system).toEqual([text("base")])
+  })
+
+  test("fails when the model has no mapping", async () => {
     const root = await tempRoot()
     const harness = createHarness({ models: { "other-model": "prompt.md" } }, root)
     await setupGodAgent(harness.context)
 
-    const system = await harness.run({ model: { providerID: "provider-a", id: "model-a" } })
-
-    expect(system).toEqual([text("base")])
+    await expect(harness.run({ model: { providerID: "provider-a", id: "model-a" } })).rejects.toThrow(
+      'no system prompt configured for model "model-a"',
+    )
   })
 
   test("uses the wildcard mapping as a fallback", async () => {
@@ -273,30 +282,20 @@ describe("setupGodAgent system prompt replacement", () => {
     }
   })
 
-  test("leaves the system prompt unchanged when loading fails", async () => {
+  test("fails when loading fails", async () => {
     const root = await tempRoot()
-    const warnings: string[] = []
     const harness = createHarness({ models: { "model-a": "missing.md" } }, root)
-    await setupGodAgent(harness.context, { log: (message) => warnings.push(message) })
+    await setupGodAgent(harness.context)
 
-    const system = await harness.run()
-
-    expect(system).toEqual([text("base")])
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain("unable to load")
+    await expect(harness.run()).rejects.toThrow("failed to load system prompt")
   })
 
-  test("leaves the system prompt unchanged when the source is empty", async () => {
+  test("fails when the source is empty", async () => {
     const root = await tempRoot()
     await writeFile(path.join(root, "empty.md"), "")
-    const warnings: string[] = []
     const harness = createHarness({ models: { "model-a": "empty.md" } }, root)
-    await setupGodAgent(harness.context, { log: (message) => warnings.push(message) })
+    await setupGodAgent(harness.context)
 
-    const system = await harness.run()
-
-    expect(system).toEqual([text("base")])
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain("empty")
+    await expect(harness.run()).rejects.toThrow("is empty")
   })
 })
