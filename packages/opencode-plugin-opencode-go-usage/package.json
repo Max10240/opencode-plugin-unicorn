@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-opencode-go-usage",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "Show OpenCode Go 5-hour, weekly and monthly usage for every signed-in account in the TUI",
   "type": "module",
   "exports": {
