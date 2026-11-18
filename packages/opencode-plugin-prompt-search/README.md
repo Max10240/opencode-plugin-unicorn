@@ -20,8 +20,7 @@ press Enter, and it is inserted into your input box ready to edit.
 
 ## What you get
 
-- **Search across sessions.** Every prompt visible to the OpenCode server is indexed, not just the current
-  conversation.
+- **Search across sessions.** Prompts from top-level sessions are indexed; subagent sessions are skipped.
 - **Queued prompts included.** Messages still waiting in a session inbox are searchable too.
 - **Insert, do not send.** Selecting a result places it at the cursor; you decide whether to edit or submit.
 - **Survives restarts.** The index lives in local TUI storage, so history is available after a restart.
@@ -60,10 +59,11 @@ With Unicorn:
 
 Press `ctrl+shift+r` or search for **Search previous prompts** in the command palette.
 
-1. Type words from the prompt you remember.
+1. Type words from the prompt you remember. Matches are listed newest first.
 2. Use `↑` / `↓` to move through the results.
-3. Press `Enter` to insert the original prompt at the cursor.
-4. Edit it if needed, then send when you are ready.
+3. Press `Tab` to switch between all projects and the current project.
+4. Press `Enter` to insert the original prompt at the cursor.
+5. Edit it if needed, then send when you are ready.
 
 The shortcut is chosen to avoid OpenCode's built-in bindings. You can change it to anything that feels natural.
 
@@ -80,6 +80,8 @@ still available on the server, but prompts from deleted and already-evicted sess
 
 ## Good to know
 
+- **Newest matches come first.** The query filters the index; it does not reorder results by relevance. Use `Tab` to limit the search to the current project.
+- **Subagent prompts are not recorded.** Child sessions are skipped, and cached child-session prompts are removed on refresh.
 - **Search is local and cheap.** The index is refreshed incrementally as sessions change; typing does not scan the
   whole server.
 - **Historical means saved.** If a session was deleted before the plugin ever indexed it, OpenCode can no longer export

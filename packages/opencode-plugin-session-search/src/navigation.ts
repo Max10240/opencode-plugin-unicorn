@@ -2,7 +2,7 @@ import type { Context } from "@opencode/plugin/tui/context"
 import type { Renderable, ScrollBoxRenderable } from "@opentui/core"
 import type { Entry, Message } from "./search.js"
 
-export type Anchor = { align(): void }
+export type Anchor = { align(): void; readonly exact?: boolean }
 export type NavigationHost = {
   session(): string | undefined
   commands(): readonly string[]
@@ -60,12 +60,24 @@ export class SessionNavigator {
     const wait = async (ready: () => boolean) => {
       while (true) { check(); if (ready()) return; await this.host.frame(request.signal) }
     }
+    const settle = async (anchor: Anchor): Promise<Anchor> => {
+      if (anchor.exact !== false) return anchor
+      anchor.align()
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await this.host.frame(request.signal)
+        check()
+        const next = this.host.find(entry)
+        if (next && next.exact !== false) return next
+      }
+      throw new Error("Could not render the exact text part; try again")
+    }
     try {
       check()
       await this.host.frame(request.signal)
       check()
       requireCommand("session.line.up")
-      if (!this.host.find(entry)) {
+      let anchor = this.host.find(entry)
+      if (!anchor) {
         requireCommand("session.message.next")
         if (!this.host.loaded(entry.messageID)) {
           requireCommand("session.first")
@@ -82,19 +94,22 @@ export class SessionNavigator {
         this.host.dispatch("session.line.up")
         hostPending = false
         await this.host.frame(request.signal)
+        anchor = this.host.find(entry)
+        if (!anchor) throw new Error("Message is no longer mounted")
       } else {
         // A previous built-in timeline jump can leave a cursor even when this target is mounted.
         this.host.dispatch("session.line.up")
         await this.host.frame(request.signal)
       }
       check()
-      const anchor = this.host.find(entry)
       if (!anchor) throw new Error("Message is no longer mounted")
+      anchor = await settle(anchor!)
       anchor.align()
       await this.host.frame(request.signal)
       check()
       const settled = this.host.find(entry)
       if (!settled) throw new Error("Message changed during navigation")
+      if (settled.exact === false) throw new Error("Could not render the exact text part; try again")
       settled.align()
     } finally {
       cancelHost()
@@ -157,19 +172,26 @@ export function navigationHost(context: Context): NavigationHost {
     frame: async (signal) => { await rendererFrame(context.renderer, signal); await rendererFrame(context.renderer, signal) },
     find: (entry) => {
       // These host anchors are verified by real TUI tests; unavailable anchors fail safely.
-      const part = entry.ordinal === undefined ? undefined : find(`session-part:${entry.messageID}:text:${entry.ordinal}`)
+      const valid = (node: Renderable | undefined): node is Renderable =>
+        Boolean(node && !node.isDestroyed && node.height > 0)
+      const partNode = entry.ordinal === undefined ? undefined : find(`session-part:${entry.messageID}:text:${entry.ordinal}`) as Renderable | undefined
+      const part = valid(partNode) ? partNode : undefined
       const boundaryAllowed = entry.ordinal === undefined || textOwnsBoundary(context.data.session.message.get(session()!, entry.messageID), entry.ordinal)
-      const node = (part ?? (boundaryAllowed ? find(entry.messageID) : undefined)) as Renderable | undefined
-      if (!node || node.isDestroyed || node.height <= 0) return
+      const message = find(entry.messageID) as Renderable | undefined
+      const node = part ?? (valid(message) ? message : undefined)
+      if (!node) return
       let parent = node.parent as Renderable | null
       while (parent && !("scrollTo" in parent && "viewport" in parent)) parent = parent.parent as Renderable | null
       const scroll = parent as ScrollBoxRenderable | null
       if (!scroll || scroll.isDestroyed || scroll.viewport.height <= 0) return
-      return { align() {
-        if (node.isDestroyed || scroll.isDestroyed) return
-        scroll.stickyScroll = false
-        scroll.scrollTo(Math.max(0, scroll.scrollTop + node.y - scroll.viewport.y))
-      } }
+      return {
+        exact: Boolean(part) || boundaryAllowed,
+        align() {
+          if (node.isDestroyed || scroll.isDestroyed) return
+          scroll.stickyScroll = false
+          scroll.scrollTo(Math.max(0, scroll.scrollTop + node.y - scroll.viewport.y))
+        },
+      }
     },
   }
 }

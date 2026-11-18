@@ -66,7 +66,7 @@ Press `ctrl+shift+f`, or choose **Search current session** from the command pale
 | Type | Filter matches; words are combined with AND, case-insensitively |
 | `↑` / `↓` | Select a match |
 | `Enter` | Jump to the matching message or text part |
-| `Ctrl+Y` | Copy the selected text without jumping |
+| `Ctrl+Y` | Copy the entire selected message without jumping |
 | `Tab` | Switch between user-only and user + agent messages |
 | `Esc` | Close the dialog, or cancel navigation while a jump is loading |
 
@@ -85,8 +85,7 @@ fades after a few seconds; changing the query or message scope clears it immedia
 
 - **Jumping targets the start of a message or text part.** Long Markdown blocks may not scroll to the exact matching
   character line.
-- **Distant jumps can take a moment.** Very old messages may need to be loaded first; very long sessions are not
-  guaranteed to feel instant.
+- **Distant jumps retry automatically.** If the exact text part is not mounted, the plugin scrolls the containing message into view, waits for the part to render, and retries. If it still cannot render, the dialog stays open with your selection so you can press Enter again; it does not jump to another message.
 - **Content deleted on the server cannot be recovered.** Search only sees what OpenCode still stores.
 - **Queued prompts are marked, not jumped to.** Undelivered messages can be copied but not navigated to, and selecting
   a result never sends them.

@@ -12,10 +12,13 @@ export function PromptSearchDialog(props: {
   const theme = props.context.theme.surface("dialog")
   const [query, setQuery] = createSignal("")
   const [selected, setSelected] = createSignal(0)
+  const [scope, setScope] = createSignal<"all" | "project">("all")
+  const [projectID, setProjectID] = createSignal<string>()
   const [inputTarget, setInputTarget] = createSignal<InputRenderable>()
   const [resultsTarget, setResultsTarget] = createSignal<ScrollBoxRenderable>()
-  const results = createMemo(() => props.indexer.search(query()))
+  const results = createMemo(() => props.indexer.search(query(), 100, { projectID: projectID(), scope: scope() }))
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
+  let disposed = false
 
   createEffect(() => {
     results()
@@ -36,8 +39,17 @@ export function PromptSearchDialog(props: {
   })
 
   onCleanup(() => {
+    disposed = true
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
   })
+
+  const toggleScope = () => {
+    if (scope() === "all" && !projectID()) {
+      props.context.ui.toast.show({ message: "Current project is not available", variant: "warning" })
+      return
+    }
+    setScope((value) => value === "all" ? "project" : "all")
+  }
 
   const select = async (entry: PromptEntry | undefined) => {
     if (!entry) return
@@ -78,6 +90,11 @@ export function PromptSearchDialog(props: {
         run: () => setSelected((value) => Math.min(Math.max(0, results().length - 1), value + 1)),
       },
       {
+        bind: "tab",
+        title: "Toggle prompt scope",
+        run: toggleScope,
+      },
+      {
         bind: "return",
         title: "Use prompt",
         run: () => void select(results()[selected()]),
@@ -93,8 +110,19 @@ export function PromptSearchDialog(props: {
   onMount(() => {
     dialog.set({ size: "large", centered: true })
     setTimeout(() => inputTarget()?.focus(), 1)
+    const route = props.context.ui.router.current()
+    if (route.type === "session") {
+      const current = props.context.data.session.get(route.sessionID)
+      if (current?.projectID) setProjectID(current.projectID)
+      else void props.context.client.session.get({ sessionID: route.sessionID }).then((info) => {
+        if (!disposed && info.projectID) setProjectID(info.projectID)
+      }).catch(() => {})
+    }
     void props.indexer.refresh()
   })
+
+  const scopeLabel = () => scope() === "all" ? "all projects" : "current project"
+  const scopeHint = () => scope() === "all" ? "current project" : "all projects"
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
@@ -102,7 +130,7 @@ export function PromptSearchDialog(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Search previous prompts
         </text>
-        <text fg={theme.text.muted}>esc close · enter use</text>
+        <text fg={theme.text.muted}>{`${scopeLabel()} · esc close · enter use`}</text>
       </box>
       <input
         ref={(value: InputRenderable) => setInputTarget(value)}
@@ -135,6 +163,7 @@ export function PromptSearchDialog(props: {
           </For>
         </Show>
       </scrollbox>
+      <text fg={theme.text.muted}>{`tab ${scopeHint()}`}</text>
     </box>
   )
 }

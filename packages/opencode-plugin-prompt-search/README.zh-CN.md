@@ -18,7 +18,7 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 
 ## 它能给你什么
 
-- **跨 session 搜索。** 索引 OpenCode server 能看到的所有 prompt，而不只是当前对话。
+- **跨 session 搜索。** 只索引顶层 session 的 prompt，subagent session 会被跳过。
 - **排队中的消息也能搜。** 还在 session inbox 里等待投递的消息同样会被索引。
 - **只插入，不发送。** 选中结果后只是放到光标位置，发不发、改不改由你决定。
 - **重启后仍然可用。** 索引保存在本地 TUI 存储里，重开 TUI 还能搜。
@@ -57,10 +57,11 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 
 按 `ctrl+shift+r`，或在命令面板搜索 **Search previous prompts**。
 
-1. 输入你还记得的几个词。
+1. 输入你还记得的几个词。匹配结果按时间从新到旧排列。
 2. 用 `↑` / `↓` 浏览结果。
-3. 按 `Enter` 把原 prompt 插入光标位置。
-4. 需要的话改一改，再发送。
+3. 按 `Tab` 在“全部项目”和“当前项目”之间切换。
+4. 按 `Enter` 把原 prompt 插入光标位置。
+5. 需要的话改一改，再发送。
 
 默认快捷键避开了 OpenCode 的内置绑定，也可以换成你习惯的组合。
 
@@ -76,6 +77,8 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 
 ## 注意事项
 
+- **最新的匹配排在最前。** 查询只负责过滤，不会按相关度重排；按 `Tab` 可只搜索当前项目。
+- **不记录 subagent 的 prompt。** 子 session 会被跳过，缓存中的子 session prompt 会在刷新时移除。
 - **搜索在本地完成。** 索引会随 session 变化增量刷新，输入时不会扫描整个 server。
 - **历史必须曾经保存。** 如果 session 在插件第一次索引它之前就被删除，OpenCode 已经无法导出它，这部分 prompt 找不回来。
 - **删除 session 不会立即清理缓存。** 对应 prompt 会保留到存储预算把它们淘汰。

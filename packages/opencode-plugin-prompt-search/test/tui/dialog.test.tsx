@@ -17,9 +17,9 @@ const theme = {
 }
 
 const entries: PromptEntry[] = [
-  { sessionID: "s1", messageID: "m1", text: "first prompt", created: 3 },
-  { sessionID: "s1", messageID: "m2", text: "second prompt", created: 2 },
-  { sessionID: "s2", messageID: "m3", text: "third prompt", created: 1 },
+  { sessionID: "s1", messageID: "m1", text: "first prompt", created: 3, projectID: "p1" },
+  { sessionID: "s1", messageID: "m2", text: "second prompt", created: 2, projectID: "p1" },
+  { sessionID: "s2", messageID: "m3", text: "third prompt", created: 1, projectID: "p2" },
 ]
 
 function createDialogHarness() {
@@ -30,6 +30,7 @@ function createDialogHarness() {
   const context = {
     theme,
     keymap: { layer: (factory: () => any) => { layers.push(factory()) } },
+    data: { session: { get: () => ({ projectID: "p1" }) } },
     ui: {
       dialog: { clear() { setDialog(undefined) }, show(render: () => JSX.Element) { setDialog({ render }) }, set() {} },
       router: { current: () => ({ type: "session", sessionID: "s1" }) },
@@ -38,7 +39,10 @@ function createDialogHarness() {
     renderer: { currentFocusedEditor: composer },
   } as unknown as Context
   const indexer = {
-    search: (query: string) => entries.filter((entry) => entry.text.includes(query.toLowerCase())),
+    search: (query: string, _limit?: number, options?: { projectID?: string; scope?: "all" | "project" }) =>
+      entries.filter((entry) =>
+        entry.text.includes(query.toLowerCase()) &&
+        (options?.scope !== "project" || entry.projectID === options.projectID)),
     refresh: async () => {},
   } as any
   return { context, indexer, composer, inserted, layers, dialog, show() {
@@ -95,6 +99,30 @@ test("filters prompts, moves the selection and inserts the chosen prompt", async
     command(harness, "Use prompt")
     expect(harness.inserted).toEqual(["third prompt"])
     expect(harness.dialog()).toBeUndefined()
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("toggles between all projects and the current project", async () => {
+  const harness = createDialogHarness()
+  const app = await render(harness)
+  try {
+    harness.show()
+    await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search dialog did not render")
+    await Bun.sleep(20)
+    findInput(app.renderer.root)!.value = "prompt"
+    await waitFor(app, () => app.captureCharFrame().includes("3. third prompt"), "all prompts were not listed")
+    expect(app.captureCharFrame()).toContain("all projects")
+
+    command(harness, "Toggle prompt scope")
+    await waitFor(app, () => app.captureCharFrame().includes("current project"), "current project scope did not render")
+    expect(app.captureCharFrame()).not.toContain("third prompt")
+    expect(app.captureCharFrame()).toContain("first prompt")
+
+    command(harness, "Toggle prompt scope")
+    await waitFor(app, () => app.captureCharFrame().includes("3. third prompt"), "all-project results did not return")
+    expect(app.captureCharFrame()).toContain("all projects")
   } finally {
     app.renderer.destroy()
   }

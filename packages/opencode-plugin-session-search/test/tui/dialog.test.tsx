@@ -16,7 +16,7 @@ const theme = {
   surface: () => theme,
 }
 
-function createHarness(options: { copy?: boolean; noticeDuration?: number; userText?: string } = {}) {
+function createHarness(options: { copy?: boolean; noticeDuration?: number; userText?: string; jumpFails?: boolean; onFailure?: (message: string) => void } = {}) {
   const clipboard: string[] = []
   const jumps: string[] = []
   const layers: Array<{ commands: Array<{ bind?: string; title?: string; run: () => void }> }> = []
@@ -25,7 +25,7 @@ function createHarness(options: { copy?: boolean; noticeDuration?: number; userT
   index.upsert({ id: "a1", type: "assistant", time: { created: 2 }, agent: "build", content: [{ type: "text", text: "agent message one" }] })
   index.upsert({ id: "u2", type: "user", time: { created: 1 }, text: "second user message" })
   const controller = { index, ready: true, loading: false, error: undefined, open: async () => {} } as unknown as SessionSearchController
-  const navigator = { jump: async (_sessionID: string, entry: { text: string }) => { jumps.push(entry.text) }, cancel() {} } as unknown as SessionNavigator
+  const navigator = { jump: async (_sessionID: string, entry: { text: string }) => { if (options.jumpFails) throw new Error("exact part did not render"); jumps.push(entry.text) }, cancel() {} } as unknown as SessionNavigator
   const [revision] = createSignal(0)
   const context = {
     theme,
@@ -39,8 +39,8 @@ function createHarness(options: { copy?: boolean; noticeDuration?: number; userT
     },
   } as unknown as Context
   const lifetime = new AbortController()
-  const render = () => <SessionSearchDialog context={context} controller={controller} navigator={navigator} sessionID="s1" revision={revision} lifetime={lifetime} noticeDuration={options.noticeDuration} />
-  return { clipboard, jumps, layers, render }
+  const render = () => <SessionSearchDialog context={context} controller={controller} navigator={navigator} sessionID="s1" revision={revision} lifetime={lifetime} noticeDuration={options.noticeDuration} onFailure={options.onFailure} />
+  return { clipboard, jumps, layers, index, render }
 }
 
 type Harness = ReturnType<typeof createHarness>
@@ -120,6 +120,50 @@ test("copies the full selected text instead of the truncated preview", async () 
     expect(harness.clipboard[0]).toContain("TAIL_MARKER")
     await waitFor(app, (frame) => frame.includes("Copied user message"), "long copy notice did not appear")
   } finally { app.renderer.destroy() }
+})
+
+test("copies every text part of the selected assistant message and keeps the panel usable", async () => {
+  const harness = createHarness()
+  harness.index.upsert({
+    id: "a2",
+    type: "assistant",
+    time: { created: 4 },
+    agent: "build",
+    content: [
+      { type: "text", text: "first agent part" },
+      { type: "text", text: "second agent part" },
+    ],
+  })
+  const app = await render(harness)
+  try {
+    await waitFor(app, (frame) => frame.includes("user message one"), "session search results did not render")
+    command(harness, "Toggle agent messages")
+    await waitFor(app, (frame) => frame.includes("first agent part"), "combined agent message did not render")
+    command(harness, "Previous result")
+    command(harness, "Copy selected message")
+    expect(harness.clipboard.at(-1)).toBe("first agent part\n\nsecond agent part")
+    expect(harness.jumps).toEqual([])
+    command(harness, "Jump to message")
+    expect(harness.jumps).toEqual(["second agent part"])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("keeps the panel open when a jump cannot render the exact part", async () => {
+  const failures: string[] = []
+  const harness = createHarness({ jumpFails: true, onFailure: (message) => failures.push(message) })
+  const app = await render(harness)
+  try {
+    await waitFor(app, (frame) => frame.includes("user message one"), "session search results did not render")
+    command(harness, "Jump to message")
+    await waitFor(app, () => failures.length === 1, "jump failure was not reported")
+    expect(failures[0]).toContain("exact part did not render")
+    expect(app.captureCharFrame()).toContain("Search current session")
+    expect(harness.jumps).toEqual([])
+  } finally {
+    app.renderer.destroy()
+  }
 })
 
 test("reports copy failures, resets the notice, and copies only a selected result", async () => {

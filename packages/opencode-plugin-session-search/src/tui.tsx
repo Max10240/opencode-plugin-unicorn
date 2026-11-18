@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createSignal, onCleanup } from "solid-js"
 import { SessionSearchController } from "./controller.js"
-import { SessionSearchDialog } from "./dialog.js"
+import { SessionSearchDialog, type SessionSearchDialogState, type SessionSearchNotice } from "./dialog.js"
 import { navigationHost, SessionNavigator } from "./navigation.js"
 import { resolveSearchKeybind, sessionSearchEnabled } from "./options.js"
 import { eventForSession } from "./events.js"
@@ -27,6 +27,7 @@ export function setupSessionSearch(context: Context, selectedKeybind: unknown = 
   let openSession: string | undefined
   let structural = false
   let lifetime: AbortController | undefined
+  let savedState: SessionSearchDialogState = { query: "", includeAgent: false }
   const flush = () => {
     timer = undefined
     if (!openSession) return
@@ -42,6 +43,40 @@ export function setupSessionSearch(context: Context, selectedKeybind: unknown = 
       if (message) controller.merge(message)
     }
     pending.clear()
+  }
+  const openDialog = (sessionID: string, state: SessionSearchDialogState = savedState, notice?: SessionSearchNotice) => {
+    navigator.cancel()
+    context.ui.dialog.clear()
+    lifetime?.abort()
+    const owner = new AbortController()
+    lifetime = owner
+    openSession = sessionID
+    savedState = state
+    context.ui.dialog.show(
+      () => <SessionSearchDialog
+        context={context}
+        controller={controller}
+        navigator={navigator}
+        sessionID={sessionID}
+        revision={revision}
+        lifetime={owner}
+        initial={state}
+        initialNotice={notice}
+        onState={(next) => { savedState = next }}
+        onFailure={(message) => {
+          const route = context.ui.router.current()
+          if (route.type !== "session" || route.sessionID !== sessionID) return
+          openDialog(sessionID, savedState, { message: `Jump failed: ${message}`, variant: "error" })
+        }}
+      />,
+      () => {
+        owner.abort()
+        if (lifetime !== owner) return
+        openSession = undefined; pending.clear(); structural = false
+        if (timer) clearTimeout(timer)
+        timer = undefined
+      },
+    )
   }
   const stop = context.data.listen(({ details }) => {
     const data = details.data
@@ -70,16 +105,8 @@ export function setupSessionSearch(context: Context, selectedKeybind: unknown = 
       run: () => {
         const route = context.ui.router.current()
         if (route.type !== "session") { context.ui.toast.show({ message: "Open a session first", variant: "warning" }); return }
-        navigator.cancel(); context.ui.dialog.clear(); lifetime?.abort()
-        const owner = new AbortController()
-        lifetime = owner; openSession = route.sessionID
-        context.ui.dialog.show(() => <SessionSearchDialog context={context} controller={controller} navigator={navigator} sessionID={route.sessionID} revision={revision} lifetime={owner} />, () => {
-          owner.abort()
-          if (lifetime !== owner) return
-          openSession = undefined; pending.clear(); structural = false
-          if (timer) clearTimeout(timer)
-          timer = undefined
-        })
+        savedState = { query: "", includeAgent: false }
+        openDialog(route.sessionID)
       },
     }] }))
     registerKeymap(context, () => ({ mode: "global", priority: 30, enabled: busy, commands: [{ bind: "escape", title: "Cancel message navigation", run: () => navigator.cancel() }] }))

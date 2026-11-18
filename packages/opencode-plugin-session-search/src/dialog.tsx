@@ -10,7 +10,9 @@ import { registerKeymap } from "./keymap.js"
 const NOTICE_DURATION = 2_500
 const USER_ROLES = ["user"] as const
 
-type Notice = { message: string; variant: "success" | "error" }
+export type SessionSearchDialogState = { query: string; includeAgent: boolean; selected?: string }
+export type SessionSearchNotice = { message: string; variant: "success" | "error" }
+type Notice = SessionSearchNotice
 
 export function SessionSearchDialog(props: {
   context: Context
@@ -20,14 +22,18 @@ export function SessionSearchDialog(props: {
   revision: () => number
   lifetime: AbortController
   noticeDuration?: number
+  initial?: SessionSearchDialogState
+  initialNotice?: SessionSearchNotice
+  onState?: (state: SessionSearchDialogState) => void
+  onFailure?: (message: string) => void
 }) {
   const theme = props.context.theme.surface("dialog")
-  const [query, setQuery] = createSignal("")
+  const [query, setQuery] = createSignal(props.initial?.query ?? "")
   const [result, setResult] = createSignal<SearchResult>({ matches: [], total: 0 })
-  const [selected, setSelected] = createSignal<string>()
+  const [selected, setSelected] = createSignal<string | undefined>(props.initial?.selected)
   const [searching, setSearching] = createSignal(false)
-  const [includeAgent, setIncludeAgent] = createSignal(false)
-  const [notice, setNotice] = createSignal<Notice>()
+  const [includeAgent, setIncludeAgent] = createSignal(props.initial?.includeAgent ?? false)
+  const [notice, setNotice] = createSignal<Notice | undefined>(props.initialNotice)
   const [input, setInput] = createSignal<InputRenderable>()
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   let generation = 0
@@ -44,6 +50,9 @@ export function SessionSearchDialog(props: {
     setNotice({ message, variant })
     noticeTimer = setTimeout(() => { noticeTimer = undefined; setNotice(undefined) }, props.noticeDuration ?? NOTICE_DURATION)
   }
+  createEffect(() => {
+    props.onState?.({ query: query(), includeAgent: includeAgent(), selected: selected() })
+  })
   const status = () => {
     props.revision()
     return props.controller.error ?? result().error ?? `${props.controller.loading || !props.controller.ready ? "Loading history · " : ""}${props.controller.index.size} text parts · ${result().matches.length}/${result().total} matches${result().total > 100 ? " · narrow your query" : ""}`
@@ -84,18 +93,26 @@ export function SessionSearchDialog(props: {
     if (entry.reverted) { props.context.ui.toast.show({ message: "This message is currently reverted and cannot be shown", variant: "warning" }); return }
     if (queued(entry)) { props.context.ui.toast.show({ message: "Queued prompts are not in the transcript yet", variant: "warning" }); return }
     selecting = true
-    props.context.ui.dialog.clear()
-    try { await props.navigator.jump(props.sessionID, entry) }
-    catch (error) {
+    try {
+      await props.navigator.jump(props.sessionID, entry)
+      props.context.ui.dialog.clear()
+    } catch (error) {
       const aborted = typeof error === "object" && error !== null && "name" in error && error.name === "AbortError"
-      if (!aborted) props.context.ui.toast.show({ message: error instanceof Error ? error.message : String(error), variant: "warning" })
+      if (!aborted) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (props.onFailure) props.onFailure(message)
+        else showNotice(message, "error")
+      }
+    } finally {
+      selecting = false
     }
   }
   const copy = (entry?: Match) => {
     if (!entry) { showNotice("Select a message to copy", "error"); return }
+    const text = props.controller.index.messageText(entry.messageID) || entry.text
     try {
-      if (!props.context.renderer.copyToClipboardOSC52(entry.text)) throw new Error("Clipboard unavailable")
-      const count = entry.text.length
+      if (!props.context.renderer.copyToClipboardOSC52(text)) throw new Error("Clipboard unavailable")
+      const count = text.length
       showNotice(`Copied ${entry.role === "user" ? "user" : "agent"} message · ${count} ${count === 1 ? "char" : "chars"}`, "success")
     } catch {
       showNotice("Could not copy to clipboard", "error")
@@ -120,7 +137,12 @@ export function SessionSearchDialog(props: {
   ] }))
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
-    input()?.focus()
+    setTimeout(() => {
+      const element = input()
+      if (!element) return
+      element.value = props.initial?.query ?? ""
+      element.focus()
+    }, 1)
     void props.controller.open(props.sessionID, props.lifetime.signal)
   })
   onCleanup(() => {

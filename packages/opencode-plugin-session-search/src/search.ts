@@ -67,6 +67,9 @@ export class TranscriptIndex {
   entries() {
     return this.ordered ??= [...this.records.values()].flat().sort((a, b) => b.created - a.created || b.messageID.localeCompare(a.messageID) || (a.ordinal ?? 0) - (b.ordinal ?? 0))
   }
+  messageText(messageID: string) {
+    return (this.records.get(messageID) ?? []).map((entry) => entry.text).join("\n\n")
+  }
   async search(
     query: string,
     signal?: AbortSignal,

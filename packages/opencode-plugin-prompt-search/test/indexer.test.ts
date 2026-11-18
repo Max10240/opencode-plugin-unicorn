@@ -302,6 +302,131 @@ test("zero clears the prompt cache without exporting sessions", async () => {
   expect(listCalls).toBe(0)
 })
 
+test("orders matching prompts strictly by newest first", () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: {
+      older: {
+        updated: 10,
+        prompts: [{
+          sessionID: "older",
+          messageID: "old-exact",
+          text: "alpha",
+          created: 1,
+          directory: "/other",
+          projectID: "other-project",
+        }],
+      },
+      newer: {
+        updated: 10,
+        prompts: [{
+          sessionID: "newer",
+          messageID: "new-partial",
+          text: "alpha beta",
+          created: 9,
+          directory: "/current",
+          projectID: "current-project",
+        }],
+      },
+    },
+  }
+  const indexer = new PromptIndexer(contextFor(cache))
+  expect(indexer.search("alpha").map((prompt) => prompt.messageID)).toEqual(["new-partial", "old-exact"])
+})
+
+test("filters searches by project while all-project search stays available", () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: {
+      p1: {
+        updated: 10,
+        prompts: [{
+          sessionID: "p1",
+          messageID: "p1-new",
+          text: "needle one",
+          created: 9,
+          projectID: "project-1",
+        }],
+      },
+      p2: {
+        updated: 10,
+        prompts: [{
+          sessionID: "p2",
+          messageID: "p2-new",
+          text: "needle two",
+          created: 8,
+          projectID: "project-2",
+        }],
+      },
+      legacy: {
+        updated: 10,
+        prompts: [{
+          sessionID: "legacy",
+          messageID: "legacy",
+          text: "needle legacy",
+          created: 7,
+        }],
+      },
+    },
+  }
+  const indexer = new PromptIndexer(contextFor(cache))
+  expect(indexer.search("needle").map((prompt) => prompt.messageID)).toEqual(["p1-new", "p2-new", "legacy"])
+  expect(indexer.search("needle", 100, { scope: "project", projectID: "project-1" }).map((prompt) => prompt.messageID)).toEqual(["p1-new"])
+  expect(indexer.search("needle", 100, { scope: "project", projectID: "missing" })).toEqual([])
+})
+
+test("re-indexes a live session whose cache has no project IDs", async () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: {
+      live: { updated: 3, inbox: "", prompts: [entry("old", 1, "live")] },
+    },
+  }
+  let exportCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [{ id: "live", projectID: "project-1", time: { updated: 3 } }],
+      { live: [{ id: "old", type: "user", text: "old", time: { created: 1 } }] },
+      undefined,
+      () => exportCalls++,
+    ),
+  )
+  await indexer.refresh()
+  expect(exportCalls).toBe(1)
+  expect(indexer.entries()[0]?.projectID).toBe("project-1")
+})
+
+test("does not index subagent sessions and removes their cached prompts", async () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: {
+      parent: { updated: 3, prompts: [] },
+      child: { updated: 3, prompts: [entry("subagent-prompt", 1, "child")] },
+    },
+  }
+  let exportCalls = 0
+  const indexer = new PromptIndexer(
+    contextFor(
+      cache,
+      [
+        { id: "parent", time: { updated: 3 }, title: "parent" },
+        { id: "child", parentID: "parent", time: { updated: 3 }, title: "child" },
+      ],
+      {
+        parent: [{ id: "parent-prompt", type: "user", text: "parent prompt", time: { created: 2 } }],
+        child: [{ id: "subagent-prompt", type: "user", text: "subagent prompt", time: { created: 1 } }],
+      },
+      undefined,
+      () => exportCalls++,
+    ),
+  )
+  await indexer.refresh()
+  expect(indexer.entries().map((prompt) => prompt.text)).toEqual(["parent prompt"])
+  expect(cache.sessions.child).toBeUndefined()
+  expect(exportCalls).toBe(1)
+})
+
 function contextFor(
   cache: TestCache,
   sessions: any[] = [],

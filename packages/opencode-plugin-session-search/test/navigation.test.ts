@@ -120,6 +120,64 @@ test("renderer layout listeners are cleaned on completion, abort and render fail
   expect(renderer.listenerCount("frame")).toBe(0)
 })
 
+test("missing assistant part anchors fall back to the message for forced rendering", () => {
+  const message = { id: "m", type: "assistant", content: [{ type: "text", text: "first" }, { type: "text", text: "second" }] }
+  let top = -1
+  const scroll: any = {
+    visible: true, isDestroyed: false, parent: null, scrollTop: 20, viewport: { y: 3, height: 30 },
+    stickyScroll: true, scrollTo(value: number) { top = value }, getChildren: () => [messageNode],
+  }
+  const messageNode: any = { id: "m", visible: true, isDestroyed: false, height: 5, y: 14, parent: scroll, getChildren: () => [] }
+  const root: any = { visible: true, isDestroyed: false, parent: null, findDescendantById: (id: string) => id === "m" ? messageNode : undefined, getChildren: () => [scroll] }
+  scroll.parent = root
+  const context: any = {
+    renderer: { root },
+    ui: { router: { current: () => ({ type: "session", sessionID: "s" }) } },
+    data: { session: { message: { get: () => message } } },
+    keymap: { commands: () => [], dispatch() {} },
+  }
+  const anchor = navigationHost(context).find({ messageID: "m", ordinal: 1 })
+  expect(anchor).toBeDefined()
+  expect(anchor?.exact).toBe(false)
+  anchor?.align()
+  expect(top).toBe(31)
+})
+
+test("a fallback anchor is scrolled into view and then upgraded to the exact part", async () => {
+  let frames = 0
+  let aligns = 0
+  const host: NavigationHost = {
+    session: () => "current",
+    commands: () => ["session.line.up"],
+    dispatch() {},
+    loaded: () => true,
+    reverted: () => false,
+    frame: async () => { frames++ },
+    find: () => frames >= 2
+      ? { exact: true, align() { aligns++ } }
+      : { exact: false, align() { aligns++ } },
+  }
+  await new SessionNavigator(host).jump("current", { messageID: "m", ordinal: 1 })
+  expect(aligns).toBeGreaterThanOrEqual(2)
+})
+
+test("navigation fails cleanly when the exact part never renders", async () => {
+  let busy = false
+  const host: NavigationHost = {
+    session: () => "current",
+    commands: () => ["session.line.up"],
+    dispatch() {},
+    loaded: () => true,
+    reverted: () => false,
+    frame: async () => {},
+    find: () => ({ exact: false, align() {} }),
+  }
+  await expect(new SessionNavigator(host, (value) => { busy = value }, 250).jump("current", { messageID: "m", ordinal: 1 })).rejects.toThrow(
+    "Could not render the exact text part",
+  )
+  expect(busy).toBe(false)
+})
+
 test("consecutive frame waits request rendering after the previous scheduler task settles", async () => {
   const events = new EventEmitter()
   let scheduled = false

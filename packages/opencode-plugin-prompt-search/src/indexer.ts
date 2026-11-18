@@ -6,6 +6,7 @@ export interface PromptEntry {
   readonly text: string
   readonly title?: string
   readonly directory?: string
+  readonly projectID?: string
   readonly created: number
 }
 
@@ -59,16 +60,26 @@ export class PromptIndexer {
       .slice(0, this.maxPrompts)
   }
 
-  search(query: string, limit = 100) {
+  search(
+    query: string,
+    limit = 100,
+    options: { readonly projectID?: string; readonly scope?: "project" | "all" } = {},
+  ) {
     const normalized = query.trim().toLowerCase()
-    const entries = this.entries()
-    if (!normalized) return entries.slice(0, limit)
+    const scoped = options.scope === "project" && options.projectID
+      ? this.entries().filter((entry) => entry.projectID === options.projectID)
+      : this.entries()
+    if (!normalized) return scoped.slice(0, limit)
 
     const terms = normalized.split(/\s+/).filter(Boolean)
-    return entries
+    return scoped
       .map((entry) => ({ entry, score: score(entry, normalized, terms) }))
       .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score || right.entry.created - left.entry.created)
+      .sort((left, right) =>
+        right.entry.created - left.entry.created ||
+        right.score - left.score ||
+        right.entry.messageID.localeCompare(left.entry.messageID)
+      )
       .slice(0, limit)
       .map((item) => item.entry)
   }
@@ -95,12 +106,14 @@ export class PromptIndexer {
     }
 
     const sessions = await listSessions(this.context)
-    const liveSessionIDs = new Set(sessions.map((session) => session.id))
+    const subagentSessions = sessions.filter((session) => Boolean(session.parentID))
+    const indexableSessions = sessions.filter((session) => !session.parentID)
+    const liveSessionIDs = new Set(indexableSessions.map((session) => session.id))
     const next: Record<string, CachedSession> = {}
     const successfullyExported = new Set<string>()
 
-    for (let offset = 0; offset < sessions.length; offset += FETCH_CONCURRENCY) {
-      const batch = sessions.slice(offset, offset + FETCH_CONCURRENCY)
+    for (let offset = 0; offset < indexableSessions.length; offset += FETCH_CONCURRENCY) {
+      const batch = indexableSessions.slice(offset, offset + FETCH_CONCURRENCY)
       const results = await Promise.all(batch.map((session) => this.readSession(session)))
       for (const [sessionID, value, exported] of results) {
         next[sessionID] = value
@@ -111,6 +124,8 @@ export class PromptIndexer {
     }
 
     await this.updateCache((draft) => {
+      // Subagent sessions are separate transcripts; their task prompts are not user prompts.
+      for (const session of subagentSessions) delete draft.sessions[session.id]
       // A session missing from the server list may have been deleted after it was indexed.
       Object.assign(draft.sessions, next)
       trimCache(draft.sessions, this.maxPrompts, successfullyExported)
@@ -122,10 +137,13 @@ export class PromptIndexer {
 
   private async readSession(session: any): Promise<[string, CachedSession, boolean]> {
     const updated = Number(session.time?.updated ?? session.time?.created ?? 0)
+    const projectID = typeof session.projectID === "string" ? session.projectID : undefined
     const cached = this.cache.sessions[session.id]
     const forced = this.dirty.has(session.id)
+    const hasProjectIDs = projectID === undefined || cached?.prompts.every((prompt) => prompt.projectID === projectID) === true
     if (
       !forced &&
+      hasProjectIDs &&
       cached?.updated === updated &&
       cached.inbox !== undefined &&
       cached.exported !== false &&
@@ -143,6 +161,7 @@ export class PromptIndexer {
     const inbox = inboxFailed ? undefined : inboxSignature(pending)
     if (
       !forced &&
+      hasProjectIDs &&
       !inboxFailed &&
       cached?.updated === updated &&
       cached.inbox === inbox &&
@@ -160,6 +179,7 @@ export class PromptIndexer {
         text: item.payload!.text!.slice(0, MAX_PROMPT_CHARS),
         title: session.title,
         directory: session.location?.directory,
+        projectID,
         created: Number(item.time?.created ?? updated),
       } satisfies PromptEntry))
     try {
@@ -173,6 +193,7 @@ export class PromptIndexer {
           text: message.text.slice(0, MAX_PROMPT_CHARS),
           title: session.title,
           directory: session.location?.directory,
+          projectID,
           created: Number(message.time?.created ?? updated),
         })
       }
