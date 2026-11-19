@@ -76,6 +76,9 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `features.recommendedOpencodeConfig` | 补充精选全局规则和命令，并设置 OpenAI `store:false` |
 
+运行 `/unicorn`，或在命令面板选择 **Unicorn status**，可以查看所有功能开关、各命令当前快捷键、潜在冲突、当前默认值，
+以及已加载包版本和 Shadow 状态。面板只读；按 `?` 查看帮助。
+
 ## 功能配置
 
 Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插件自己决定，Unicorn 不重命名字段，也不把不同插件的配置混在一起。
@@ -85,13 +88,13 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | --- | --- | --- |
 | God agent | `god` | `models`、`cache`、`cacheTtlMs`、`timeoutMs` |
 | 自动后台 | `nonBlocking` | `thresholdMs`（默认 `10000`） |
-| Prompt 检索 | `promptSearch` | `keybind`（默认 `ctrl+shift+r`）、`maxPrompts`（默认 `2000`） |
-| 当前对话检索 | `sessionSearch` | `keybind`（默认 `ctrl+shift+f`） |
+| Prompt 检索 | `promptSearch` | `keybind`（默认 `ctrl+shift+r`）、`maxPrompts`（默认 `2000`）、`defaultScope`（`all` 或 `project`） |
+| 当前对话检索 | `sessionSearch` | `keybind`（默认 `ctrl+shift+f`）、`defaultIncludeAgent` |
 | 跨 session 消息 | `sendMessageAcrossSessions` | 无需配置 |
 | 图片生成 | `imageGen` | `model`、`baseURL`、`integrationID` |
 | 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
 | OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
-| 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled` |
+| 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled`、`defaultSort`（`updated` 或 `created`） |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `recommendedOpencodeConfig` | `enabled` |

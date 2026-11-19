@@ -63,6 +63,8 @@ Agent 会用 `list_online_sessions` 找到目标，再用 `send_message_across_s
 | `steer`（默认） | 立即送达 | 需要及时协调 |
 | `queue` | 等到对方完全空闲；可能很慢，送达时消息可能已过时 | 不要求时效性的消息 |
 
+每次发送都要传 `need-reply`。需要对方回复时设为 `true`，消息末尾会带上回复请求。
+
 ## 注意事项
 
 - **两个 session 必须在同一个 OpenCode server。** 插件只能看到它所在 server 上的 session。

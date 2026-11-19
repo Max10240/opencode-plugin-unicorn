@@ -160,6 +160,11 @@ Users can unprotect any file directly from the Protected files dialog:
 Agent-initiated unprotect requests show a toast and a persistent footer badge until the user approves or rejects them.
 The badge is only shown while at least one request is pending.
 
+Approving is a two-step action: `a` opens a review panel with the file, source, session, project, and reason; then
+`y` or `Enter` confirms, and `n` or `Esc` cancels. `r` rejects the request. Approval stays in effect for future turns
+until the file is registered again. In the protection history, `?` shows help, `c` / `Ctrl+Y` copies, and `Ctrl+T`
+opens the filter.
+
 ## Synchronization
 
 Protection is shared by all projects and sessions inside one OpenCode server. The Protected files dialog shows the whole server and labels each file with its project. Pending unprotect requests are also shared across sessions in that server. No cross-server

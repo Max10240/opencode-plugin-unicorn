@@ -23,9 +23,10 @@ the session, and keeps notes organized by folder or across everything.
 
 - **No interruption.** Open the notepad, write, close, and the agent never notices.
 - **Folder-scoped notes by default.** Notes stay with the project they belong to.
-- **Global notes when you need them.** Press `g` to share a note across every folder and session on the same OpenCode
-  server.
-- **Full editing.** Add, edit, delete, search, copy, and move notes without leaving the overlay.
+- **Global notes when you need them.** Press `g` or `Ctrl+P` to share a note across every folder and session on the same
+  OpenCode server.
+- **Full editing.** Add, edit, delete, search, copy, pin, and move notes without leaving the overlay.
+- **Recoverable deletion.** `Ctrl+Z` restores the last deleted note.
 - **Private by default.** Notes are text you keep for yourself; they are never added to model context.
 
 ## Quick start
@@ -82,21 +83,27 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · c copy · g scope · tab search · esc close
+a add · e edit · d delete · p pin · s sort: updated · c/ctrl+y copy · g/ctrl+p scope · tab search · ?/f1 help
 ```
 
 | Key | Action |
 | --- | --- |
 | `a` | Add a note; it starts in the current folder |
-| `e` | Edit the selected note; `f2` saves, `esc` cancels |
+| `e` | Edit the selected note; `f2` or `ctrl+s` saves, `esc` cancels |
 | `d` | Delete the selected note after confirmation |
-| `c` | Copy the note text and show a confirmation |
-| `g` | Move the note between the current folder and Global |
-| `Tab` | Focus the search box; `Enter` or `Esc` returns to the list |
+| `Ctrl+Z` | Restore the last deleted note for this folder |
+| `p` | Pin or unpin the selected note; pinned notes stay at the top |
+| `s` | Switch the sort order between last updated and created |
+| `c` / `Ctrl+Y` | Copy the note text and show a confirmation |
+| `g` / `Ctrl+P` | Move the note between the current folder and Global |
+| `Tab` | Focus the search box; `Enter`, `Esc`, or `Tab` returns to the list |
 | `↑` / `↓` | Select a note |
-| `Esc` | Close the notepad |
+| `?` / `F1` | Show keyboard help |
+| `Esc` | Close help or the notepad |
 
-In the editor, `ctrl+g` changes the save target between **This folder** and **Global**.
+Use `F1` while the search box is focused; `?` works in the note list and is kept available for literal searches.
+
+In the editor, `ctrl+g` or `ctrl+p` changes the save target between **This folder** and **Global**.
 
 ## How notes are organized
 
@@ -117,3 +124,4 @@ and stay with it.
 | --- | --- | --- |
 | `enabled` | `true` | Set to `false` to turn the notepad off |
 | `keybind` | `ctrl+shift+n` | Change the shortcut; set to `false` to keep only the palette and `/notepad` entry |
+| `defaultSort` | `updated` | Initial sort: `updated` or `created`; the last choice is remembered |

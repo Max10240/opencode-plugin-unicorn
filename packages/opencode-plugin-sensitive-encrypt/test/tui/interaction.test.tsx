@@ -109,12 +109,40 @@ test("encrypts text, shows the result dialog, copies both values and closes", as
     await waitFor(app, () => app.captureCharFrame().includes("Encrypted with key"), "result dialog did not open")
     expect(harness.calls.at(-1)).toEqual({ kind: "text", input: { text: "secret text", key: "decrypt", out: "/tmp/out.ocsec" } })
     expect(app.captureCharFrame()).toContain("Output: /tmp/out.ocsec")
+    expect(harness.layers.flatMap((layer) => layer.commands).some((command) => command.title === "Copy ciphertext" && command.bind === "ctrl+y")).toBe(true)
     command(harness, "Copy output path")
     expect(harness.clipboard.at(-1)).toBe("/tmp/out.ocsec")
     command(harness, "Copy ciphertext")
     expect(harness.clipboard.at(-1)).toBe("ocsec1:secret text")
     command(harness, "Close encryption panel")
     await waitFor(app, () => !app.captureCharFrame().includes("Encrypted with key"), "result dialog did not close")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("masks text by default, reveals it with ctrl+r, and reports cleared input", async () => {
+  const harness = createHarness()
+  const app = await render(harness)
+  try {
+    command(harness, "Encrypt sensitive data")
+    await waitFor(app, () => app.captureCharFrame().includes("Type any text to encrypt"), "encryption panel did not open")
+    const textarea = findAll(app.renderer.root, TextareaRenderable)[0]
+    const masked = textarea.textColor.toString()
+    command(harness, "Reveal or hide text")
+    expect(textarea.textColor.toString()).not.toBe(masked)
+    command(harness, "Reveal or hide text")
+    expect(textarea.textColor.toString()).toBe(masked)
+
+    command(harness, "Toggle encrypt help")
+    await waitFor(app, () => app.captureCharFrame().includes("F1 closes help"), "encrypt help did not open")
+    command(harness, "Toggle encrypt help")
+    await waitFor(app, () => !app.captureCharFrame().includes("F1 closes help"), "encrypt help did not close")
+
+    textarea.setText("secret text")
+    command(harness, "Encrypt")
+    await waitFor(app, () => app.captureCharFrame().includes("Encrypted with key"), "result dialog did not open")
+    expect(app.captureCharFrame()).toContain("Plaintext input cleared.")
   } finally {
     app.renderer.destroy()
   }

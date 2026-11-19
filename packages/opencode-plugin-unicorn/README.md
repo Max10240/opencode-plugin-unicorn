@@ -78,6 +78,10 @@ the same name:
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `features.recommendedOpencodeConfig` | Adds curated global rules and commands, and sets OpenAI `store:false` |
 
+Run `/unicorn` or choose **Unicorn status** from the command palette to see every feature switch, the active keybind
+for each command, potential conflicts, the current defaults, and the loaded package version and Shadow state. The
+panel is read-only; press `?` for help.
+
 ## Feature configuration
 
 Unicorn passes each same-name nested object to its plugin unchanged. A plugin owns its default values; Unicorn never
@@ -87,13 +91,13 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | --- | --- | --- |
 | God agent | `god` | `models`, `cache`, `cacheTtlMs`, `timeoutMs` |
 | Auto-background | `nonBlocking` | `thresholdMs` (default `10000`) |
-| Prompt search | `promptSearch` | `keybind` (default `ctrl+shift+r`), `maxPrompts` (default `2000`) |
-| Session search | `sessionSearch` | `keybind` (default `ctrl+shift+f`) |
+| Prompt search | `promptSearch` | `keybind` (default `ctrl+shift+r`), `maxPrompts` (default `2000`), `defaultScope` (`all` or `project`) |
+| Session search | `sessionSearch` | `keybind` (default `ctrl+shift+f`), `defaultIncludeAgent` |
 | Cross-session messages | `sendMessageAcrossSessions` | No required options |
 | Image generation | `imageGen` | `model`, `baseURL`, `integrationID` |
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
-| Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled` |
+| Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled`, `defaultSort` (`updated` or `created`) |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `recommendedOpencodeConfig` | `enabled` |

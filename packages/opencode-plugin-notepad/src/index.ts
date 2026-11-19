@@ -30,8 +30,8 @@ export async function setupNotepad(context: PluginContext) {
     },
     add: async (raw, request) => {
       try {
-        const input = raw as { text: string; scope: "folder" | "global"; directory: string }
-        return { note: await store.add({ text: input.text, scope: input.scope, directory: input.directory }) }
+        const input = raw as { text: string; scope: "folder" | "global"; directory: string; pinned?: boolean }
+        return { note: await store.add({ text: input.text, scope: input.scope, directory: input.directory, pinned: input.pinned }) }
       } catch (error) {
         return request.error("invalid", message(error), {})
       }
@@ -49,6 +49,14 @@ export async function setupNotepad(context: PluginContext) {
         const input = raw as { id: string }
         await store.remove(input.id)
         return { removed: true }
+      } catch (error) {
+        return request.error("invalid", message(error), {})
+      }
+    },
+    setPinned: async (raw, request) => {
+      try {
+        const input = raw as { id: string; pinned: boolean }
+        return { note: await store.setPinned(input.id, input.pinned) }
       } catch (error) {
         return request.error("invalid", message(error), {})
       }

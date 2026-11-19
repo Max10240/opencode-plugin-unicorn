@@ -9,6 +9,7 @@ export type Note = {
   readonly text: string
   readonly scope: NoteScope
   readonly folder?: string
+  readonly pinned?: boolean
   readonly createdAt: number
   readonly updatedAt: number
 }

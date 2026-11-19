@@ -50,7 +50,7 @@ test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate"
       ui: { dialog: { show: () => {}, set: () => {}, clear: () => {} } },
     } as unknown as Context
     const cleanup = await unicorn.setup(context)
-    expect(layers).toBe(enabled ? 1 : 0)
+    expect(layers).toBe(enabled ? 3 : 2)
     expect(subscriptions).toBe(enabled ? 3 : 0)
     if (cleanup) await cleanup()
   }

@@ -155,6 +155,10 @@ credentials.*.token     任意子 key
 
 模型发起的取消请求会弹 toast，并在底部显示常驻角标，直到用户批准或拒绝。没有 pending 请求时角标不常驻。
 
+批准是两步操作：按 `a` 打开确认面板，显示文件、来源、session、项目和原因；再按 `y` 或 `Enter` 确认，按 `n`
+或 `Esc` 取消。按 `r` 拒绝请求。批准会对后续回合持续生效，直到重新登记该文件。保护历史中按 `?` 查看帮助，
+`c` / `Ctrl+Y` 复制，`Ctrl+T` 打开过滤器。
+
 ## 同步范围
 
 同一个 OpenCode Server 内的所有项目和 session 共享保护列表。Protected files 弹窗显示整个 Server，并在每行标注所属项目。

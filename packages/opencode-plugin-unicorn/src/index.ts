@@ -9,6 +9,8 @@ import { setupSensitiveEncrypt } from "@max10240/opencode-plugin-sensitive-encry
 import { setupSensitiveProtection } from "@max10240/opencode-plugin-sensitive-protection"
 import { setupRecommendedOpencodeConfig } from "@max10240/opencode-plugin-recomended-opencode-config"
 import { disposeAll } from "./cleanup.js"
+import { UnicornStatusRpc } from "./status-rpc.js"
+import { unicornRuntimeStatus } from "./status.js"
 import {
   childContext,
   recommendedConfigFeatureOption,
@@ -26,8 +28,16 @@ export default Plugin.define({
   id: "max10240.unicorn",
   async setup(ctx) {
     const cleanups: Array<() => Promise<void>> = []
-    if (recommendedConfigFeatureOption(ctx.options) !== false)
-      await setupRecommendedOpencodeConfig(childContext(ctx, "recommendedOpencodeConfig"))
+    const statusRpc = await ctx.rpc.register(UnicornStatusRpc, {
+      runtime: async () => unicornRuntimeStatus(),
+    })
+    cleanups.push(async () => {
+      await statusRpc.dispose()
+    })
+    cleanups.push(await setupRecommendedOpencodeConfig(
+      childContext(ctx, "recommendedOpencodeConfig"),
+      { apply: recommendedConfigFeatureOption(ctx.options) !== false },
+    ))
     if (godFeatureEnabled(ctx.options)) cleanups.push(await setupGodAgent(childContext(ctx, "god")))
     if (sendMessageAcrossSessionsFeatureEnabled(ctx.options))
       cleanups.push(await setupSendMessageAcrossSessions(childContext(ctx, "sendMessageAcrossSessions")))

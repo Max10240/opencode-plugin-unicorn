@@ -1,16 +1,27 @@
-import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import type { InputRenderable, ScrollBoxRenderable } from "@opentui/core"
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import type { Context } from "@opencode/plugin/tui/context"
 import type { SessionSearchController } from "./controller.js"
 import type { SessionNavigator } from "./navigation.js"
 import { queuedMessage, type Match, type SearchResult } from "./search.js"
 import { registerKeymap } from "./keymap.js"
+import {
+  DialogFrame,
+  EmptyState,
+  FooterHints,
+  HelpPanel,
+  HighlightText,
+  NoticeLine,
+  ResultList,
+  SearchField,
+  formatRelative,
+} from "./ui.js"
 
 // Copy feedback stays inside the dialog: a new copy restarts the timer, and changing the query or scope dismisses it.
 const NOTICE_DURATION = 2_500
 const USER_ROLES = ["user"] as const
 
-export type SessionSearchDialogState = { query: string; includeAgent: boolean; selected?: string }
+export type SessionSearchDialogState = { query: string; includeAgent?: boolean; selected?: string }
 export type SessionSearchNotice = { message: string; variant: "success" | "error" }
 type Notice = SessionSearchNotice
 
@@ -28,17 +39,33 @@ export function SessionSearchDialog(props: {
   onFailure?: (message: string) => void
 }) {
   const theme = props.context.theme.surface("dialog")
+  const configuredDefault = props.context.options.defaultIncludeAgent === true
+  const storage = (() => {
+    try {
+      return props.context.storage.store<{ includeAgent: boolean }>("session-search.preferences", {
+        initial: { includeAgent: configuredDefault },
+      })
+    } catch {
+      return undefined
+    }
+  })()
+  const [stored, updateStored] = storage ?? [{ includeAgent: configuredDefault }, () => {}]
   const [query, setQuery] = createSignal(props.initial?.query ?? "")
   const [result, setResult] = createSignal<SearchResult>({ matches: [], total: 0 })
   const [selected, setSelected] = createSignal<string | undefined>(props.initial?.selected)
   const [searching, setSearching] = createSignal(false)
-  const [includeAgent, setIncludeAgent] = createSignal(props.initial?.includeAgent ?? false)
+  const [includeAgent, setIncludeAgent] = createSignal(
+    props.initial?.includeAgent ?? (typeof stored.includeAgent === "boolean" ? stored.includeAgent : configuredDefault),
+  )
   const [notice, setNotice] = createSignal<Notice | undefined>(props.initialNotice)
+  const [help, setHelp] = createSignal(false)
   const [input, setInput] = createSignal<InputRenderable>()
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
+  const [now, setNow] = createSignal(Date.now())
   let generation = 0
   let selecting = false
   let noticeTimer: ReturnType<typeof setTimeout> | undefined
+  let clock: ReturnType<typeof setInterval> | undefined
   const queued = (entry: Match) => queuedMessage(entry.messageID, props.context.data.session.pending.list(props.sessionID) ?? [])
   const selectedEntry = () => result().matches.find((entry) => entry.key === selected())
   const clearNotice = () => {
@@ -120,20 +147,44 @@ export function SessionSearchDialog(props: {
   }
   const toggleRoles = () => {
     clearNotice()
-    setIncludeAgent((value) => !value)
+    const next = !includeAgent()
+    setIncludeAgent(next)
+    void Promise.resolve(updateStored((draft) => {
+      draft.includeAgent = next
+    })).catch(() => {}).catch(() => {})
   }
   const move = (delta: number) => {
     const entries = result().matches
     const at = entries.findIndex((entry) => entry.key === selected())
     setSelected(entries[Math.max(0, Math.min(entries.length - 1, at + delta))]?.key)
   }
+  const focusResults = () => scroll()?.focus()
+  const focusInput = () => input()?.focus()
+  const commands = (questionMark: boolean) => [
+    { bind: "f1", title: "Toggle session search help", run: () => setHelp((value) => !value) },
+    ...(questionMark ? [{ bind: "?", title: "Toggle session search help", run: () => setHelp((value) => !value) }] : []),
+    ...(!questionMark && help() ? [{ bind: "?", title: "Toggle session search help", run: () => setHelp(false) }] : []),
+    { bind: "ctrl+t", title: "Toggle agent messages", run: toggleRoles },
+    { bind: "ctrl+y", title: "Copy selected message", run: () => copy(selectedEntry()) },
+    ...(help()
+      ? [{ bind: "escape", title: "Close session search help", run: () => setHelp(false) }]
+      : [{ bind: "escape", title: "Close session search", run: () => props.context.ui.dialog.clear() }]),
+  ]
   registerKeymap(props.context, () => ({ mode: "modal", target: input, priority: 20, commands: [
+    ...commands(false),
     { bind: "up", title: "Previous result", run: () => move(-1) },
     { bind: "down", title: "Next result", run: () => move(1) },
-    { bind: "ctrl+y", title: "Copy selected message", run: () => copy(selectedEntry()) },
-    { bind: "tab", title: "Toggle agent messages", run: toggleRoles },
+    { bind: "tab", title: "Focus session results", run: focusResults },
     { bind: "return", title: "Jump to message", run: () => void choose(selectedEntry()) },
-    { bind: "escape", title: "Close session search", run: () => props.context.ui.dialog.clear() },
+  ] }))
+  registerKeymap(props.context, () => ({ mode: "modal", target: scroll, priority: 20, commands: [
+    ...commands(true),
+    { bind: "up", title: "Previous result", run: () => move(-1) },
+    { bind: "down", title: "Next result", run: () => move(1) },
+    { bind: "k", title: "Previous result", run: () => move(-1) },
+    { bind: "j", title: "Next result", run: () => move(1) },
+    { bind: "tab", title: "Focus session search", run: focusInput },
+    { bind: "return", title: "Jump to message", run: () => void choose(selectedEntry()) },
   ] }))
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
@@ -143,30 +194,89 @@ export function SessionSearchDialog(props: {
       element.value = props.initial?.query ?? ""
       element.focus()
     }, 1)
+    clock = setInterval(() => setNow(Date.now()), 30_000)
     void props.controller.open(props.sessionID, props.lifetime.signal)
   })
   onCleanup(() => {
     if (noticeTimer !== undefined) clearTimeout(noticeTimer)
+    if (clock !== undefined) clearInterval(clock)
     props.lifetime.abort()
   })
-  return <box paddingLeft={2} paddingRight={2} gap={1}>
-    <box flexDirection="row" justifyContent="space-between">
-      <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Search current session</text>
-      <text fg={theme.text.muted}>{`${includeAgent() ? "user + agent" : "user only"} · esc close · enter jump`}</text>
-    </box>
-    <input ref={setInput} onInput={(value) => { clearNotice(); setSelected(undefined); setQuery(value) }} onSubmit={() => void choose(selectedEntry())}
-      placeholder={includeAgent() ? "Search user and agent messages..." : "Search user messages..."} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.base} cursorColor={theme.text.formfield.base} />
-    <text fg={theme.text.muted}>{status()}</text>
-    <scrollbox ref={setScroll} maxHeight={18} scrollbarOptions={{ visible: false }}>
-      <Show when={result().matches.length} fallback={<text fg={theme.text.muted}>{searching() ? "Searching..." : "No matching dialogue"}</text>}>
-        <For each={result().matches}>{(entry, index) => <box id={`session-search-result-${index()}`} paddingLeft={1} paddingRight={1} backgroundColor={entry.key === selected() ? theme.background.raised.high : undefined}>
-          <text fg={entry.key === selected() ? theme.text.base : theme.text.muted} wrapMode="word">{`${entry.role === "user" ? "User" : `Agent${entry.agent ? ` (${entry.agent})` : ""}`} · ${entry.preview}`}</text>
-          <text fg={theme.text.muted} wrapMode="none">{`${new Date(entry.created).toLocaleString()}${entry.beforeCompaction ? " · before compaction" : ""}${entry.reverted ? " · reverted, unavailable" : ""}${queued(entry) ? " · queued, unavailable" : ""}`}</text>
-        </box>}</For>
-      </Show>
-    </scrollbox>
-    <Show when={notice()} keyed fallback={<text fg={theme.text.muted}>{`↑/↓ select · ctrl+y copy · tab ${includeAgent() ? "user only" : "show agent"}`}</text>}>
-      {(current) => <text fg={current.variant === "error" ? theme.text.feedback.error.base : theme.text.feedback.success.base}>{current.message}</text>}
+  const roleLabel = () => includeAgent() ? "user + agent" : "user only"
+  const roleHint = () => includeAgent() ? "user only" : "show agent"
+  const emptyMessage = () => result().error ?? (searching() ? "Searching..." : "No matching dialogue. Use fewer words, quotes for a phrase, or -term to exclude.")
+  return <DialogFrame
+    theme={theme}
+    title="Search current session"
+    meta={`${roleLabel()} · ${result().matches.length}/${result().total} matches · ?/f1 help · esc close`}
+    footer={
+      <FooterHints theme={theme}>
+        {`↑/↓ select · enter jump · ctrl+y copy · ctrl+t ${roleHint()} · tab focus · ?/f1 help`}
+      </FooterHints>
+    }
+  >
+    <SearchField
+      theme={theme}
+      inputRef={setInput}
+      onInput={(value) => { clearNotice(); setSelected(undefined); setQuery(value) }}
+      onSubmit={() => void choose(selectedEntry())}
+      placeholder={includeAgent() ? 'Search user and agent messages... AND · "phrase" · -exclude' : 'Search user messages... AND · "phrase" · -exclude'}
+    />
+    <Show when={help()}>
+      <HelpPanel
+        theme={theme}
+        lines={[
+          "Type words to require all of them.",
+          'Use "quoted words" for an exact phrase.',
+          "Prefix a word with - to exclude it.",
+          "Ctrl+T switches between user-only and user + agent.",
+          "Ctrl+Y copies the whole selected message.",
+          "Tab moves focus between search and results.",
+        ]}
+      />
     </Show>
-  </box>
+    <Show when={notice()} keyed fallback={<text fg={theme.text.muted}>{status()}</text>}>
+      {(current) => <NoticeLine theme={theme} message={current.message} variant={current.variant} />}
+    </Show>
+    <ResultList theme={theme} listRef={setScroll} when={result().matches.length > 0} empty={emptyMessage()}>
+      <For each={result().matches}>
+        {(entry, index) => <SessionRow entry={entry} index={index()} selected={entry.key === selected()} now={now()} queued={queued(entry)} theme={theme} />}
+      </For>
+    </ResultList>
+  </DialogFrame>
+}
+
+function SessionRow(props: {
+  entry: Match
+  index: number
+  selected: boolean
+  now: number
+  queued: boolean
+  theme: any
+}) {
+  const role = () => props.entry.role === "user"
+    ? "User"
+    : `Agent${props.entry.agent ? ` (${props.entry.agent})` : ""}`
+  const part = () => props.entry.matchKind === "message-start"
+    ? "message start"
+    : `part ${(props.entry.ordinal ?? 0) + 1} · exact`
+  const status = () => [
+    props.entry.beforeCompaction ? "before compaction" : "",
+    props.entry.reverted ? "reverted, unavailable" : "",
+    props.queued ? "queued, unavailable" : "",
+  ].filter(Boolean).join(" · ")
+  return (
+    <box
+      id={`session-search-result-${props.index}`}
+      flexDirection="column"
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
+    >
+      <HighlightText theme={props.theme} text={props.entry.preview} ranges={props.entry.ranges} muted={!props.selected} />
+      <text fg={props.theme.text.muted} wrapMode="none" truncate>
+        {`${role()} · ${part()} · ${formatRelative(props.entry.created, props.now)}${status() ? ` · ${status()}` : ""}`}
+      </text>
+    </box>
+  )
 }

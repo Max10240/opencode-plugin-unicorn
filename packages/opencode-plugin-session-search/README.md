@@ -26,7 +26,7 @@ press Enter to jump to the message. You can also copy the exact text without mov
   original dialogue.
 - **Jump to the source.** Enter scrolls the conversation to the matching message or text part.
 - **Copy without jumping.** `Ctrl+Y` copies the selected text and leaves your place alone.
-- **Choose whose words to search.** User messages are shown by default; `Tab` adds agent messages.
+- **Choose whose words to search.** User messages are shown by default; `Ctrl+T` adds agent messages.
 - **Never changes the conversation.** Searching, jumping, and copying never insert, submit, resend, or revert anything.
 
 ## Quick start
@@ -63,21 +63,27 @@ Press `ctrl+shift+f`, or choose **Search current session** from the command pale
 
 | Key | Action |
 | --- | --- |
-| Type | Filter matches; words are combined with AND, case-insensitively |
+| Type | Require every word; use `"exact phrase"` and `-exclude` |
 | `↑` / `↓` | Select a match |
 | `Enter` | Jump to the matching message or text part |
 | `Ctrl+Y` | Copy the entire selected message without jumping |
-| `Tab` | Switch between user-only and user + agent messages |
-| `Esc` | Close the dialog, or cancel navigation while a jump is loading |
+| `Ctrl+T` | Switch between user-only and user + agent messages |
+| `Tab` | Move focus between search and results |
+| `?` / `F1` | Show keyboard help |
+| `Esc` | Close help or the dialog |
 
-Up to 100 matches are shown at once. Keep typing to narrow them down. A copy confirmation appears in the dialog and
-fades after a few seconds; changing the query or message scope clears it immediately.
+Use `F1` while the search box is focused; `?` works in the results list and is kept available for literal searches.
+
+Up to 100 matches are shown at once. Results highlight matching text and show the role, match kind, relative time,
+and availability state. Keep typing to narrow them down. A copy confirmation appears in the dialog and fades after a
+few seconds; changing the query or role scope clears it immediately.
 
 ## Configuration
 
 | Option | Default | What it does |
 | --- | --- | --- |
 | `keybind` | `ctrl+shift+f` | Shortcut that opens current-session search |
+| `defaultIncludeAgent` | `false` | Initial role scope; the last choice is remembered |
 
 `features.sessionSearch: false` disables the plugin through Unicorn.
 

@@ -31,6 +31,16 @@ test("folder notes stay in their folder and global notes are visible everywhere"
   expect(global.folder).toBeUndefined()
 })
 
+test("pinned notes are created pinned and sorted first", async () => {
+  const { store } = createStore()
+  const a = folder("a")
+  const pinned = await store.add({ text: "pinned", scope: "folder", directory: a, pinned: true })
+  await Bun.sleep(2)
+  const normal = await store.add({ text: "normal", scope: "folder", directory: a })
+  expect(pinned.pinned).toBe(true)
+  expect((await store.list(a)).map((note) => note.id)).toEqual([pinned.id, normal.id])
+})
+
 test("updates, scope changes, deletion, and ordering are durable", async () => {
   const { store, data } = createStore()
   const a = folder("a")

@@ -22,7 +22,7 @@
 - **完全不打断。** 打开、写、关闭，Agent 不会察觉。
 - **默认按文件夹归档。** 笔记跟着项目走。
 - **需要时再全局共享。** 按 `g` 可以把笔记放到所有文件夹和 session 都能看到的位置。
-- **完整的编辑能力。** 新增、编辑、删除、搜索、复制、切换作用域，都不用离开弹窗。
+- **完整的编辑能力。** 新增、编辑、删除、搜索、复制、固定、切换作用域，都不用离开弹窗。
 - **默认私密。** 笔记是写给你自己看的，不会进入模型上下文。
 
 ## 快速开始
@@ -79,21 +79,27 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · c copy · g scope · tab search · esc close
+a add · e edit · d delete · p pin · s sort: updated · c/ctrl+y copy · g/ctrl+p scope · tab search · ?/f1 help
 ```
 
 | 按键 | 操作 |
 | --- | --- |
 | `a` | 新增笔记，默认保存到当前文件夹 |
-| `e` | 编辑选中的笔记；`f2` 保存，`esc` 取消 |
+| `e` | 编辑选中的笔记；`f2` 或 `ctrl+s` 保存，`esc` 取消 |
 | `d` | 确认后删除 |
-| `c` | 复制笔记内容并显示提示 |
-| `g` | 在当前文件夹和 Global 之间切换 |
-| `Tab` | 聚焦搜索框；`Enter` 或 `Esc` 回到列表 |
+| `Ctrl+Z` | 恢复当前文件夹最近删除的一条笔记 |
+| `p` | 固定/取消固定选中的笔记；固定笔记始终排在顶部 |
+| `s` | 在“最近更新”和“创建时间”之间切换排序 |
+| `c` / `Ctrl+Y` | 复制笔记内容并显示提示 |
+| `g` / `Ctrl+P` | 在当前文件夹和 Global 之间切换 |
+| `Tab` | 聚焦搜索框；`Enter`、`Esc` 或 `Tab` 回到列表 |
 | `↑` / `↓` | 选择笔记 |
-| `Esc` | 关闭记事本 |
+| `?` / `F1` | 显示快捷键帮助 |
+| `Esc` | 关闭帮助或记事本 |
 
-编辑器中按 `ctrl+g` 可以在 **This folder** 和 **Global** 之间切换保存目标。
+搜索框聚焦时用 `F1`；`?` 在笔记列表中可用，也可以作为普通字符输入。
+
+编辑器中按 `ctrl+g` 或 `ctrl+p` 可以在 **This folder** 和 **Global** 之间切换保存目标。
 
 ## 笔记怎么归档
 
@@ -111,3 +117,4 @@ a add · e edit · d delete · c copy · g scope · tab search · esc close
 | --- | --- | --- |
 | `enabled` | `true` | 设为 `false` 关闭记事本 |
 | `keybind` | `ctrl+shift+n` | 修改快捷键；设为 `false` 后仍可通过命令面板和 `/notepad` 打开 |
+| `defaultSort` | `updated` | 初始排序：`updated` 或 `created`；上次选择会被记住 |

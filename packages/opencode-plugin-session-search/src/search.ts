@@ -1,3 +1,5 @@
+import { matchText, parseQuery, type MatchRange } from "./query.js"
+
 export type Message = {
   id: string
   type: string
@@ -17,7 +19,13 @@ export type Entry = {
   folded: string
   created: number
 }
-export type Match = Entry & { preview: string; beforeCompaction: boolean; reverted: boolean }
+export type Match = Entry & {
+  preview: string
+  ranges: readonly MatchRange[]
+  matchKind: "message-start" | "part"
+  beforeCompaction: boolean
+  reverted: boolean
+}
 export type SearchResult = { matches: Match[]; total: number; error?: string }
 export const MAX_QUERY_CHARS = 256
 
@@ -79,23 +87,32 @@ export class TranscriptIndex {
   ): Promise<SearchResult> {
     signal?.throwIfAborted()
     if (query.length > MAX_QUERY_CHARS) return { matches: [], total: 0, error: `Use at most ${MAX_QUERY_CHARS} query characters` }
-    const terms = [...new Set(query.trim().toLowerCase().split(/\s+/).filter(Boolean))]
+    const parsed = parseQuery(query)
     const matches: Match[] = []
     const allowed = roles ? new Set(roles) : undefined
     const entries = this.entries()
     const scoped = allowed ? entries.filter((entry) => allowed.has(entry.role)) : entries
-    let total = terms.length ? 0 : scoped.length
-    const candidates = terms.length ? scoped : scoped.slice(0, limit)
+    const hasTerms = parsed.tokens.length > 0
+    let total = hasTerms ? 0 : scoped.length
+    const candidates = hasTerms ? scoped : scoped.slice(0, limit)
     for (let index = 0; index < candidates.length; index++) {
       signal?.throwIfAborted()
       if (index && index % 256 === 0) { await yieldWork(); signal?.throwIfAborted() }
       const entry = candidates[index]
-      if (!terms.every((term) => entry.folded.includes(term))) continue
-      if (terms.length) total++
+      const ranges = matchText(entry.text, parsed)
+      if (!ranges) continue
+      if (hasTerms) total++
       if (matches.length >= limit) continue
-      const at = terms.length ? Math.max(0, entry.folded.indexOf(terms[0]) - 60) : 0
+      const at = ranges.length ? Math.max(0, ranges[0]!.start - 60) : 0
       const preview = `${at ? "…" : ""}${entry.text.slice(at, at + 180).replace(/[\u0000-\u001f\u007f]/g, " ")}${entry.text.length > at + 180 ? "…" : ""}`
-      matches.push({ ...entry, preview, beforeCompaction: this.compactionTime !== undefined && entry.created < this.compactionTime, reverted: this.revertID !== undefined && entry.messageID >= this.revertID })
+      matches.push({
+        ...entry,
+        preview,
+        ranges: matchText(preview, parsed) ?? [],
+        matchKind: entry.role === "user" ? "message-start" : "part",
+        beforeCompaction: this.compactionTime !== undefined && entry.created < this.compactionTime,
+        reverted: this.revertID !== undefined && entry.messageID >= this.revertID,
+      })
     }
     return { matches, total }
   }

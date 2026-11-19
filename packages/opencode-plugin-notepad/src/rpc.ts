@@ -7,6 +7,7 @@ const note = {
     text: { type: "string" },
     scope: { type: "string", enum: ["folder", "global"] },
     folder: { type: "string" },
+    pinned: { type: "boolean" },
     createdAt: { type: "number" },
     updatedAt: { type: "number" },
   },
@@ -42,6 +43,7 @@ export const NotepadRpc = Rpc.define({
           text: { type: "string" },
           scope: { type: "string", enum: ["folder", "global"] },
           directory: { type: "string" },
+          pinned: { type: "boolean" },
         },
         required: ["text", "scope", "directory"],
         additionalProperties: false,
@@ -72,6 +74,16 @@ export const NotepadRpc = Rpc.define({
         required: ["removed"],
         additionalProperties: false,
       },
+      errors: { invalid },
+    },
+    setPinned: {
+      input: {
+        type: "object",
+        properties: { id: { type: "string" }, pinned: { type: "boolean" } },
+        required: ["id", "pinned"],
+        additionalProperties: false,
+      },
+      output: { type: "object", properties: { note }, required: ["note"], additionalProperties: false },
       errors: { invalid },
     },
     setScope: {

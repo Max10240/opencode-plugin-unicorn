@@ -12,8 +12,11 @@ export const SEND_TOOL_DESCRIPTION =
 type SendMessageInput = {
   readonly target_session_id?: string
   readonly message: string
+  readonly "need-reply": boolean
   readonly delivery?: "steer" | "queue"
 }
+
+export const REPLY_REQUEST = "\n---\n 上述 session 需要你的回复"
 
 type PluginContext = Pick<Context, "event" | "session" | "storage" | "tool">
 type SessionPromptInput = Parameters<Context["session"]["prompt"]>[0]
@@ -38,6 +41,10 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
               description: "Message to send.",
               minLength: 1,
             },
+            "need-reply": {
+              type: "boolean",
+              description: "是否需要回复",
+            },
             delivery: {
               type: "string",
               enum: ["steer", "queue"],
@@ -45,7 +52,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
                 '"steer" (default) delivers immediately. "queue" waits until the target is fully idle; this can take a long time and the message may be stale, so use it only for non-urgent messages.',
             },
           },
-          required: ["message"],
+          required: ["message", "need-reply"],
           additionalProperties: false,
         },
         execute: async (rawInput, tool) => {
@@ -58,7 +65,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
 
           const target = available.find((session) => session.id === input.target_session_id)
 
-          const text = `${MESSAGE_PREFIX}<${tool.sessionID}>的消息: ${input.message}`
+          const text = `${MESSAGE_PREFIX}<${tool.sessionID}>的消息: ${input.message}${input["need-reply"] === true ? REPLY_REQUEST : ""}`
           const delivery = input.delivery === "queue" ? "queue" : "steer"
           try {
             await context.session.prompt({

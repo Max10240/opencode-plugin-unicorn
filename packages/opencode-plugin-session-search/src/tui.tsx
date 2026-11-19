@@ -27,7 +27,7 @@ export function setupSessionSearch(context: Context, selectedKeybind: unknown = 
   let openSession: string | undefined
   let structural = false
   let lifetime: AbortController | undefined
-  let savedState: SessionSearchDialogState = { query: "", includeAgent: false }
+  let savedState: SessionSearchDialogState = { query: "" }
   const flush = () => {
     timer = undefined
     if (!openSession) return
@@ -105,7 +105,7 @@ export function setupSessionSearch(context: Context, selectedKeybind: unknown = 
       run: () => {
         const route = context.ui.router.current()
         if (route.type !== "session") { context.ui.toast.show({ message: "Open a session first", variant: "warning" }); return }
-        savedState = { query: "", includeAgent: false }
+        savedState = { query: "" }
         openDialog(route.sessionID)
       },
     }] }))

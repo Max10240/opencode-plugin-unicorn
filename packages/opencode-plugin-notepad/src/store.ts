@@ -42,6 +42,7 @@ function storedNote(value: unknown): Note | undefined {
     text: value.text,
     scope: value.scope,
     ...(value.scope === "folder" ? { folder: value.folder as string } : {}),
+    ...(value.pinned === true ? { pinned: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   }
@@ -63,7 +64,7 @@ export function visibleNotes(notes: readonly Note[], directory: string) {
   return notes
     .filter((note) => note.scope === "global" || note.folder === folder)
     .slice()
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .sort((left, right) => Number(right.pinned === true) - Number(left.pinned === true) || right.updatedAt - left.updatedAt)
 }
 
 export class NoteStore {
@@ -91,7 +92,7 @@ export class NoteStore {
     return this.run((notes) => visibleNotes(notes, directory))
   }
 
-  add(input: { text: unknown; scope: unknown; directory?: unknown }) {
+  add(input: { text: unknown; scope: unknown; directory?: unknown; pinned?: unknown }) {
     return this.run(async (notes) => {
       const text = normalizeText(input.text)
       const scope = isScope(input.scope) ? input.scope : "folder"
@@ -103,6 +104,7 @@ export class NoteStore {
         text,
         scope,
         ...(folder === undefined ? {} : { folder }),
+        ...(input.pinned === true ? { pinned: true } : {}),
         createdAt: now,
         updatedAt: now,
       }
@@ -134,6 +136,24 @@ export class NoteStore {
     })
   }
 
+  setPinned(id: unknown, pinned: unknown) {
+    return this.run(async (notes) => {
+      if (typeof id !== "string" || !id) throw new NotepadError("A note id is required")
+      if (typeof pinned !== "boolean") throw new NotepadError("Invalid pin state")
+      const note = notes.find((item) => item.id === id)
+      if (!note) throw new NotepadError("Note not found")
+      const { pinned: _previous, ...rest } = note
+      const next: Note = {
+        ...rest,
+        ...(pinned ? { pinned: true } : {}),
+        updatedAt: Date.now(),
+      }
+      notes[notes.indexOf(note)] = next
+      await this.persist(notes)
+      return next
+    })
+  }
+
   setScope(id: unknown, scope: unknown, directory: unknown) {
     return this.run(async (notes) => {
       if (typeof id !== "string" || !id) throw new NotepadError("A note id is required")
@@ -146,6 +166,7 @@ export class NoteStore {
         text: note.text,
         scope,
         ...(folder === undefined ? {} : { folder }),
+        ...(note.pinned === true ? { pinned: true } : {}),
         createdAt: note.createdAt,
         updatedAt: Date.now(),
       }

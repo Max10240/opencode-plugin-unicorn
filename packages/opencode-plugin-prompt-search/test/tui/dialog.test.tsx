@@ -8,6 +8,7 @@ import type { JSX } from "solid-js"
 import { PromptSearchDialog } from "../../src/dialog.js"
 import { setupPromptSearch, COMMAND_ID } from "../../src/tui.js"
 import type { PromptEntry } from "../../src/indexer.js"
+import { parseQuery } from "../../src/query.js"
 
 const theme = {
   text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" } },
@@ -16,36 +17,53 @@ const theme = {
   surface: () => theme,
 }
 
+const now = Date.now()
+
 const entries: PromptEntry[] = [
-  { sessionID: "s1", messageID: "m1", text: "first prompt", created: 3, projectID: "p1" },
-  { sessionID: "s1", messageID: "m2", text: "second prompt", created: 2, projectID: "p1" },
-  { sessionID: "s2", messageID: "m3", text: "third prompt", created: 1, projectID: "p2" },
+  { sessionID: "s1", messageID: "m1", text: "first prompt", created: now - 300_000, projectID: "p1" },
+  { sessionID: "s1", messageID: "m2", text: "second prompt", created: now - 240_000, projectID: "p1" },
+  { sessionID: "s2", messageID: "m3", text: "third prompt", created: now - 180_000, projectID: "p2" },
 ]
 
-function createDialogHarness() {
+function createDialogHarness(options: { defaultScope?: "all" | "project"; storedScope?: "all" | "project" } = {}) {
   const inserted: string[] = []
+  const copied: string[] = []
+  const updates: Array<{ scope: "all" | "project" }> = []
+  const stored = { scope: (options.storedScope ?? options.defaultScope ?? "all") as "all" | "project" }
   const layers: Array<{ commands: Array<{ bind?: string; title?: string; run: () => void }> }> = []
   const [dialog, setDialog] = createSignal<{ render: () => JSX.Element } | undefined>()
   const composer = { insertText: (text: string) => { inserted.push(text) }, focus() {} } as any
   const context = {
+    options: { defaultScope: options.defaultScope ?? "all" },
     theme,
     keymap: { layer: (factory: () => any) => { layers.push(factory()) } },
     data: { session: { get: () => ({ projectID: "p1" }) } },
+    storage: {
+      store: () => [stored, async (mutation: (draft: { scope: "all" | "project" }) => void) => {
+        mutation(stored)
+        updates.push({ ...stored })
+      }],
+    },
     ui: {
       dialog: { clear() { setDialog(undefined) }, show(render: () => JSX.Element) { setDialog({ render }) }, set() {} },
       router: { current: () => ({ type: "session", sessionID: "s1" }) },
       toast: { show() {} },
     },
-    renderer: { currentFocusedEditor: composer },
+    renderer: {
+      currentFocusedEditor: composer,
+      copyToClipboardOSC52: (text: string) => { copied.push(text); return true },
+    },
   } as unknown as Context
   const indexer = {
-    search: (query: string, _limit?: number, options?: { projectID?: string; scope?: "all" | "project" }) =>
-      entries.filter((entry) =>
+    searchPage: (query: string, _limit?: number, options?: { projectID?: string; scope?: "all" | "project" }) => {
+      const matches = entries.filter((entry) =>
         entry.text.includes(query.toLowerCase()) &&
-        (options?.scope !== "project" || entry.projectID === options.projectID)),
+        (options?.scope !== "project" || entry.projectID === options.projectID))
+      return { entries: matches, total: matches.length, query: parseQuery(query) }
+    },
     refresh: async () => {},
   } as any
-  return { context, indexer, composer, inserted, layers, dialog, show() {
+  return { context, indexer, composer, inserted, copied, updates, stored: () => stored, layers, dialog, show() {
     setDialog({ render: () => <PromptSearchDialog context={context} indexer={indexer} composer={composer} /> })
   } }
 }
@@ -93,7 +111,7 @@ test("filters prompts, moves the selection and inserts the chosen prompt", async
     await Bun.sleep(20)
     const input = findInput(app.renderer.root)!
     input.value = "prompt"
-    await waitFor(app, () => app.captureCharFrame().includes("3. third prompt"), "all prompts were not listed")
+    await waitFor(app, () => app.captureCharFrame().includes("third prompt"), "all prompts were not listed")
     command(harness, "Next prompt")
     command(harness, "Next prompt")
     command(harness, "Use prompt")
@@ -112,7 +130,7 @@ test("toggles between all projects and the current project", async () => {
     await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search dialog did not render")
     await Bun.sleep(20)
     findInput(app.renderer.root)!.value = "prompt"
-    await waitFor(app, () => app.captureCharFrame().includes("3. third prompt"), "all prompts were not listed")
+    await waitFor(app, () => app.captureCharFrame().includes("third prompt"), "all prompts were not listed")
     expect(app.captureCharFrame()).toContain("all projects")
 
     command(harness, "Toggle prompt scope")
@@ -121,8 +139,88 @@ test("toggles between all projects and the current project", async () => {
     expect(app.captureCharFrame()).toContain("first prompt")
 
     command(harness, "Toggle prompt scope")
-    await waitFor(app, () => app.captureCharFrame().includes("3. third prompt"), "all-project results did not return")
+    await waitFor(app, () => app.captureCharFrame().includes("third prompt"), "all-project results did not return")
     expect(app.captureCharFrame()).toContain("all projects")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("shows preview and relative time, copies the selected prompt, and opens help", async () => {
+  const harness = createDialogHarness()
+  const app = await render(harness)
+  try {
+    harness.show()
+    await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search dialog did not render")
+    await Bun.sleep(20)
+    findInput(app.renderer.root)!.value = "prompt"
+    await waitFor(app, () => app.captureCharFrame().includes("1. prompt"), "prompt metadata did not render")
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Preview")
+    expect(frame).toContain("5m ago")
+    expect(frame).toContain("first prompt")
+
+    const commands = harness.layers.flatMap((layer) => layer.commands)
+    expect(commands.find((item) => item.title === "Toggle prompt scope")?.bind).toBe("ctrl+p")
+    expect(commands.find((item) => item.title === "Copy prompt")?.bind).toBe("ctrl+y")
+    expect(commands.find((item) => item.title === "Focus prompt results")?.bind).toBe("tab")
+    expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "f1")).toBe(true)
+    expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "?")).toBe(true)
+
+    command(harness, "Copy prompt")
+    expect(harness.copied).toEqual(["first prompt"])
+    await waitFor(app, () => app.captureCharFrame().includes("Copied prompt"), "copy confirmation did not appear")
+
+    command(harness, "Toggle prompt help")
+    await waitFor(app, () => app.captureCharFrame().includes("close help"), "help panel did not open")
+    command(harness, "Toggle prompt help")
+    await waitFor(app, () => !app.captureCharFrame().includes("close help"), "help panel did not close")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("starts in the configured default scope when no preference exists", async () => {
+  const harness = createDialogHarness({ defaultScope: "project" })
+  const app = await render(harness)
+  try {
+    harness.show()
+    await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search dialog did not render")
+    await Bun.sleep(20)
+    findInput(app.renderer.root)!.value = "prompt"
+    await waitFor(app, () => app.captureCharFrame().includes("first prompt"), "project-scoped prompts did not render")
+    expect(app.captureCharFrame()).toContain("current project")
+    expect(app.captureCharFrame()).not.toContain("third prompt")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("remembers the last project scope across dialog instances", async () => {
+  const harness = createDialogHarness()
+  const app = await render(harness)
+  try {
+    harness.show()
+    await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search dialog did not render")
+    await Bun.sleep(20)
+    findInput(app.renderer.root)!.value = "prompt"
+    await waitFor(app, () => app.captureCharFrame().includes("third prompt"), "all prompts were not listed")
+
+    command(harness, "Toggle prompt scope")
+    await waitFor(app, () => app.captureCharFrame().includes("current project"), "current project scope did not render")
+    await waitFor(app, () => harness.updates.length === 1, "scope preference was not stored")
+    expect(harness.stored().scope).toBe("project")
+    expect(harness.updates.at(-1)).toEqual({ scope: "project" })
+
+    command(harness, "Close prompt search")
+    await waitFor(app, () => harness.dialog() === undefined, "prompt search did not close")
+    harness.show()
+    await waitFor(app, () => app.captureCharFrame().includes("Search previous prompts"), "prompt search did not reopen")
+    await Bun.sleep(20)
+    findInput(app.renderer.root)!.value = "prompt"
+    await waitFor(app, () => app.captureCharFrame().includes("first prompt"), "remembered project results did not render")
+    expect(app.captureCharFrame()).toContain("current project")
+    expect(app.captureCharFrame()).not.toContain("third prompt")
   } finally {
     app.renderer.destroy()
   }

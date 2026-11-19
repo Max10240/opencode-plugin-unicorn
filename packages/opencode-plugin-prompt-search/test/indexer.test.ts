@@ -427,6 +427,33 @@ test("does not index subagent sessions and removes their cached prompts", async 
   expect(exportCalls).toBe(1)
 })
 
+test("requires every term, supports quoted phrases, exclusions, and match totals", () => {
+  const cache: TestCache = {
+    version: 1,
+    sessions: {
+      s: {
+        updated: 10,
+        prompts: [
+          { sessionID: "s", messageID: "both", text: "alpha beta release", created: 5 },
+          { sessionID: "s", messageID: "alpha", text: "alpha only", created: 4 },
+          { sessionID: "s", messageID: "phrase", text: "alpha beta", created: 3 },
+          { sessionID: "s", messageID: "excluded", text: "alpha beta gamma", created: 2 },
+        ],
+      },
+    },
+  }
+  const indexer = new PromptIndexer(contextFor(cache))
+  expect(indexer.search("alpha beta").map((prompt) => prompt.messageID)).toEqual(["both", "phrase", "excluded"])
+  expect(indexer.search('"alpha beta"').map((prompt) => prompt.messageID)).toEqual(["both", "phrase", "excluded"])
+  expect(indexer.search("alpha beta -gamma").map((prompt) => prompt.messageID)).toEqual(["both", "phrase"])
+  expect(indexer.search("alpha -beta").map((prompt) => prompt.messageID)).toEqual(["alpha"])
+
+  const page = indexer.searchPage("alpha beta", 1)
+  expect(page.entries).toHaveLength(1)
+  expect(page.total).toBe(3)
+  expect(page.query.terms).toEqual(["alpha", "beta"])
+})
+
 function contextFor(
   cache: TestCache,
   sessions: any[] = [],

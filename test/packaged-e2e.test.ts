@@ -56,6 +56,13 @@ test("every npm tarball contains only JavaScript and matches its manifest", asyn
       expect(files.every((file) => file === "package.json" || file === "README.md" || file === "README.zh-CN.md" || file.endsWith(".js"))).toBe(true)
       expect(files.some((file) => /opencode\.jsonc?$/.test(file))).toBe(false)
       if (entry.kind === "unicorn") expect(files).not.toContain("dist/src/global-config.js")
+      const internal = {
+        "prompt-search": ["dist/src/ui.js", "dist/src/query.js"],
+        "session-search": ["dist/src/ui.js", "dist/src/query.js"],
+        unicorn: ["dist/src/status-dialog.js", "dist/src/status-rpc.js", "dist/src/status.js"],
+        "recommended-config": ["dist/src/tui.js", "dist/src/rpc.js", "dist/src/options.js"],
+      } as const
+      for (const file of internal[entry.kind as keyof typeof internal] ?? []) expect(files).toContain(file)
       if (tuiPackages.has(entry.kind)) {
         expect(files).toContain("dist/tui.js")
         expect(files).toContain("dist/src/tui.js")

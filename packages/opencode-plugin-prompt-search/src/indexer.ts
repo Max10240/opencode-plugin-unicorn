@@ -1,4 +1,5 @@
 import type { Context } from "@opencode/plugin/tui/context"
+import { matchText, parseQuery, type ParsedQuery } from "./query.js"
 
 export interface PromptEntry {
   readonly sessionID: string
@@ -65,23 +66,37 @@ export class PromptIndexer {
     limit = 100,
     options: { readonly projectID?: string; readonly scope?: "project" | "all" } = {},
   ) {
-    const normalized = query.trim().toLowerCase()
+    return this.searchPage(query, limit, options).entries
+  }
+
+  searchPage(
+    query: string,
+    limit = 100,
+    options: { readonly projectID?: string; readonly scope?: "project" | "all" } = {},
+  ): { entries: PromptEntry[]; total: number; query: ParsedQuery } {
+    const parsed = parseQuery(query)
     const scoped = options.scope === "project" && options.projectID
       ? this.entries().filter((entry) => entry.projectID === options.projectID)
       : this.entries()
-    if (!normalized) return scoped.slice(0, limit)
+    if (parsed.tokens.length === 0) {
+      return { entries: scoped.slice(0, limit), total: scoped.length, query: parsed }
+    }
 
-    const terms = normalized.split(/\s+/).filter(Boolean)
-    return scoped
-      .map((entry) => ({ entry, score: score(entry, normalized, terms) }))
-      .filter((item) => item.score > 0)
-      .sort((left, right) =>
-        right.entry.created - left.entry.created ||
-        right.score - left.score ||
-        right.entry.messageID.localeCompare(left.entry.messageID)
-      )
-      .slice(0, limit)
-      .map((item) => item.entry)
+    const matched: Array<{ entry: PromptEntry; score: number }> = []
+    for (const entry of scoped) {
+      if (!matchText(entry.text, parsed)) continue
+      matched.push({ entry, score: score(entry, parsed) })
+    }
+    matched.sort((left, right) =>
+      right.entry.created - left.entry.created ||
+      right.score - left.score ||
+      right.entry.messageID.localeCompare(left.entry.messageID)
+    )
+    return {
+      entries: matched.slice(0, limit).map((item) => item.entry),
+      total: matched.length,
+      query: parsed,
+    }
   }
 
   invalidate(sessionID: string) {
@@ -258,13 +273,13 @@ async function listSessions(context: Context) {
   return sessions
 }
 
-function score(entry: PromptEntry, query: string, terms: readonly string[]) {
+function score(entry: PromptEntry, query: ParsedQuery) {
+  if (query.terms.length === 0) return 1
   const text = entry.text.toLowerCase()
-  const title = entry.title?.toLowerCase() ?? ""
-  if (text === query) return 10_000
-  if (text.startsWith(query)) return 8_000
-  if (text.includes(query)) return 6_000
-  if (terms.every((term) => text.includes(term))) return 4_000 + terms.length
-  if (terms.some((term) => text.includes(term) || title.includes(term))) return 1_000
-  return 0
+  const joined = query.terms.join(" ")
+  const occurrences = query.terms.reduce((count, term) => count + text.split(term).length - 1, 0)
+  if (text === joined) return 10_000 + occurrences
+  if (text.startsWith(joined)) return 8_000 + occurrences
+  if (text.includes(joined)) return 6_000 + occurrences
+  return 4_000 + occurrences
 }

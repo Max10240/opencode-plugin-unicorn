@@ -22,7 +22,8 @@ preview below the tool output, and the image never enters model context.
 ## What you get
 
 - **Inline previews.** Each image appears below its tool output and scrolls with the conversation.
-- **Click to enlarge.** Open a larger view and press `Esc` to close it.
+- **Enlarge with the keyboard or mouse.** Focus a preview and press `Enter` or `o`; click also works. Press `Esc` to close.
+- **Multiple images stay together.** Images from one tool message collapse into one preview with a gallery.
 - **No model context cost.** The model sees a path and a confirmation; image bytes stay between the server and the TUI.
 - **Works with remote servers.** The TUI fetches the preview through OpenCode's authenticated channel, so the client
   and server do not need a shared filesystem.
@@ -68,6 +69,14 @@ The agent calls:
 
 The path must be absolute and on the server. When image generation is also enabled, saved images are previewed
 automatically without an extra tool call.
+
+| Key | Action |
+| --- | --- |
+| `Enter` / `o` | Enlarge the focused preview or open its image gallery |
+| `←` / `→` | Browse images in the gallery |
+| `Esc` | Close the gallery |
+
+Loading and failure states stay inline, and every preview shows the file name and size.
 
 ## Good to know
 

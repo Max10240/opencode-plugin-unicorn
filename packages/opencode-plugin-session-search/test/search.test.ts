@@ -27,6 +27,23 @@ test("searches all history, including pre-compaction text and reverted entries, 
   expect((await index.search("x".repeat(257))).error).toContain("256")
 })
 
+test("requires every term, supports quoted phrases and exclusions, and labels match kind", async () => {
+  const index = new TranscriptIndex()
+  index.upsert({ id: "u", type: "user", time: { created: 3 }, text: "alpha beta message" })
+  index.upsert({ id: "a", type: "assistant", time: { created: 2 }, content: [{ type: "text", text: "alpha beta part" }, { type: "text", text: "alpha gamma part" }] })
+  index.upsert({ id: "x", type: "user", time: { created: 1 }, text: "alpha only" })
+
+  expect((await index.search("alpha beta")).total).toBe(2)
+  expect((await index.search('"alpha beta"')).total).toBe(2)
+  expect((await index.search("alpha beta -message")).total).toBe(1)
+  expect((await index.search("alpha -beta -gamma")).total).toBe(1)
+
+  const assistant = (await index.search("gamma")).matches[0]
+  expect(assistant.matchKind).toBe("part")
+  expect(assistant.ranges[0]).toMatchObject({ start: expect.any(Number) })
+  expect((await index.search("message")).matches[0].matchKind).toBe("message-start")
+})
+
 test("streaming edits replace text rather than duplicate it, and removals clear entries", async () => {
   const index = new TranscriptIndex()
   index.upsert({ id: "a", type: "assistant", content: [{ type: "text", text: "old" }] })

@@ -108,9 +108,22 @@ export function OpencodeGoUsageDialog(props: { context: Context }) {
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string>()
   const [updated, setUpdated] = createSignal<number>()
+  const [help, setHelp] = createSignal(false)
   let scroll: ScrollBoxRenderable | undefined
   let generation = 0
   let focusTimer: ReturnType<typeof setTimeout> | undefined
+
+  const nearLimit = () => accounts().flatMap((account) => {
+    const usage = account.usage
+    if (!usage) return []
+    return ([
+      ["5-hour", usage.rolling],
+      ["weekly", usage.weekly],
+      ["monthly", usage.monthly],
+    ] as const)
+      .filter(([, meter]) => !meter.limited && meter.percent >= 90)
+      .map(([window]) => `${account.label} ${window}`)
+  })
 
   const load = async (refresh = false) => {
     const token = ++generation
@@ -149,8 +162,12 @@ export function OpencodeGoUsageDialog(props: { context: Context }) {
     target: () => scroll,
     priority: 20,
     commands: [
-      { bind: "escape", title: "Close usage", run: () => props.context.ui.dialog.clear() },
+      { bind: "escape", title: "Close usage", run: () => {
+        if (help()) setHelp(false)
+        else props.context.ui.dialog.clear()
+      } },
       { bind: "r", title: "Refresh usage", run: () => void load(true) },
+      { bind: "?", title: "Toggle usage help", run: () => setHelp((value) => !value) },
     ],
   }))
 
@@ -170,8 +187,22 @@ export function OpencodeGoUsageDialog(props: { context: Context }) {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           OpenCode Go usage
         </text>
-        <text fg={theme.text.muted}>{loading() ? "refreshing…" : "r refresh · esc close"}</text>
+        <text fg={theme.text.muted}>{loading() ? "refreshing…" : "r refresh · ? help · esc close"}</text>
       </box>
+      <Show when={help()}>
+        <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
+          <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Keyboard help</text>
+          <text fg={theme.text.muted}>Each window shows used and remaining quota.</text>
+          <text fg={theme.text.muted}>Reset times are shown in local time.</text>
+          <text fg={theme.text.muted}>R refreshes usage now.</text>
+          <text fg={theme.text.muted}>? close help · esc close</text>
+        </box>
+      </Show>
+      <Show when={nearLimit().length > 0}>
+        <text fg={theme.text.feedback.warning.base} wrapMode="word">
+          {`Close to limit: ${nearLimit().join(", ")}. Refresh to update.`}
+        </text>
+      </Show>
       <Show when={error()}>
         {(value) => (
           <text fg={theme.text.feedback.error.base} wrapMode="word">
@@ -244,14 +275,16 @@ function MeterRow(props: { label: string; meter: Meter; theme: any }) {
       : percent() >= 70
         ? props.theme.text.feedback.warning.base
         : props.theme.text.base
-  const status = () => (props.meter.limited ? "limit reached" : `${formatPercent(percent())} used`)
+  const status = () => props.meter.limited
+    ? "limit reached"
+    : `${formatPercent(percent())} used · ${formatPercent(100 - percent())} left`
   return (
     <box flexDirection="column">
       <text>
         <span style={{ fg: props.theme.text.muted }}>{props.label}</span>
         <span style={{ fg: color() }}>{`  ${meterBar(percent())} ${status()}`}</span>
       </text>
-      <text fg={props.theme.text.muted}>resets {formatReset(props.meter.resetsAt)}</text>
+      <text fg={props.theme.text.muted}>{`resets ${formatReset(props.meter.resetsAt)} (local time)`}</text>
     </box>
   )
 }

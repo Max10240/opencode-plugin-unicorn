@@ -424,6 +424,7 @@ function ProtectionRequestsDialog(props: {
 }) {
   const theme = props.context.theme.surface("dialog")
   const [selected, setSelected] = createSignal<string>()
+  const [confirming, setConfirming] = createSignal(false)
   let timer: ReturnType<typeof setTimeout> | undefined
   let clock: ReturnType<typeof setInterval> | undefined
   const [now, setNow] = createSignal(Date.now())
@@ -432,9 +433,15 @@ function ProtectionRequestsDialog(props: {
     const requests = props.store.requests()
     if (requests.length === 0) {
       setSelected(undefined)
+      setConfirming(false)
       return
     }
     if (!requests.some((request) => request.id === selected())) setSelected(requests[0]?.id)
+  })
+
+  createEffect(() => {
+    selected()
+    setConfirming(false)
   })
 
   const selectedRequest = () => props.store.requests().find((request) => request.id === selected())
@@ -480,9 +487,25 @@ function ProtectionRequestsDialog(props: {
         const index = Math.max(0, requests.findIndex((request) => request.id === selected()))
         setSelected(requests[Math.min(requests.length - 1, index + 1)]?.id)
       } },
-      { bind: "a", title: "Approve unprotect", run: () => { void resolve(true) } },
-      { bind: "r", title: "Reject unprotect", run: () => { void resolve(false) } },
-      { bind: "escape", title: "Close requests", run: () => props.context.ui.dialog.clear() },
+      { bind: "a", title: "Approve unprotect", run: () => {
+        if (!confirming() && selectedRequest()) setConfirming(true)
+      } },
+      { bind: "return", title: "Confirm unprotect", run: () => {
+        if (confirming()) void resolve(true)
+        else setConfirming(Boolean(selectedRequest()))
+      } },
+      { bind: "y", title: "Confirm unprotect", run: () => {
+        if (confirming()) void resolve(true)
+      } },
+      { bind: "n", title: "Cancel unprotect", run: () => setConfirming(false) },
+      { bind: "r", title: "Reject unprotect", run: () => {
+        setConfirming(false)
+        void resolve(false)
+      } },
+      { bind: "escape", title: "Close requests", run: () => {
+        if (confirming()) setConfirming(false)
+        else props.context.ui.dialog.clear()
+      } },
     ],
   }))
 
@@ -533,17 +556,39 @@ function ProtectionRequestsDialog(props: {
         </scrollbox>
         <Show when={selectedRequest()}>
           {(request) => (
-            <box flexDirection="column" gap={0}>
-              <text fg={theme.text.base} wrapMode="word">{request().path}</text>
-              <text fg={theme.text.muted} wrapMode="word">
-                {`Source: ${sourceLabel(request().source)} · ${request().sessionID ? shortID(request().sessionID ?? "") : "no session"}`}
-              </text>
-              <text fg={theme.text.muted}>a approve · r reject · esc close</text>
-            </box>
+            <Show
+              when={confirming()}
+              fallback={
+                <box flexDirection="column" gap={0}>
+                  <text fg={theme.text.base} wrapMode="word">{request().path}</text>
+                  <text fg={theme.text.muted} wrapMode="word">
+                    {`Source: ${sourceLabel(request().source)} · ${request().sessionID ? shortID(request().sessionID ?? "") : "no session"}`}
+                  </text>
+                  <text fg={theme.text.muted}>a review unprotect · r reject · esc close</text>
+                </box>
+              }
+            >
+              <box flexDirection="column" gap={0} paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
+                <text fg={theme.text.feedback.warning.base} attributes={TextAttributes.BOLD}>Remove protection from this file?</text>
+                <text fg={theme.text.base} wrapMode="word">{request().path}</text>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {`Source: ${sourceLabel(request().source)} · Session: ${request().sessionID ? shortID(request().sessionID ?? "") : "none"}${request().project ? ` · Project: ${shortPath(request().project ?? "", props.context) ?? request().project}` : ""}`}
+                </text>
+                <Show when={request().reason}>
+                  {(reason) => <text fg={theme.text.muted} wrapMode="word">{`Reason: ${cleanText(reason(), 240)}`}</text>}
+                </Show>
+                <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                  This stays in effect for future turns. Register the file again to restore protection.
+                </text>
+                <text fg={theme.text.muted}>y / enter unprotect · n / esc cancel</text>
+              </box>
+            </Show>
           )}
         </Show>
       </Show>
-      <text fg={theme.text.muted}>↑/↓ select · a approve · r reject · esc close</text>
+      <text fg={theme.text.muted}>
+        {confirming() ? "y / enter unprotect · n / esc cancel" : "↑/↓ select · a review unprotect · r reject · esc close"}
+      </text>
     </box>
   )
 }
@@ -583,6 +628,7 @@ export function ProtectionHistoryDialog(props: {
   const [error, setError] = createSignal<string>()
   const [clearArmed, setClearArmed] = createSignal(false)
   const [unprotectArmed, setUnprotectArmed] = createSignal(false)
+  const [help, setHelp] = createSignal(false)
   const [now, setNow] = createSignal(Date.now())
   const [sessions, setSessions] = createSignal<Record<string, SessionSummary | null>>({})
   const requested = new Set<string>()
@@ -974,6 +1020,7 @@ export function ProtectionHistoryDialog(props: {
       { bind: "k", title: "Previous protection item", run: () => move(-1) },
       { bind: "j", title: "Next protection item", run: () => move(1) },
       { bind: "t", title: "Open protection filter", run: openFilterMenu },
+      { bind: "ctrl+t", title: "Open protection filter", run: openFilterMenu },
       { bind: "0", title: "Reset protection filter", run: resetFilter },
       { bind: "f", title: "Switch protection view", run: () => switchView() },
       { bind: "s", title: "Toggle protection session scope", run: () => {
@@ -1001,6 +1048,8 @@ export function ProtectionHistoryDialog(props: {
         void unprotectSelected()
       } },
       { bind: "c", title: "Copy protection event", run: copy },
+      { bind: "ctrl+y", title: "Copy protection event", run: copy },
+      { bind: "?", title: "Toggle protection help", run: () => setHelp((value) => !value) },
       { bind: "x", title: "Clear protection history", run: () => {
         if (view() === "files") {
           void props.context.ui.toast.show({ message: "Clear history from the History view", variant: "warning" })
@@ -1013,6 +1062,10 @@ export function ProtectionHistoryDialog(props: {
         else reload()
       } },
       { bind: "escape", title: "Close protection history", run: () => {
+        if (help()) {
+          setHelp(false)
+          return
+        }
         if (menuOpen()) {
           setMenuOpen(false)
           return
@@ -1088,10 +1141,20 @@ export function ProtectionHistoryDialog(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Sensitive protection</text>
         <text fg={theme.text.muted}>
           {view() === "files"
-            ? files.loading() ? "loading…" : files.error() ? "files unavailable" : "live · esc close"
-            : loading() ? "loading…" : error() ? "history unavailable" : "live · esc close"}
+            ? files.loading() ? "loading…" : files.error() ? "files unavailable" : "? help · esc close"
+            : loading() ? "loading…" : error() ? "history unavailable" : "? help · esc close"}
         </text>
       </box>
+      <Show when={help()}>
+        <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
+          <text fg={theme.text.muted}>History lists redaction events; Protected files shows what is registered.</text>
+          <text fg={theme.text.muted}>F switches views. T / Ctrl+T changes the filter. 0 resets it.</text>
+          <text fg={theme.text.muted}>C / Ctrl+Y copies the selected event or protected file.</text>
+          <text fg={theme.text.muted}>U unprotects or restores a protected file. R reloads.</text>
+          <text fg={theme.text.muted}>? close help · esc close</text>
+        </box>
+      </Show>
       <box flexDirection="row" gap={2}>
         <box onMouseUp={(event) => { if (event.button === 0) switchView("history") }}>
           <text
@@ -1235,7 +1298,7 @@ export function ProtectionHistoryDialog(props: {
                   return latest ? `Recent: ${absoluteTime(latest.time)}` : "Recent: no hit in this history"
                 })()}
               </text>
-              <text fg={theme.text.muted}>{`enter history · c copy · u ${file().disabled ? "restore" : "unprotect"} · f history`}</text>
+              <text fg={theme.text.muted}>{`enter history · c/ctrl+y copy · u ${file().disabled ? "restore" : "unprotect"} · f history`}</text>
             </box>
           )}
         </Show>
@@ -1244,10 +1307,10 @@ export function ProtectionHistoryDialog(props: {
         {view() === "files"
           ? unprotectArmed()
             ? "Press u again to confirm unprotect/restore"
-            : "↑/↓ select · enter history · c copy · u unprotect/restore · t filter · 0 all · f history · r reload · esc close"
+            : "↑/↓ select · enter history · c/ctrl+y copy · u unprotect/restore · t filter · 0 all · f history · r reload · ? help"
           : clearArmed()
             ? "Press x again to clear all protection history"
-            : `↑/↓ select · enter session · c copy · t filter: ${filter()} · s scope · f files · 0 all · r reload · esc close`}
+            : `↑/↓ select · enter session · c/ctrl+y copy · t filter: ${filter()} · s scope · f files · 0 all · r reload · ? help`}
       </text>
     </box>
   )

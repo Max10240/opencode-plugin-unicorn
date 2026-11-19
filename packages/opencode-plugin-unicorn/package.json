@@ -11,7 +11,7 @@
   "scripts": {
     "test": "bun test test/*.test.ts && bun test --conditions=browser --preload @opentui/solid/preload test/tui",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node build.mjs",
+    "build": "tsc -p tsconfig.build.json && bun build.mjs",
     "prepack": "node ../../scripts/sync-plugin-dependencies.mjs && node ../../scripts/sync-recommended-rules.mjs && npm run build"
   },
   "files": [

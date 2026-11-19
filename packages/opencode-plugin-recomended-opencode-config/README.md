@@ -68,6 +68,17 @@ With Unicorn:
 This plugin is not enabled by default. If `enabled` is not set, it turns on only when the server environment's
 `IS_MAX_SELF` variable is non-empty and is not `0` or `false`. Set `enabled: false` to force it off.
 
+## Check what was applied
+
+Run `/recommended` or choose **Recommended config status** from the command palette. The read-only panel shows:
+
+- which config files were found;
+- how many recommended rules and commands are present;
+- the exact rules and commands that are still missing;
+- whether automatic updates are enabled.
+
+The panel does not change files. Press `r` to refresh and `?` for help.
+
 ## What it changes
 
 | Area | Behavior |

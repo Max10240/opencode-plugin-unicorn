@@ -123,17 +123,51 @@ test("renders every Go window and refreshes with r", async () => {
     const frame = app.captureCharFrame()
     expect(frame).toContain("5 hours")
     expect(frame).toContain("42% used")
+    expect(frame).toContain("58% left")
     expect(frame).toContain("Weekly")
     expect(frame).toContain("18% used")
+    expect(frame).toContain("82% left")
     expect(frame).toContain("Monthly (total)")
     expect(frame).toContain("7% used")
+    expect(frame).toContain("93% left")
     expect(frame).toContain("Acme")
     expect(frame).toContain("resets")
+    expect(frame).toContain("(local time)")
+
+    command(harness, "Toggle usage help")
+    await waitFor(app, () => app.captureCharFrame().includes("Keyboard help"), "usage help did not open")
+    command(harness, "Toggle usage help")
+    await waitFor(app, () => !app.captureCharFrame().includes("Keyboard help"), "usage help did not close")
 
     command(harness, "Refresh usage")
     await waitFor(app, () => harness.listCalls() === 2, "refresh did not reload usage")
     command(harness, "Close usage")
     await waitFor(app, () => harness.dialogEntry() === undefined, "dialog did not close")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("warns once when an account is close to a limit", async () => {
+  const harness = createHarness({
+    accounts: [{
+      ...account,
+      usage: {
+        rolling: { percent: 95, limited: false, resetsAt: Date.now() + 60_000 },
+        weekly: { percent: 18, limited: false, resetsAt: Date.now() + 120_000 },
+        monthly: { percent: 7, limited: false, resetsAt: Date.now() + 180_000 },
+      },
+    }],
+  })
+  const app = await render(harness)
+  try {
+    harness.open()
+    await waitFor(app, () => app.captureCharFrame().includes("Close to limit"), "near-limit warning did not appear")
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Close to limit: Work 5-hour")
+    expect(frame.split("Close to limit").length).toBe(2)
+    expect(frame).toContain("95% used")
+    expect(frame).toContain("5% left")
   } finally {
     app.renderer.destroy()
   }

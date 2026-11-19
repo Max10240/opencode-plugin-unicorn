@@ -14,6 +14,8 @@ import {
   type ProtectionRequestStore,
 } from "./tui-history.js"
 
+export { HISTORY_COMMAND_ID } from "./tui-history.js"
+
 export default Plugin.define({
   id: "max10240.sensitive-protection.tui",
   setup: setupSensitiveProtectionTui,

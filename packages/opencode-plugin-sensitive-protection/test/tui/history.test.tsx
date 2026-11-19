@@ -3,11 +3,14 @@ import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/tui/context"
 import { testRender } from "@opentui/solid"
 import { createSignal } from "solid-js"
-import type { ProtectionHit } from "../../src/rpc.js"
+import type { JSX } from "solid-js"
+import type { ProtectionHit, ProtectionRequest } from "../../src/rpc.js"
 import {
+  openProtectionRequests,
   ProtectionHistoryDialog,
   RecentProtectionChip,
   type ProtectionHistoryStore,
+  type ProtectionRequestStore,
 } from "../../src/tui-history.js"
 
 const theme = {
@@ -102,6 +105,89 @@ async function waitFor(app: { flush(): Promise<void>; captureCharFrame(): string
   }
   throw new Error(`${message}\n${app.captureCharFrame()}`)
 }
+
+function runCommand(layers: Array<{ commands: Array<{ title?: string; run: () => void }> }>, title: string) {
+  const layer = [...layers].reverse().find((entry) => entry.commands.some((command) => command.title === title))
+  const selected = layer?.commands.find((command) => command.title === title)
+  if (!selected) throw new Error(`Missing command: ${title}`)
+  selected.run()
+}
+
+test("requires review before approving an unprotect request", async () => {
+  const [requests, setRequests] = createSignal<ProtectionRequest[]>([{
+    id: "request-one",
+    path: "/Users/max/.npmrc",
+    source: "manual",
+    project: "/Users/max/project",
+    sessionID: "ses_one",
+    reason: "need the registry token",
+    createdAt: Date.now(),
+  }])
+  const resolved: Array<[string, boolean]> = []
+  const store: ProtectionRequestStore = {
+    requests: () => requests(),
+    count: () => requests().length,
+    loading: () => false,
+    load: async () => {},
+    resolve: async (id, approve) => {
+      resolved.push([id, approve])
+      setRequests([])
+      return true
+    },
+    dispose: () => {},
+  }
+  const layers: any[] = []
+  const [dialog, setDialog] = createSignal<{ render: () => JSX.Element } | undefined>()
+  const context = {
+    options: {},
+    theme,
+    keymap: { layer: (factory: () => any) => { layers.push(factory()) } },
+    ui: {
+      dialog: { set() {}, show(render: () => JSX.Element) { setDialog({ render }) }, clear() { setDialog(undefined) } },
+      toast: { show() {} },
+      format: { path: (value: string) => value.replace("/Users/max", "~") },
+    },
+  } as unknown as Context
+
+  openProtectionRequests(context, store)
+  const app = await testRender(() => (
+    <box width="100%" height="100%">
+      {(() => { const entry = dialog(); return entry ? entry.render() : null })()}
+    </box>
+  ), { width: 110, height: 40 })
+  try {
+    await waitFor(app, () => app.captureCharFrame().includes("Unprotect requests"), "request dialog did not render")
+    expect(app.captureCharFrame()).toContain("a review unprotect")
+
+    runCommand(layers, "Approve unprotect")
+    await waitFor(app, () => app.captureCharFrame().includes("Remove protection from this file?"), "confirmation panel did not open")
+    expect(resolved).toEqual([])
+    expect(app.captureCharFrame()).toContain("need the registry token")
+
+    runCommand(layers, "Cancel unprotect")
+    await waitFor(app, () => app.captureCharFrame().includes("a review unprotect"), "confirmation panel did not cancel")
+    expect(resolved).toEqual([])
+
+    runCommand(layers, "Approve unprotect")
+    runCommand(layers, "Confirm unprotect")
+    await waitFor(app, () => resolved.length === 1, "unprotect request was not approved")
+    expect(resolved).toEqual([["request-one", true]])
+    await waitFor(app, () => app.captureCharFrame().includes("No pending unprotect requests"), "resolved request was not removed")
+
+    setRequests([{
+      id: "request-two",
+      path: "/Users/max/.ssh/config",
+      source: "config",
+      createdAt: Date.now(),
+    }])
+    await waitFor(app, () => app.captureCharFrame().includes(".ssh/config"), "second request did not appear")
+    runCommand(layers, "Reject unprotect")
+    await waitFor(app, () => resolved.length === 2, "unprotect request was not rejected")
+    expect(resolved.at(-1)).toEqual(["request-two", false])
+  } finally {
+    app.renderer.destroy()
+  }
+})
 
 test("clicking the footer chip opens protection history", async () => {
   let dialog: (() => unknown) | undefined
@@ -275,6 +361,9 @@ test("filter menu shows the current filter and resets to all", async () => {
   const app = await render(harness)
   try {
     await waitFor(app, () => app.captureCharFrame().includes("Model context"), "history did not render")
+    expect(commands(harness).filter((command) => command.title === "Open protection filter").map((command) => command.bind)).toEqual(expect.arrayContaining(["t", "ctrl+t"]))
+    expect(commands(harness).filter((command) => command.title === "Copy protection event").map((command) => command.bind)).toEqual(expect.arrayContaining(["c", "ctrl+y"]))
+    expect(commands(harness).some((command) => command.title === "Toggle protection help" && command.bind === "?")).toBe(true)
     commands(harness).find((command) => command.title === "Open protection filter")?.run()
     await waitFor(app, () => app.captureCharFrame().includes("All events"), "filter menu did not open")
     expect(app.captureCharFrame()).toContain("(current)")

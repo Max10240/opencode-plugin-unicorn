@@ -17,11 +17,13 @@ const theme = {
   surface: () => theme,
 }
 
-function createHarness() {
+function createHarness(options: { defaultSort?: "created" | "updated" } = {}) {
   let notes: Note[] = []
   let nextID = 0
   const toasts: string[] = []
   const clipboard: string[] = []
+  const updates: Array<{ sort: "created" | "updated" }> = []
+  const stored = { sort: options.defaultSort ?? "updated" as "created" | "updated" }
   const layers: Array<{ mode: string; target?: () => Renderable | undefined; enabled?: () => boolean; commands: Array<{ bind?: string; title?: string; run: () => void }> }> = []
   const [dialog, setDialog] = createSignal<{ render: () => JSX.Element } | undefined>()
   const setDialogRender = (render: (() => JSX.Element) | undefined) => {
@@ -29,14 +31,20 @@ function createHarness() {
   }
 
   const context = {
-    options: {},
+    options: options.defaultSort ? { defaultSort: options.defaultSort } : {},
     location: { directory: "/workspace" },
+    storage: {
+      store: () => [stored, async (mutation: (draft: { sort: "created" | "updated" }) => void) => {
+        mutation(stored)
+        updates.push({ ...stored })
+      }],
+    },
     client: {
       rpc: () => ({
         list: async () => ({ notes: notes.map((note) => ({ ...note })) }),
-        add: async (input: { text: string; scope: NoteScope }) => {
+        add: async (input: { text: string; scope: NoteScope; pinned?: boolean }) => {
           const now = Date.now()
-          const note = { id: `note-${++nextID}`, text: input.text, scope: input.scope, createdAt: now, updatedAt: now }
+          const note = { id: `note-${++nextID}`, text: input.text, scope: input.scope, ...(input.pinned ? { pinned: true } : {}), createdAt: now, updatedAt: now }
           notes = [...notes, note]
           return { note }
         },
@@ -45,6 +53,10 @@ function createHarness() {
         },
         setScope: async (input: { id: string; scope: NoteScope }) => {
           notes = notes.map((note) => note.id === input.id ? { ...note, scope: input.scope, updatedAt: Date.now() } : note)
+        },
+        setPinned: async (input: { id: string; pinned: boolean }) => {
+          notes = notes.map((note) => note.id === input.id ? { ...note, pinned: input.pinned, updatedAt: Date.now() } : note)
+          return { note: notes.find((note) => note.id === input.id) }
         },
         remove: async (input: { id: string }) => {
           notes = notes.filter((note) => note.id !== input.id)
@@ -70,7 +82,7 @@ function createHarness() {
   } as unknown as Context
 
   setupNotepadTui(context)
-  return { context, layers, toasts, clipboard, notes: () => notes, dialog, setDialogRender }
+  return { context, layers, toasts, clipboard, updates, stored: () => stored, notes: () => notes, dialog, setDialogRender }
 }
 
 async function render(harness: Harness) {
@@ -114,7 +126,7 @@ test("renders notes, filters both scopes, toggles scope, copies, and deletes", a
     command(harness, "Open notepad")
     await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "notepad did not open")
     command(harness, "Add note")
-    await waitFor(app, () => app.captureCharFrame().includes("f2 save"), "note editor did not open")
+    await waitFor(app, () => app.captureCharFrame().includes("f2 / ctrl+s save"), "note editor did not open")
     await Bun.sleep(60)
     find(app.renderer.root, TextareaRenderable)!.setText("Folder note")
     command(harness, "Save note")
@@ -148,6 +160,85 @@ test("renders notes, filters both scopes, toggles scope, copies, and deletes", a
   }
 })
 
+test("restores the last deleted note", async () => {
+  const harness = createHarness()
+  const app = await render(harness)
+  try {
+    command(harness, "Open notepad")
+    await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "notepad did not open")
+    command(harness, "Add note")
+    await waitFor(app, () => app.captureCharFrame().includes("f2 / ctrl+s save"), "note editor did not open")
+    await Bun.sleep(60)
+    find(app.renderer.root, TextareaRenderable)!.setText("Recover me")
+    command(harness, "Save note")
+    await waitFor(app, () => app.captureCharFrame().includes("Recover me"), "note was not saved")
+    command(harness, "Toggle note pin")
+    await waitFor(app, () => app.captureCharFrame().includes("★ Recover me"), "note was not pinned")
+
+    command(harness, "Delete note")
+    await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "note was not deleted")
+    expect(app.captureCharFrame()).toContain("ctrl+z undo delete")
+
+    command(harness, "Undo delete")
+    await waitFor(app, () => app.captureCharFrame().includes("Recover me"), "note was not restored")
+    expect(harness.notes().map((note) => note.text)).toEqual(["Recover me"])
+    expect(harness.notes()[0]?.pinned).toBe(true)
+    expect(harness.toasts).toContain("Note restored")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("uses defaultSort before a preference is stored", async () => {
+  const harness = createHarness({ defaultSort: "created" })
+  const app = await render(harness)
+  try {
+    command(harness, "Open notepad")
+    await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "notepad did not open")
+    expect(app.captureCharFrame()).toContain("sort: created")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("pins notes, changes sort mode, exposes explicit editor save keys, and remembers sort", async () => {
+  const harness = createHarness()
+  const app = await render(harness)
+  try {
+    command(harness, "Open notepad")
+    await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "notepad did not open")
+    command(harness, "Add note")
+    await waitFor(app, () => app.captureCharFrame().includes("f2 / ctrl+s save"), "note editor did not open")
+    const bindings = harness.layers.flatMap((layer) => layer.commands)
+    expect(bindings.filter((item) => item.title === "Toggle note scope").map((item) => item.bind)).toEqual(expect.arrayContaining(["g", "ctrl+p"]))
+    expect(bindings.some((item) => item.title === "Toggle notepad help" && item.bind === "f1")).toBe(true)
+    expect(harness.layers.flatMap((layer) => layer.commands).filter((entry) => entry.title === "Save note").map((entry) => entry.bind)).toEqual(["f2", "ctrl+s"])
+    await Bun.sleep(60)
+    find(app.renderer.root, TextareaRenderable)!.setText("Pinned note")
+    command(harness, "Save note")
+    await waitFor(app, () => app.captureCharFrame().includes("Pinned note"), "note was not saved")
+
+    command(harness, "Toggle note pin")
+    await waitFor(app, () => app.captureCharFrame().includes("★ Pinned note"), "note was not pinned")
+    expect(app.captureCharFrame()).toContain("Pinned")
+    expect(harness.toasts).toContain("Note pinned")
+
+    command(harness, "Change note sort")
+    await waitFor(app, () => app.captureCharFrame().includes("sort: created"), "sort mode did not change")
+    await waitFor(app, () => harness.updates.length === 1, "sort preference was not stored")
+    expect(harness.stored().sort).toBe("created")
+    expect(harness.updates.at(-1)).toEqual({ sort: "created" })
+
+    command(harness, "Close notepad")
+    await waitFor(app, () => harness.dialog() === undefined, "notepad did not close")
+    command(harness, "Open notepad")
+    await waitFor(app, () => app.captureCharFrame().includes("Pinned note"), "notepad did not reopen")
+    expect(app.captureCharFrame()).toContain("sort: created")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("does not dispatch panel commands while another dialog is open", async () => {
   const harness = createHarness()
   const app = await render(harness)
@@ -155,7 +246,7 @@ test("does not dispatch panel commands while another dialog is open", async () =
     command(harness, "Open notepad")
     await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "notepad did not open")
     command(harness, "Add note")
-    await waitFor(app, () => app.captureCharFrame().includes("f2 save"), "note editor did not open")
+    await waitFor(app, () => app.captureCharFrame().includes("f2 / ctrl+s save"), "note editor did not open")
     await Bun.sleep(60)
     const panel = harness.layers.filter((layer) => layer.commands.some((entry) => entry.title === "Add note"))
     expect(panel).toHaveLength(1)

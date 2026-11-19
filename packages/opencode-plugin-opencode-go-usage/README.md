@@ -16,8 +16,9 @@ The dialog shows, for each account:
 - weekly allowance
 - monthly total allowance
 
-Each window shows the used percentage, a progress bar, and its reset time. The active account is marked and listed
-first.
+Each window shows the used and remaining percentage, a progress bar, and its reset time in local time. The active
+account is marked and listed first. A warning line appears when any window is at or above 90% but not yet limited.
+Press `?` for keyboard help and `r` to refresh.
 
 The command is enabled by default only when the current OpenCode server has an `opencode` credential. Adding an
 account with `/connect` enables it without restarting; removing the last account hides it again.

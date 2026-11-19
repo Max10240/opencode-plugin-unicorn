@@ -66,6 +66,9 @@ it does not know which session you mean, it returns the list and asks you to cho
 | `steer` (default) | Delivers immediately | Time-sensitive coordination |
 | `queue` | Waits until the target is fully idle; this can take a long time and the message may be stale | Non-urgent messages |
 
+Every send includes `need-reply`. Set it to `true` when the message needs an answer; the receiver then sees a reply
+request at the end of the message.
+
 ## Good to know
 
 - **Both sessions must share one OpenCode server.** The plugin only sees sessions on the server where it runs.

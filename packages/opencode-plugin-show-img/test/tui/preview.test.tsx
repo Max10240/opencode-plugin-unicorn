@@ -25,6 +25,7 @@ async function renderPreview(read: Read, width = 80, height = 24) {
   const [mounted, setMounted] = createSignal(true)
   const [revertID, setRevertID] = createSignal<string>()
   const [dialog, setDialog] = createSignal<() => JSX.Element>()
+  const layers: Array<{ commands: Array<{ bind?: string; title?: string; run: () => void }> }> = []
   let closeDialog: (() => void) | undefined
   let render!: () => JSX.Element
   let scroll!: ScrollBoxRenderable
@@ -38,6 +39,7 @@ async function renderPreview(read: Read, width = 80, height = 24) {
       message: { list: (id: string) => messages()[id] ?? [] },
       get: (id: string) => ({ location: { directory: `/server/${id}` }, ...(revertID() ? { revert: { messageID: revertID() } } : {}) }),
     } },
+    keymap: { layer: (factory: () => any) => { layers.push(factory()) } },
     theme: { text: { base: "#ffffff", muted: "#aaaaaa", feedback: { error: { base: "#ff0000" } } } },
     ui: { slot: (claim: { append: string; render: typeof render }) => {
       expect(claim.append).toBe("app")
@@ -85,12 +87,19 @@ async function renderPreview(read: Read, width = 80, height = 24) {
     }
     throw new Error(`Plugin update did not settle\n${app.captureCharFrame()}`)
   }
-  return { ...app, waitForPlugin, context, setMessages, setSessionID, setTail, setMounted, setRevertID, cleanup, scroll: () => scroll, removed: () => removed }
+  return { ...app, waitForPlugin, context, setMessages, setSessionID, setTail, setMounted, setRevertID, cleanup, scroll: () => scroll, removed: () => removed, layers }
 }
 
 function findImage(root: Renderable): ImageRenderable | undefined {
   if (root instanceof ImageRenderable) return root
   return root.getChildren().map(findImage).find(Boolean)
+}
+
+function command(app: Awaited<ReturnType<typeof renderPreview>>, title: string) {
+  const layer = [...app.layers].reverse().find((entry) => entry.commands.some((item) => item.title === title))
+  const selected = layer?.commands.find((item) => item.title === title)
+  if (!selected) throw new Error(`Missing command: ${title}`)
+  selected.run()
 }
 
 test.each([...rasterFixtures])("renders actual $kind pixels, not just a success label", async (fixture) => {
@@ -115,7 +124,7 @@ test.each([{ width: 40, height: 16 }, { width: 120, height: 40 }])("fits image p
     await app.waitForFrame((frame) => frame.includes("96 x 48"))
     expect(findImage(app.renderer.root)?.width).toBe(app.scroll().viewport.width - 4)
     expect(findImage(app.renderer.root)?.height).toBe(6)
-    expect(app.captureCharFrame()).toContain("Click to enlarge")
+    expect(app.captureCharFrame()).toContain("Enter/o enlarge")
   } finally { app.renderer.destroy() }
 })
 
@@ -138,14 +147,21 @@ test("shows loading and ignores pending, failed, malformed and unrelated tools",
   } finally { pending.resolve(image()); app.renderer.destroy() }
 })
 
-test("renders image_gen preview metadata through the same UI-only RPC", async () => {
+test("collapses multiple images and loads image_gen preview metadata through the gallery RPC", async () => {
   const ids: string[] = []
   const app = await renderPreview(async ({ assetID }) => { ids.push(assetID); return image() })
   try {
     await app.waitForFrame((frame) => frame.includes("96 x 48"))
     app.setMessages({ a: [assistant(tool("first"), { ...tool("generated"), name: "image_gen" })] })
-    await app.waitForFrame((frame) => frame.includes("generated.png") && frame.includes("96 x 48"))
-    expect(ids).toEqual(["first", "generated"])
+    await app.waitForFrame((frame) => frame.includes("1 of 2") && frame.includes("first.png"))
+    expect(ids).toEqual(["first", "first"])
+    const previewBindings = app.layers.flatMap((layer) => layer.commands).filter((command) => command.title === "Enlarge image preview").map((command) => command.bind)
+    expect(previewBindings).toEqual(expect.arrayContaining(["return", "o"]))
+    command(app, "Enlarge image preview")
+    await app.waitForFrame((frame) => frame.includes("1/2"))
+    command(app, "Next image")
+    await app.waitForFrame((frame) => frame.includes("generated.png") && frame.includes("2/2"))
+    expect(ids).toEqual(["first", "first", "first", "generated"])
     expect(findImage(app.renderer.root)?.image?.width).toBe(96)
   } finally { app.renderer.destroy() }
 })
@@ -236,14 +252,19 @@ test("previews belong to the transcript, move with scrolling and are clipped out
   } finally { app.renderer.destroy() }
 })
 
-test("multiple tool images retain their own inline previews instead of replacing the previous one", async () => {
+test("multiple tool images collapse into one inline preview and open a gallery on demand", async () => {
   const calls: string[] = []
   const app = await renderPreview(async ({ assetID }) => { calls.push(assetID); return image() }, 80, 45)
   try {
     await app.waitForFrame((frame) => frame.includes("first.png"))
     app.setMessages({ a: [assistant(tool("first"), tool("second"))] })
-    await app.waitForFrame((frame) => frame.includes("first.png") && frame.includes("second.png") && frame.split("96 x 48").length === 3)
-    expect(calls).toEqual(["first", "second"])
+    await app.waitForFrame((frame) => frame.includes("first.png") && frame.includes("1 of 2"))
+    expect(calls).toEqual(["first", "first"])
+    command(app, "Enlarge image preview")
+    await app.waitForFrame((frame) => frame.includes("1/2"))
+    command(app, "Next image")
+    await app.waitForFrame((frame) => frame.includes("second.png") && frame.includes("2/2"))
+    expect(calls).toEqual(["first", "first", "first", "second"])
   } finally { app.renderer.destroy() }
 })
 
@@ -278,7 +299,7 @@ test("revert and plugin cleanup remove previews and renderer listeners", async (
     app.setRevertID(undefined)
     await app.waitForFrame((frame) => frame.includes("96 x 48"))
     const listeners = app.renderer.listenerCount("frame")
-    const container = app.renderer.root.findDescendantById("show-img-preview:a:msg_fixture:call_first")?.parent
+    const container = app.renderer.root.findDescendantById("show-img-preview:a:msg_fixture")?.parent
     app.cleanup()
     await app.flush()
     expect(container?.isDestroyed).toBe(true)
@@ -311,7 +332,7 @@ test("long filenames do not overlap the next transcript row in narrow terminals"
   try {
     app.setMessages({ a: [assistant(tool("first", "completed", { imagePreview: { assetID: "first", name: "very-long-name-".repeat(15) + ".png" } }))] })
     await app.waitForFrame((frame) => frame.includes("96 x 48"))
-    const block = app.renderer.root.findDescendantById("show-img-preview:a:msg_fixture:call_first")!
+    const block = app.renderer.root.findDescendantById("show-img-preview:a:msg_fixture")!
     const header = block.getChildren()[0].getChildren()[0]
     expect(header.height).toBe(1)
     const preview = findImage(app.renderer.root)!

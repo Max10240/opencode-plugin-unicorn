@@ -24,7 +24,7 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
       } as unknown as Context
       const cleanup = await unicorn.setup(context)
       expect(tools).toBe(Number(feature && nested))
-      expect(rpc).toBe(Number(feature && nested))
+      expect(rpc).toBe(2 + Number(feature && nested))
       if (cleanup) await cleanup()
       expect(tools).toBe(0)
       expect(rpc).toBe(0)
@@ -60,7 +60,7 @@ test("Unicorn wires OpenCode Go usage through its feature gate", async () => {
       },
     } as unknown as Context
     const cleanup = await unicorn.setup(context)
-    expect(rpc).toBe(enabled ? 1 : 0)
+    expect(rpc).toBe(2 + Number(enabled))
     if (cleanup) await cleanup()
     expect(rpc).toBe(0)
   }
@@ -90,6 +90,7 @@ test("Unicorn exposes sensitive encryption by default and passes through nested 
       },
       list: async () => [...registered.values()],
     },
+    rpc: { register: async () => ({ dispose: async () => {} }) },
   } as unknown as Context
   const cleanup = await unicorn.setup(context)
   try {
@@ -129,6 +130,7 @@ test("features.sensitiveEncrypt false disables the tool without creating keys", 
         return { dispose: async () => {} }
       },
     },
+    rpc: { register: async () => ({ dispose: async () => {} }) },
   } as unknown as Context
   const cleanup = await unicorn.setup(context)
   try {
@@ -175,6 +177,7 @@ test("the assembled image tool uses nested model, URL and credentials without le
         return { dispose: async () => { disposed = true } }
       },
     },
+    rpc: { register: async () => ({ dispose: async () => {} }) },
   }) as unknown as Context
   let cleanup: Awaited<ReturnType<typeof unicorn.setup>> = undefined
   try {

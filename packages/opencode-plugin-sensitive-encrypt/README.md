@@ -74,14 +74,15 @@ configuration are relative to the global OpenCode config directory unless absolu
 
 Run `/encrypt-sensitive` or press the configured keybind.
 
-- **Text mode** is the default. Type or paste multiline text; it is encrypted in memory and never written as a
-  plaintext file. You can optionally save the ciphertext to a path under `$TMPDIR`.
+- **Text mode** is the default. Type or paste multiline text; it is masked by default. Press `ctrl+r` to reveal or hide
+  it. The text is encrypted in memory and never written as a plaintext file. You can optionally save the ciphertext to
+  a path under `$TMPDIR`. After encryption the input is cleared and the result dialog shows where the ciphertext went.
 - **File mode** (`ctrl+t`) encrypts a file under `$TMPDIR`. Enter the source path and an optional output path.
 - **Key selector** lets you choose which public key to encrypt for. It defaults to the public key derived from your
   decryption key, so the plugin can decrypt the result.
 
-Press `f2` to encrypt, `Tab` to move between output and key, and `Esc` to close. The result dialog stays open so you can
-copy the ciphertext or the output path.
+Press `f2` to encrypt, `Tab` to move between output and key, `F1` for help, and `Esc` to close. The result dialog stays
+open so you can copy the ciphertext or the output path.
 
 ### The agent tools
 

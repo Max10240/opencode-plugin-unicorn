@@ -25,6 +25,7 @@ press Enter, and it is inserted into your input box ready to edit.
 - **Insert, do not send.** Selecting a result places it at the cursor; you decide whether to edit or submit.
 - **Survives restarts.** The index lives in local TUI storage, so history is available after a restart.
 - **Deleted sessions still searchable.** Prompts cached before a session disappeared remain in the index.
+- **Precise queries.** Require every word, match an exact phrase, or exclude terms.
 - **Private.** The index is local; it is not sent to the model and does not modify your conversations.
 
 ## Quick start
@@ -59,11 +60,25 @@ With Unicorn:
 
 Press `ctrl+shift+r` or search for **Search previous prompts** in the command palette.
 
-1. Type words from the prompt you remember. Matches are listed newest first.
-2. Use `↑` / `↓` to move through the results.
-3. Press `Tab` to switch between all projects and the current project.
+1. Type words from the prompt you remember. Matches are listed newest first, with match counts, relative time, and
+   highlighted text.
+2. Use `↑` / `↓` to move through the results. The selected prompt appears in a preview panel.
+3. Press `Ctrl+P` to switch between all projects and the current project.
 4. Press `Enter` to insert the original prompt at the cursor.
 5. Edit it if needed, then send when you are ready.
+
+| Key | Action |
+| --- | --- |
+| Type | Require every word; use `"exact phrase"` and `-exclude` |
+| `↑` / `↓` | Select a prompt |
+| `Enter` | Insert the selected prompt |
+| `Tab` | Move focus between search and results |
+| `Ctrl+P` | Switch between all projects and the current project |
+| `Ctrl+Y` | Copy the selected prompt |
+| `?` / `F1` | Show keyboard help |
+| `Esc` | Close help or the dialog |
+
+Use `F1` while the search box is focused; `?` works in the results list and is kept available for literal searches.
 
 The shortcut is chosen to avoid OpenCode's built-in bindings. You can change it to anything that feels natural.
 
@@ -73,6 +88,9 @@ The shortcut is chosen to avoid OpenCode's built-in bindings. You can change it 
 | --- | --- | --- |
 | `keybind` | `ctrl+shift+r` | Shortcut that opens prompt search |
 | `maxPrompts` | `2000` | How many recent prompts to keep in the local index |
+| `defaultScope` | `all` | Initial scope: `all` or `project` |
+
+The last scope you chose is remembered and overrides `defaultScope` on the next run.
 
 `maxPrompts` is a storage budget, not a search limit. When the index grows past the budget, the oldest prompts are
 evicted first. Setting it to `0` clears the cache and stops retaining prompts. Raising it re-indexes sessions that are
@@ -80,7 +98,8 @@ still available on the server, but prompts from deleted and already-evicted sess
 
 ## Good to know
 
-- **Newest matches come first.** The query filters the index; it does not reorder results by relevance. Use `Tab` to limit the search to the current project.
+- **Newest matches come first.** The query filters the index; it does not reorder results by relevance. Use `Ctrl+P` to limit the search to the current project.
+- **Queries are strict.** Words are combined with AND. Wrap words in quotes for a phrase, and prefix a word with `-` to exclude it.
 - **Subagent prompts are not recorded.** Child sessions are skipped, and cached child-session prompts are removed on refresh.
 - **Search is local and cheap.** The index is refreshed incrementally as sessions change; typing does not scan the
   whole server.
