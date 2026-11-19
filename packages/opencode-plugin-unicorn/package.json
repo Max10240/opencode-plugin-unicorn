@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-unicorn",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "OpenCode plugin collection with independently configurable features",
   "type": "module",
   "exports": {
@@ -30,18 +30,18 @@
     "access": "public"
   },
   "dependencies": {
-    "@max10240/opencode-plugin-god": "1.0.32",
-    "@max10240/opencode-plugin-image-gen": "1.0.32",
-    "@max10240/opencode-plugin-non-blocking": "1.0.32",
-    "@max10240/opencode-plugin-notepad": "1.0.32",
-    "@max10240/opencode-plugin-opencode-go-usage": "1.0.32",
-    "@max10240/opencode-plugin-prompt-search": "1.0.32",
-    "@max10240/opencode-plugin-recomended-opencode-config": "1.0.32",
-    "@max10240/opencode-plugin-send-message-across-sessions": "1.0.32",
-    "@max10240/opencode-plugin-sensitive-encrypt": "1.0.32",
-    "@max10240/opencode-plugin-sensitive-protection": "1.0.32",
-    "@max10240/opencode-plugin-session-search": "1.0.32",
-    "@max10240/opencode-plugin-show-img": "1.0.32"
+    "@max10240/opencode-plugin-god": "1.0.33",
+    "@max10240/opencode-plugin-image-gen": "1.0.33",
+    "@max10240/opencode-plugin-non-blocking": "1.0.33",
+    "@max10240/opencode-plugin-notepad": "1.0.33",
+    "@max10240/opencode-plugin-opencode-go-usage": "1.0.33",
+    "@max10240/opencode-plugin-prompt-search": "1.0.33",
+    "@max10240/opencode-plugin-recomended-opencode-config": "1.0.33",
+    "@max10240/opencode-plugin-send-message-across-sessions": "1.0.33",
+    "@max10240/opencode-plugin-sensitive-encrypt": "1.0.33",
+    "@max10240/opencode-plugin-sensitive-protection": "1.0.33",
+    "@max10240/opencode-plugin-session-search": "1.0.33",
+    "@max10240/opencode-plugin-show-img": "1.0.33"
   },
   "peerDependencies": {
     "@opentui/core": ">=0.5.8",
