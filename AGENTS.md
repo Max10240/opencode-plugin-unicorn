@@ -50,6 +50,9 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
   then publishes or triggers CI. `local-publish` commits the package version changes after npm reports success;
   `ci-*` commits and pushes them.
 - The target version must be strictly greater than every package's registry `latest`.
+- CI release reruns are idempotent: `release-execute` may run for a version that is already `latest`, and packages that
+  already exist with matching integrity are skipped. Use `workflow_dispatch` on `main` to rerun a release after a
+  transient registry timeout.
 - Do not call `npm publish` directly. Never commit `~/.npmrc` or any npm token.
 - Local release types (`local-publish`, `local-stage`) run the real release in a detached process. When npm needs
   browser authorization, the foreground command prints the URL and a `--resume <session-id>` command, then exits.

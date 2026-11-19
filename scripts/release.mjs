@@ -137,7 +137,7 @@ async function defaultPack(root, item, destination, { run = runCommand } = {}) {
   return { file, integrity: tarballIntegrity(bytes), filename: path.basename(file) }
 }
 
-export async function waitForRegistry(registry, name, version, { fetchImpl = fetch, attempts = 40, delay = 3000, log = console.error } = {}) {
+export async function waitForRegistry(registry, name, version, { fetchImpl = fetch, attempts = 200, delay = 3000, log = console.error } = {}) {
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const remote = await fetchRegistryVersion(registry, name, version, { fetchImpl, cacheBust: true })
@@ -155,6 +155,7 @@ export async function assertReleaseVersion({
   root = repository,
   registry = DEFAULT_REGISTRY,
   fetchImpl = fetch,
+  allowCurrent = false,
 } = {}) {
   const packages = (await workspacePackages(root)).filter((item) => item.manifest.private !== true)
   const { version } = assertPluginVersions(packages.map((item) => item.manifest))
@@ -162,8 +163,11 @@ export async function assertReleaseVersion({
 
   for (const item of packages) {
     const latest = await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl, cacheBust: true })
-    if (latest && compareVersions(version, latest) <= 0) {
-      throw new Error(`${item.manifest.name}@${version} is not newer than registry latest ${latest}; bump the version first`)
+    if (latest) {
+      const comparison = compareVersions(version, latest)
+      if (comparison < 0 || (comparison === 0 && !allowCurrent)) {
+        throw new Error(`${item.manifest.name}@${version} is not newer than registry latest ${latest}; bump the version first`)
+      }
     }
   }
   return { version, packages }
@@ -265,8 +269,10 @@ export async function planRelease({
   pack = defaultPack,
   run = runCommand,
   destination,
+  allowCurrent = false,
+  log = () => {},
 } = {}) {
-  const { version, packages } = await assertReleaseVersion({ root, registry, fetchImpl })
+  const { version, packages } = await assertReleaseVersion({ root, registry, fetchImpl, allowCurrent })
 
   const temporary = destination ?? await mkdtemp(path.join(os.tmpdir(), "unicorn-release-"))
   const owned = destination === undefined
@@ -280,7 +286,10 @@ export async function planRelease({
       if (remote) {
         if (!remote.integrity) throw new Error(`Registry has no integrity for ${item.manifest.name}@${version}`)
         if (remote.integrity !== packed.integrity) {
-          throw new Error(`Content for ${item.manifest.name}@${version} differs from the registry; bump the version`)
+          if (!allowCurrent) {
+            throw new Error(`Content for ${item.manifest.name}@${version} differs from the registry; bump the version`)
+          }
+          log(`[release] ${item.manifest.name}@${version} already exists with different content; keeping the published version`)
         }
         plan.push({ name: item.manifest.name, version, ...packed, action: "skip" })
       } else {
@@ -330,15 +339,16 @@ export async function releasePackages({
   log = (...values) => console.error(...values),
   pack,
   verify = true,
+  allowCurrent = false,
 } = {}) {
-  await assertReleaseVersion({ root, registry, fetchImpl })
+  await assertReleaseVersion({ root, registry, fetchImpl, allowCurrent })
 
   if (build) {
     log("[release] building")
     await run(["bun", "run", "build"], { cwd: root })
   }
 
-  const planned = await planRelease({ root, registry, fetchImpl, run, pack })
+  const planned = await planRelease({ root, registry, fetchImpl, run, pack, allowCurrent, log })
   try {
     const published = planned.plan.filter((item) => item.action !== "skip")
     log(`[release] ${planned.version}: ${published.length} to ${stage ? "stage" : "publish"}, ${planned.plan.length - published.length} already present`)

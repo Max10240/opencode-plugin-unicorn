@@ -4,7 +4,7 @@ import { releasePackages } from "./release.mjs"
 // release command has already bumped and pushed the version.
 try {
   const stage = process.argv.includes("--stage")
-  const result = await releasePackages({ stage })
+  const result = await releasePackages({ stage, allowCurrent: true })
   console.log(JSON.stringify(result))
 } catch (error) {
   console.log(JSON.stringify({ status: "failed", message: error.message }))

@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import {
   assertCleanWorkspace,
+  assertReleaseVersion,
   bumpVersion,
   compareVersions,
   fetchRegistryVersion,
@@ -211,6 +212,38 @@ test("registry verification retries transient network failures", async () => {
   expect(calls).toBe(2)
 })
 
+test("a current version is allowed only for idempotent CI reruns", async () => {
+  const fx = await fixture({ latest: "1.0.11", version: "1.0.11" })
+  try {
+    await expect(assertReleaseVersion({ root: fx.root, fetchImpl: fx.fetchImpl })).rejects.toThrow("not newer")
+    await expect(assertReleaseVersion({ root: fx.root, fetchImpl: fx.fetchImpl, allowCurrent: true })).resolves.toMatchObject({ version: "1.0.11" })
+  } finally { await fx.cleanup() }
+
+  const older = await fixture({ latest: "1.0.12", version: "1.0.11" })
+  try {
+    await expect(assertReleaseVersion({ root: older.root, fetchImpl: older.fetchImpl, allowCurrent: true })).rejects.toThrow("not newer")
+  } finally { await older.cleanup() }
+})
+
+test("an idempotent CI rerun skips packages already present at the current version", async () => {
+  const fx = await fixture({ latest: "1.0.11", version: "1.0.11" })
+  try {
+    for (const name of [CHILD, UNICORN]) fx.versions.set(`${name}@1.0.11`, { integrity: `sha512-${name}` })
+    const result = await releasePackages({
+      root: fx.root,
+      build: false,
+      verify: false,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      run: fx.run,
+      log: () => {},
+      allowCurrent: true,
+    })
+    expect(result).toMatchObject({ version: "1.0.11", published: [], skipped: [CHILD, UNICORN] })
+    expect(fx.calls.some((args) => args[0] === "npm" && args[1] === "publish")).toBe(false)
+  } finally { await fx.cleanup() }
+})
+
 test("local publish verifies dependency levels and commits package versions", async () => {
   const fx = await fixture()
   try {
@@ -272,11 +305,21 @@ test("plan publishes missing packages and skips identical existing versions", as
   } finally { await fx.cleanup() }
 })
 
-test("plan refuses the same version with different content", async () => {
+test("plan refuses the same version with different content unless it is an idempotent rerun", async () => {
   const fx = await fixture()
   try {
     fx.versions.set(`${CHILD}@1.0.11`, { integrity: "sha512-different" })
     await expect(planRelease({ root: fx.root, fetchImpl: fx.fetchImpl, pack: fx.pack, run: fx.run })).rejects.toThrow("differs")
+    const planned = await planRelease({
+      root: fx.root,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      run: fx.run,
+      allowCurrent: true,
+      log: () => {},
+    })
+    expect(planned.plan.find((item) => item.name === CHILD)?.action).toBe("skip")
+    await planned.cleanup()
   } finally { await fx.cleanup() }
 })
 
