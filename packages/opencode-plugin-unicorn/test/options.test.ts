@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, deadLoopFeatureEnabled, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -43,8 +43,15 @@ test("recommended config's feature gate does not rewrite its nested enabled opti
   expect(childContext({ options }, "recommendedOpencodeConfig").options).toBe(options.recommendedOpencodeConfig)
 })
 
+test("dead loop is enabled by default and can be disabled independently", () => {
+  expect(deadLoopFeatureEnabled({})).toBe(true)
+  expect(deadLoopFeatureEnabled({ features: { deadLoop: true } })).toBe(true)
+  expect(deadLoopFeatureEnabled({ features: { deadLoop: false } })).toBe(false)
+  expect(deadLoopFeatureEnabled({ features: { imageGen: false } })).toBe(true)
+})
+
 test("every child receives exactly its own options, including unknown nested fields", () => {
-  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking"]
+  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking", "deadLoop"]
   const options = Object.freeze({
     features: Object.freeze({ imageGen: false }), model: "legacy-model", keybind: "legacy-key", maxPrompts: 99, sessionSearchKeybind: "legacy-search-key",
     ...Object.fromEntries(names.map((name) => [name, Object.freeze({ marker: name, future: { values: [1, 2] } })])),

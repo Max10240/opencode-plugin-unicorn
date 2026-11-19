@@ -10,7 +10,7 @@ import { createOpenCodeE2E } from "../packages/opencode-plugin-unicorn/test/e2e-
 setDefaultTimeout(360_000)
 
 const repository = path.resolve(fileURLToPath(import.meta.url), "../..")
-const tuiPackages = new Set(["unicorn", "prompt-search", "show-img", "session-search", "sensitive-encrypt", "sensitive-protection", "notepad", "non-blocking", "opencode-go-usage"])
+const tuiPackages = new Set(["unicorn", "prompt-search", "show-img", "session-search", "sensitive-encrypt", "sensitive-protection", "notepad", "non-blocking", "opencode-go-usage", "dead-loop"])
 const packages = [
   { directory: "opencode-plugin-send-message-across-sessions", kind: "send-message" },
   { directory: "opencode-plugin-image-gen", kind: "image-gen" },
@@ -23,6 +23,7 @@ const packages = [
   { directory: "opencode-plugin-sensitive-encrypt", kind: "sensitive-encrypt" },
   { directory: "opencode-plugin-sensitive-protection", kind: "sensitive-protection" },
   { directory: "opencode-plugin-recomended-opencode-config", kind: "recommended-config" },
+  { directory: "opencode-plugin-dead-loop", kind: "dead-loop" },
   { directory: "opencode-plugin-god", kind: "god" },
   { directory: "opencode-plugin-unicorn", kind: "unicorn" },
 ] as const

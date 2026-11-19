@@ -66,6 +66,46 @@ test("Unicorn wires OpenCode Go usage through its feature gate", async () => {
   }
 })
 
+test("Unicorn wires the dead loop through its feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let hooks = 0
+    let rpc = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          deadLoop: enabled,
+        },
+      },
+      session: {
+        hook: async () => {
+          hooks++
+          return { dispose: async () => { hooks-- } }
+        },
+      },
+      rpc: {
+        register: async () => {
+          rpc++
+          return { dispose: async () => { rpc-- } }
+        },
+      },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(hooks).toBe(enabled ? 2 : 0)
+    expect(rpc).toBe(2 + Number(enabled))
+    if (cleanup) await cleanup()
+    expect(hooks).toBe(0)
+    expect(rpc).toBe(0)
+  }
+})
+
 test("Unicorn exposes sensitive encryption by default and passes through nested key settings", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "unicorn-sensitive-"))
   const secret = path.join(directory, "secret.txt")

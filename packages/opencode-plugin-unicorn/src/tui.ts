@@ -8,8 +8,9 @@ import { setupNonBlocking } from "@max10240/opencode-plugin-non-blocking/tui"
 import { setupSensitiveEncryptTui } from "@max10240/opencode-plugin-sensitive-encrypt/tui"
 import { setupSensitiveProtectionTui } from "@max10240/opencode-plugin-sensitive-protection/tui"
 import { setupRecommendedConfigTui } from "@max10240/opencode-plugin-recomended-opencode-config/tui"
+import { setupDeadLoopTui } from "@max10240/opencode-plugin-dead-loop/tui"
 import { unicornStatusCommand } from "./status-dialog.js"
-import { childContext, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled } from "./options.js"
+import { childContext, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, deadLoopFeatureEnabled } from "./options.js"
 import { disposeAllSync } from "./cleanup.js"
 
 export default Plugin.define({
@@ -32,6 +33,7 @@ export default Plugin.define({
       const cleanup = setupSensitiveProtectionTui(childContext(context, "sensitiveProtection"))
       if (cleanup) cleanups.push(cleanup)
     }
+    if (deadLoopFeatureEnabled(context.options)) setupDeadLoopTui(childContext(context, "deadLoop"))
     return () => disposeAllSync(cleanups)
   },
 })

@@ -42,6 +42,7 @@ test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate"
           sensitiveProtection: false,
           sessionSearch: false,
           nonBlocking: false,
+          deadLoop: false,
         },
       },
       keymap: { layer: () => { layers++ } },
@@ -52,6 +53,34 @@ test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate"
     const cleanup = await unicorn.setup(context)
     expect(layers).toBe(enabled ? 3 : 2)
     expect(subscriptions).toBe(enabled ? 3 : 0)
+    if (cleanup) await cleanup()
+  }
+})
+
+test("dead loop is wired through Unicorn's independent TUI feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let layers = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: false,
+          promptSearch: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          sessionSearch: false,
+          nonBlocking: false,
+          deadLoop: enabled,
+        },
+      },
+      keymap: { layer: () => { layers++ } },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(layers).toBe(enabled ? 3 : 2)
     if (cleanup) await cleanup()
   }
 })

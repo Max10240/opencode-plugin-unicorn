@@ -281,6 +281,7 @@ async function prepareLocalPluginArtifacts(root: string, archives: Archive[]) {
     sensitiveEncrypt: path.resolve(import.meta.dir, "../../opencode-plugin-sensitive-encrypt"),
     sensitiveProtection: path.resolve(import.meta.dir, "../../opencode-plugin-sensitive-protection"),
     recommendedConfig: path.resolve(import.meta.dir, "../../opencode-plugin-recomended-opencode-config"),
+    deadLoop: path.resolve(import.meta.dir, "../../opencode-plugin-dead-loop"),
   }
   const nodeModules = path.join(root, "node_modules")
   await mkdir(nodeModules, { recursive: true })

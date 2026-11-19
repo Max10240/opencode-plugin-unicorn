@@ -11,6 +11,7 @@ export interface UnicornOptions {
   readonly sessionSearch?: Readonly<Record<string, unknown>>
   readonly nonBlocking?: Readonly<Record<string, unknown>>
   readonly opencodeGoUsage?: Readonly<Record<string, unknown>>
+  readonly deadLoop?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
     readonly god?: boolean
@@ -24,6 +25,7 @@ export interface UnicornOptions {
     readonly sessionSearch?: boolean
     readonly nonBlocking?: boolean
     readonly opencodeGoUsage?: boolean
+    readonly deadLoop?: boolean
   }
 }
 
@@ -99,6 +101,11 @@ export function showImgFeatureEnabled(options: Readonly<Record<string, unknown>>
 export function opencodeGoUsageFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.opencodeGoUsage !== false
+}
+
+export function deadLoopFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.deadLoop !== false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
