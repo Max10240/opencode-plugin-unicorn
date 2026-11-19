@@ -513,8 +513,8 @@ async function startResumableRelease(args, options) {
 async function resumeRelease(id) {
   const session = loadSession(id)
   console.log(`Resuming release session ${id}`)
-  if (!readDone(session)) console.log("[release] waiting for the next authorization link or completion")
-  const result = await watchSession(session)
+  if (!readDone(session)) console.log("[release] Resuming; this command blocks until browser authorization and the release finish")
+  const result = await watchSession(session, { continueOnAuth: true })
   const code = await finishSession(result)
   if (result.type === "done" && result.code === 0 && !removeSession(session)) {
     console.error(`[release] could not remove session ${session.directory}`)
@@ -578,8 +578,8 @@ if (isMainModule()) {
         "The command validates arguments, requires a clean workspace, runs the full check,",
         "bumps every package to the same target version, then publishes or triggers CI.",
         "",
-        "Local releases pause after printing each npm auth URL. Authorize in the browser,",
-        "then rerun the printed --resume command with the same session id.",
+        "Local releases stop at the first npm auth URL and print a resume command.",
+        "Run the resume command immediately. It prints any further auth URLs and blocks until the release finishes.",
       ].join("\n"))
     } else {
       const resume = parseResumeArgs(argv)

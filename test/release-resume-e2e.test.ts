@@ -35,6 +35,45 @@ async function run(command: string[], { cwd, env, timeout = 20_000 }: { cwd: str
   }
 }
 
+async function start(command: string[], { cwd, env }: { cwd: string; env: Record<string, string | undefined> }) {
+  const child = Bun.spawn(command, { cwd, env, stdout: "pipe", stderr: "pipe" })
+  let stdout = ""
+  let stderr = ""
+  const collect = async (stream: ReadableStream<Uint8Array>, set: (value: string) => void) => {
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let text = ""
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      text += decoder.decode(value, { stream: true })
+      set(text)
+    }
+    text += decoder.decode()
+    set(text)
+    return text
+  }
+  const done = Promise.all([
+    collect(child.stdout, (value) => { stdout = value }),
+    collect(child.stderr, (value) => { stderr = value }),
+    child.exited,
+  ]).then(([, , code]) => ({ stdout, stderr, code }))
+  const output = () => `${stdout}\n${stderr}`
+  return {
+    child,
+    done,
+    output,
+    async waitFor(text: string, message: string, timeout = 20_000) {
+      const deadline = Date.now() + timeout
+      while (Date.now() < deadline) {
+        if (output().includes(text)) return
+        await Bun.sleep(50)
+      }
+      throw new Error(`${message}\n${output()}`)
+    },
+  }
+}
+
 async function stopSessionChildren(sessions: string) {
   try {
     for (const entry of await readdir(sessions)) {
@@ -57,7 +96,7 @@ function commandPath(name: string) {
   return execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim()
 }
 
-test("local publish pauses for login and publish auth links, then resumes to completion", async () => {
+test("local publish resumes immediately and blocks through login and publish auth links", async () => {
   if (!hasExpect) throw new Error("This test requires expect for resumable npm authentication")
   const work = await mkdtemp(path.join(os.tmpdir(), "release-resume-"))
   const fixture = path.join(work, "repo")
@@ -182,41 +221,53 @@ test("local publish pauses for login and publish auth links, then resumes to com
     expect(first.code).toBe(0)
     expect(firstOutput).toContain("Checking before publish")
     expect(firstOutput).toContain("https://www.npmjs.com/auth/cli/login-one")
-    expect(firstOutput).toContain("Waiting for user to authorize")
+    expect(firstOutput).toContain("run this resume command immediately")
+    expect(firstOutput).not.toContain("Waiting for user to authorize")
     id = /--resume ([0-9a-f-]{36})/i.exec(firstOutput)?.[1]
     expect(id).toBeString()
 
     await writeFile(path.join(auth, "authorized-login"), "")
-    const second = await run([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", id!], { cwd: fixture, env })
-    const secondOutput = `${second.stdout}\n${second.stderr}`
-    expect(second.code).toBe(0)
-    expect(secondOutput).toContain("https://www.npmjs.com/auth/cli/publish-two")
-    expect(secondOutput).toContain(`--resume ${id}`)
-
     const sessionDir = path.join(sessions, id!)
-    expect(await readFile(path.join(sessionDir, "output.log"), "utf8")).toContain("fixture check:release")
-    const sessionState = JSON.parse(await readFile(path.join(sessionDir, "session.json"), "utf8"))
-    expect(sessionState.args).toEqual(["--release-type=local-publish", `--registry=${registry}`])
-    expect(sessionState.status).toBe("waiting-auth")
-    const events = (await readFile(path.join(sessionDir, "auth-events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/login-one"))).toBe(true)
-    expect(events.some((event) => event.type === "auth" && event.url.endsWith("/publish-two"))).toBe(true)
-    expect(events.some((event) => event.type === "resolved")).toBe(true)
+    const resumed = await start([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", id!], { cwd: fixture, env })
+    let final: Awaited<typeof resumed.done> | undefined
+    try {
+      await resumed.waitFor("https://www.npmjs.com/auth/cli/publish-two", "resume did not print the publish auth URL")
+      expect(resumed.output()).toContain("continues automatically")
+      expect(await readFile(path.join(sessionDir, "output.log"), "utf8")).toContain("fixture check:release")
+      let sessionState: any
+      const stateDeadline = Date.now() + 2_000
+      while (Date.now() < stateDeadline) {
+        sessionState = JSON.parse(await readFile(path.join(sessionDir, "session.json"), "utf8"))
+        if (sessionState.status === "waiting-auth") break
+        await Bun.sleep(20)
+      }
+      expect(sessionState.args).toEqual(["--release-type=local-publish", `--registry=${registry}`])
+      expect(sessionState.status).toBe("waiting-auth")
+      const events = (await readFile(path.join(sessionDir, "auth-events.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+      expect(events.some((event) => event.type === "auth" && event.url.endsWith("/login-one"))).toBe(true)
+      expect(events.some((event) => event.type === "auth" && event.url.endsWith("/publish-two"))).toBe(true)
+      expect(events.some((event) => event.type === "resolved")).toBe(true)
+
+      await writeFile(path.join(auth, "authorized-publish"), "")
+      final = await resumed.done
+    } finally {
+      try { resumed.child.kill("SIGTERM") } catch {}
+    }
+    if (!final) throw new Error("resume did not finish")
+    expect(final.code).toBe(0)
+    const finalOutput = `${final.stdout}\n${final.stderr}`
+    expect(finalOutput).toContain("https://www.npmjs.com/auth/cli/publish-two")
+    expect(finalOutput).toContain('"version":"1.0.2"')
+    expect(finalOutput).toContain('"commit"')
+
     const firstPublishes = (await readFile(path.join(auth, "publish-order"), "utf8")).trim().split("\n")
-    expect(firstPublishes).toHaveLength(1)
+    expect(firstPublishes).toHaveLength(2)
     expect(firstPublishes[0]).toContain("--workspace @max10240/opencode-plugin-new-plugin")
     expect(firstPublishes[0]).toContain("--workspace @max10240/opencode-plugin-show-img")
     expect(firstPublishes[0]).not.toContain("unicorn")
-
-    await writeFile(path.join(auth, "authorized-publish"), "")
-    const final = await run([fakeNpm, "run", "release", "--", "--release-type=local-publish", `--registry=${registry}`, "--resume", id!], { cwd: fixture, env })
-    const finalOutput = `${final.stdout}\n${final.stderr}`
-    expect(final.code).toBe(0)
-    expect(finalOutput).toContain('"version":"1.0.2"')
-    expect(finalOutput).toContain('"commit"')
 
     expect(execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: fixture, encoding: "utf8" }).trim())
       .toBe("release: v1.0.2 [local-publish]")

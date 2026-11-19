@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
+  authInstruction,
+  authWaitingInstruction,
   buildResumeCommand,
   createSession,
   loadSession,
@@ -13,6 +15,27 @@ import {
   removeSession,
   watchSession,
 } from "../scripts/release-session.mjs"
+
+async function waitFor(check: () => boolean, message: string, timeout = 2_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (check()) return
+    await Bun.sleep(10)
+  }
+  throw new Error(message)
+}
+
+test("instructs the agent to run the blocking resume command immediately", () => {
+  const command = "npm run release -- --release-type=local-publish --resume 123e4567-e89b-42d3-a456-426614174000"
+  const instruction = authInstruction("https://www.npmjs.com/auth/cli/one", command)
+  expect(instruction).toContain("run this resume command immediately")
+  expect(instruction).toContain("no reply is needed")
+  expect(instruction).toContain(command)
+  expect(instruction).not.toContain("Please run")
+  const waiting = authWaitingInstruction("https://www.npmjs.com/auth/cli/two")
+  expect(waiting).toContain("continues automatically")
+  expect(waiting).not.toContain("--resume")
+})
 
 test("builds a resume command from the original release arguments", () => {
   const args = ["--release-type=local-publish", "--version=minor", "--registry=https://registry.npmjs.org/"]
@@ -35,7 +58,7 @@ test("ignores authorization links that have already been resolved", () => {
   expect(pendingAuthEvent(events, ["two"])).toBeUndefined()
 })
 
-test("pauses for each auth link and resumes until the detached release completes", async () => {
+test("blocks across auth links while resuming until the detached release completes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "release-session-"))
   const sessionRoot = path.join(root, "sessions")
   await mkdir(sessionRoot, { recursive: true })
@@ -69,25 +92,23 @@ test("pauses for each auth link and resumes until the detached release completes
     const first = await watchSession(session, { write, relayOutput: true, pollMs: 20 })
     expect(first).toMatchObject({ type: "auth", url: "https://www.npmjs.com/auth/cli/one" })
     expect(output).toContain("fake release starting")
+    expect(output).toContain("--resume")
+    expect(output).toContain("run this resume command immediately")
 
-    let secondSettled = false
-    const secondPromise = watchSession(session, { write, relayOutput: true, pollMs: 20 }).then((value) => {
-      secondSettled = true
+    let settled = false
+    const donePromise = watchSession(session, { write, relayOutput: true, pollMs: 20, continueOnAuth: true }).then((value) => {
+      settled = true
       return value
     })
     await Bun.sleep(100)
-    expect(secondSettled).toBe(false)
+    expect(settled).toBe(false)
+
     await writeFile(path.join(session.directory, "authorized-one"), "")
-    const second = await secondPromise
-    expect(second).toMatchObject({ type: "auth", url: "https://www.npmjs.com/auth/cli/two" })
+    await waitFor(() => output.includes("https://www.npmjs.com/auth/cli/two"), "second auth URL was not printed")
+    expect(output).toContain("continues automatically")
+    expect(output).not.toContain("Please run")
+    expect(settled).toBe(false)
 
-    let doneSettled = false
-    const donePromise = watchSession(session, { write, relayOutput: true, pollMs: 20 }).then((value) => {
-      doneSettled = true
-      return value
-    })
-    await Bun.sleep(100)
-    expect(doneSettled).toBe(false)
     await writeFile(path.join(session.directory, "authorized-two"), "")
     const done = await donePromise
     expect(done).toMatchObject({ type: "done", code: 0, result: { ok: true } })

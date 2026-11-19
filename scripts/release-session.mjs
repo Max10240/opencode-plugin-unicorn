@@ -363,6 +363,7 @@ export async function watchSession(session, {
   relayOutput = false,
   pollMs = 200,
   signal,
+  continueOnAuth = false,
 } = {}) {
   const state = session
   state.status = "running"
@@ -394,7 +395,7 @@ export async function watchSession(session, {
     const pending = pendingAuthEvent(events, state.reportedChallenges)
     if (pending) {
       trackOutput()
-      write(authInstruction(pending.url, buildResumeCommand(state.args, state.id)))
+      write(continueOnAuth ? authWaitingInstruction(pending.url) : authInstruction(pending.url, buildResumeCommand(state.args, state.id)))
       state.reportedChallenges = [
         ...(Array.isArray(state.reportedChallenges) ? state.reportedChallenges : []),
         pending.challenge,
@@ -403,7 +404,8 @@ export async function watchSession(session, {
       state.status = "waiting-auth"
       state.updatedAt = timestamp()
       try { writeJsonAtomic(session.statePath, state) } catch {}
-      return { type: "auth", url: pending.url, challenge: pending.challenge, state }
+      if (!continueOnAuth) return { type: "auth", url: pending.url, challenge: pending.challenge, state }
+      lastStateWrite = 0
     }
 
     trackOutput()
@@ -433,7 +435,11 @@ export async function watchSession(session, {
 }
 
 export function authInstruction(url, resumeCommand) {
-  return `\n${url}\n\nWaiting for user to authorize\n\nPlease run \`${resumeCommand}\`\n\n`
+  return `\n${url}\n\n[release] Next step: run this resume command immediately. It blocks until browser authorization and the release finish; no reply is needed.\n\n${resumeCommand}\n\n`
+}
+
+export function authWaitingInstruction(url) {
+  return `\n${url}\n\n[release] Waiting for browser authorization. This command continues automatically; if another URL appears, open it and keep waiting.\n\n`
 }
 
 export function writeDone(sessionDir, value) {

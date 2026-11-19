@@ -52,10 +52,10 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
 - The target version must be strictly greater than every package's registry `latest`.
 - Do not call `npm publish` directly. Never commit `~/.npmrc` or any npm token.
 - Local release types (`local-publish`, `local-stage`) run the real release in a detached process. When npm needs
-  browser authorization, the foreground command prints the URL, prints `Waiting for user to authorize`, and exits
-  instead of blocking. It also prints a `--resume <session-id>` command with the original arguments.
-- Authorize in the browser, then run the printed resume command. If another auth link appears, the resume command
-  prints it and exits with the same session ID. Repeat until the resume command prints the final result.
+  browser authorization, the foreground command prints the URL and a `--resume <session-id>` command, then exits.
+- The agent must run the printed resume command immediately after the first command finishes, without waiting for a
+  user reply. The resume command is blocking: it prints any further auth URLs and continues waiting until
+  authorization and the release finish. Do not rerun `--resume` for each URL.
 - The resumable flow uses `expect` to give npm a pseudo-terminal so it emits web-auth URLs.
 - Packages publish in workspace dependency levels, one `npm publish --workspace` batch per level. The next level starts
   after the previous `npm publish` command succeeds; it does not wait for registry propagation. Unicorn is therefore
