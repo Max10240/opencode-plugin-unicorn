@@ -12,7 +12,9 @@ export interface OnlineSession {
 }
 
 type EventContext = Pick<Context, "event" | "storage">
-type StorageContext = Pick<Context, "storage">
+type StorageContext = Pick<Context, "storage"> & {
+  readonly session?: Pick<Context["session"], "list">
+}
 
 type SessionRecord = {
   id: string
@@ -25,6 +27,8 @@ type SessionRecord = {
 
 const sessions = new Map<string, SessionRecord>()
 const SESSION_STORAGE_PREFIX = "online-sessions/"
+const LIST_SCAN_TIMEOUT_MS = 2_000
+const MAX_SCAN_PAGES = 1_000
 let watcher:
   | {
       readonly controller: AbortController
@@ -61,23 +65,126 @@ export function listOnlineSessions(excludeSessionID?: string): OnlineSession[] {
 export async function listOnlineSessionsAcrossContexts(
   context: StorageContext,
   excludeSessionID?: string,
+  timeoutMs = LIST_SCAN_TIMEOUT_MS,
 ): Promise<OnlineSession[]> {
-  const all = new Map(sessions)
-  let after: string | undefined
+  const authoritative = await withTimeout(listFromSessionApi(context), timeoutMs).catch(() => undefined)
+  if (authoritative !== undefined) {
+    const live = new Set(authoritative.map((session) => session.id))
+    void withTimeout(pruneStoredSessions(context, live), timeoutMs).catch(() => {})
+    return authoritative
+      .filter((session) => session.id !== excludeSessionID)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+  }
 
-  do {
-    const page = await context.storage.scan({ prefix: SESSION_STORAGE_PREFIX, limit: 200, after })
+  const all = new Map(sessions)
+  if (typeof context.storage?.scan === "function") {
+    await withTimeout(scanStoredSessions(context, all), timeoutMs).catch(() => undefined)
+  }
+
+  return [...all.values()]
+    .filter((session) => session.id !== excludeSessionID)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
+async function listFromSessionApi(context: StorageContext): Promise<SessionRecord[] | undefined> {
+  const list = context.session?.list
+  if (typeof list !== "function") return undefined
+  const result: SessionRecord[] = []
+  let cursor: string | undefined
+  for (let pageIndex = 0; pageIndex < MAX_SCAN_PAGES; pageIndex++) {
+    const page = await list({
+      limit: 200,
+      order: "desc",
+      archived: false,
+      ...(cursor === undefined ? {} : { cursor }),
+    })
+    if (!page || !Array.isArray(page.data)) return undefined
+    for (const info of page.data) {
+      const record = recordFromInfo(info)
+      if (record) result.push(record)
+    }
+    const next = page.cursor?.next
+    if (!next) break
+    cursor = next as string
+  }
+  return result
+}
+
+function recordFromInfo(info: {
+  readonly id: string
+  readonly title?: string
+  readonly location?: { readonly directory?: string }
+  readonly time?: { readonly created?: number; readonly updated?: number; readonly busy?: number; readonly idle?: number }
+}): SessionRecord | undefined {
+  if (!info || typeof info.id !== "string" || !info.time) return undefined
+  const created = Number(info.time.created)
+  const updated = Number(info.time.updated)
+  if (!Number.isFinite(created) || !Number.isFinite(updated)) return undefined
+  const busy = info.time.busy
+  const idle = info.time.idle
+  return {
+    id: info.id,
+    title: info.title,
+    directory: info.location?.directory,
+    status: busy !== undefined && (idle === undefined || busy > idle) ? "running" : "idle",
+    createdAt: created,
+    updatedAt: updated,
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), timeoutMs)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer)
+  })
+}
+
+async function pruneStoredSessions(context: StorageContext, live: ReadonlySet<string>) {
+  if (typeof context.storage?.scan !== "function") return
+  let after: string | undefined
+  const seen = new Set<string>()
+  for (let pageIndex = 0; pageIndex < MAX_SCAN_PAGES; pageIndex++) {
+    const page = await context.storage.scan({
+      prefix: SESSION_STORAGE_PREFIX,
+      limit: 200,
+      ...(after === undefined ? {} : { after }),
+    })
+    if (!page || !Array.isArray(page.entries)) return
+    for (const entry of page.entries) {
+      if (!isSessionRecord(entry.value) || live.has(entry.value.id)) continue
+      sessions.delete(entry.value.id)
+      try { await context.storage.remove(entry.key) } catch {}
+    }
+    const next = typeof page.next === "string" && page.next ? page.next : undefined
+    if (!next || next === after || seen.has(next) || page.entries.length === 0) return
+    seen.add(next)
+    after = next
+  }
+}
+
+async function scanStoredSessions(context: StorageContext, all: Map<string, SessionRecord>) {
+  let after: string | undefined
+  const seen = new Set<string>()
+  for (let pageIndex = 0; pageIndex < MAX_SCAN_PAGES; pageIndex++) {
+    const page = await context.storage.scan({
+      prefix: SESSION_STORAGE_PREFIX,
+      limit: 200,
+      ...(after === undefined ? {} : { after }),
+    })
+    if (!page || !Array.isArray(page.entries)) return
     for (const entry of page.entries) {
       if (!isSessionRecord(entry.value)) continue
       const current = all.get(entry.value.id)
       if (!current || entry.value.updatedAt >= current.updatedAt) all.set(entry.value.id, entry.value)
     }
-    after = page.next
-  } while (after)
-
-  return [...all.values()]
-    .filter((session) => session.id !== excludeSessionID)
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+    const next = typeof page.next === "string" && page.next ? page.next : undefined
+    if (!next || next === after || seen.has(next) || page.entries.length === 0) return
+    seen.add(next)
+    after = next
+  }
 }
 
 async function watchEvents(context: EventContext, signal: AbortSignal) {
@@ -92,10 +199,14 @@ async function watchEvents(context: EventContext, signal: AbortSignal) {
       const updated = updateFromEvent(typedEvent)
       if (!updated) continue
 
-      if (typedEvent.type === "session.deleted") {
-        await context.storage.remove(sessionStorageKey(updated.id))
-      } else if (isSessionDirectoryEvent(typedEvent.type)) {
-        await context.storage.set(sessionStorageKey(updated.id), toStorageRecord(updated))
+      try {
+        if (typedEvent.type === "session.deleted") {
+          await context.storage.remove(sessionStorageKey(updated.id))
+        } else if (isSessionDirectoryEvent(typedEvent.type)) {
+          await context.storage.set(sessionStorageKey(updated.id), toStorageRecord(updated))
+        }
+      } catch {
+        // Keep the in-memory directory live when durable storage fails.
       }
     }
   } catch {}

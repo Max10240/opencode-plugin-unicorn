@@ -56,6 +56,8 @@
 Agent 会用 `list_online_sessions` 找到目标，再用 `send_message_across_sessions` 发送。如果它不知道你指哪个 session，会先把
 列表返回给你选择。
 
+`list_online_sessions` 每页最多返回 50 个 session；列表更大时传 `offset` 翻页，结果 metadata 包含 `total` 和下一页 offset。
+
 ### 投递方式
 
 | 模式 | 行为 | 适合 |
@@ -68,7 +70,11 @@ Agent 会用 `list_online_sessions` 找到目标，再用 `send_message_across_s
 ## 注意事项
 
 - **两个 session 必须在同一个 OpenCode server。** 插件只能看到它所在 server 上的 session。
-- **目标 session 要在插件启动之后启动。** 在线列表来自 session 事件；插件启动前就存在的 session 不会被追溯发现。
+- **“在线”指 server 还知道这个 session。** 关闭 TUI/client 不会删除 session，所以它仍可能出现；删除 session 才会移除。
+  如果删除发生在插件没运行时，storage 里可能留下旧条目，直到被清理或该 session 再次出现。
+- **列表以 server 为准。** 直接读取 `session.list`，所以插件启动前已存在的 session 也会出现；归档 session 会被排除。
+  running 状态来自 session 的 busy/idle 时间。
+- **短期 storage 缓存会自动清理。** 读取权威列表时会删除失效的 `online-sessions/` 记录，已删除的 session 不会长期残留。
 - **这是给对等 session 用的，不是给主 Agent 和子 Agent 用的。** 父子任务请用 OpenCode 内置的 subagent。
 - **目标收到的是普通用户消息。** 没有隐藏通道；这条消息会成为对方对话的一部分。
 - **不需要配置。** 加载后直接让 Agent 去问。

@@ -59,6 +59,9 @@ Just ask the agent in plain language:
 The agent uses `list_online_sessions` to find the target and `send_message_across_sessions` to deliver the message. If
 it does not know which session you mean, it returns the list and asks you to choose.
 
+`list_online_sessions` returns up to 50 sessions per page. Pass `offset` to page through larger lists; the result
+metadata includes `total` and the next offset.
+
 ### Delivery modes
 
 | Mode | Behavior | Good for |
@@ -72,8 +75,13 @@ request at the end of the message.
 ## Good to know
 
 - **Both sessions must share one OpenCode server.** The plugin only sees sessions on the server where it runs.
-- **The target must have started after the plugin.** The online list is built from session events; a session that
-  existed before the plugin started is not retroactively discovered.
+- **Online means known to the server.** Closing a TUI or client does not delete its session, so it may still appear.
+  Deleting the session removes it. A deletion that happens while the plugin is not running can leave a stale entry
+  until it is cleaned up or the session is seen again.
+- **The list is server-authoritative.** It reads `session.list`, so sessions that existed before the plugin started are
+  included. Archived sessions are omitted. Running status comes from the session's busy/idle timestamps.
+- **A short-lived storage cache is pruned.** Stale `online-sessions/` records are removed when the authoritative list is
+  read, so deleted sessions do not remain visible indefinitely.
 - **This is for peer sessions, not parent and subagent.** Use OpenCode's built-in subagent tool for parent-child work.
 - **The receiving session sees a normal user message.** There is no hidden side channel; the message becomes part of
   that session's conversation.

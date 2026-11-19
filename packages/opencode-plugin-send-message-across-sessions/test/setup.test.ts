@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
 import { MESSAGE_PREFIX, SEND_TOOL_DESCRIPTION, setupSendMessageAcrossSessions } from "../src/setup.js"
+import { listOnlineSessionsAcrossContexts } from "../src/session-directory.js"
 
 const TARGET_ID = "ses_target"
 const SENDER_ID = "ses_sender"
@@ -15,13 +16,13 @@ const targetRecord = {
   updatedAt: 2,
 }
 
-async function setup(prompt: (input: Record<string, unknown>) => Promise<void>) {
+async function setup(prompt: (input: Record<string, unknown>) => Promise<void>, scan?: () => Promise<any>) {
   const registered = new Map<string, Info>()
   const context = {
     event: { subscribe: async function* () {} },
     session: { prompt },
     storage: {
-      scan: async () => ({ entries: [{ key: `online-sessions/${TARGET_ID}`, value: targetRecord }] }),
+      scan: scan ?? (async () => ({ entries: [{ key: `online-sessions/${TARGET_ID}`, value: targetRecord }] })),
       set: async () => {},
       remove: async () => {},
     },
@@ -98,4 +99,90 @@ test("rejects sending to the current session", async () => {
   } finally {
     await cleanup()
   }
+})
+
+test("paginates the listed sessions and reports the total", async () => {
+  const entries = Array.from({ length: 60 }, (_, index) => ({
+    key: `online-sessions/ses_${index}`,
+    value: { ...targetRecord, id: `ses_${index}`, title: `session ${index}`, updatedAt: index },
+  }))
+  const { registered, cleanup } = await setup(async () => {}, async () => ({ entries }))
+  try {
+    const list = registered.get("list_online_sessions")!
+    const first = await list.execute({}, { sessionID: SENDER_ID } as ToolContext) as any
+    expect(first.metadata.total).toBe(60)
+    expect(first.metadata.offset).toBe(0)
+    expect(first.metadata.next).toBe(50)
+    expect(first.metadata.sessions).toHaveLength(50)
+    expect(first.content).toContain("Showing 1-50 of 60.")
+    expect(first.content).toContain("offset=50")
+
+    const second = await list.execute({ offset: 50 }, { sessionID: SENDER_ID } as ToolContext) as any
+    expect(second.metadata.total).toBe(60)
+    expect(second.metadata.offset).toBe(50)
+    expect(second.metadata.next).toBeNull()
+    expect(second.metadata.sessions).toHaveLength(10)
+    expect(second.content).toContain("Showing 51-60 of 60.")
+  } finally {
+    await cleanup()
+  }
+})
+
+test("does not hang when storage scan stalls or repeats pagination", async () => {
+  const stalled = {
+    storage: { scan: () => new Promise(() => {}) },
+  }
+  const started = Date.now()
+  const empty = await listOnlineSessionsAcrossContexts(stalled as never, undefined, 30)
+  expect(Date.now() - started).toBeLessThan(1_000)
+  expect(Array.isArray(empty)).toBe(true)
+
+  let calls = 0
+  const repeated = {
+    storage: {
+      scan: async () => {
+        calls++
+        return { entries: [{ key: "online-sessions/repeated", value: targetRecord }], next: "same" }
+      },
+    },
+  }
+  const listed = await listOnlineSessionsAcrossContexts(repeated as never, undefined, 100)
+  expect(calls).toBeLessThanOrEqual(2)
+  expect(listed.map((session) => session.id)).toContain(TARGET_ID)
+})
+
+test("uses session.list as the authoritative source and prunes stale storage", async () => {
+  const live = {
+    id: "ses_live",
+    title: "Live",
+    location: { directory: "/live" },
+    time: { created: 1, updated: 10, busy: 9, idle: 8 },
+  }
+  const liveRecord = {
+    id: "ses_live",
+    title: "Live",
+    directory: "/live",
+    status: "idle" as const,
+    createdAt: 1,
+    updatedAt: 10,
+  }
+  const deadRecord = { ...targetRecord, id: "ses_dead", title: "Dead" }
+  const removed: string[] = []
+  const context = {
+    session: { list: async () => ({ data: [live], cursor: {} }) },
+    storage: {
+      scan: async () => ({
+        entries: [
+          { key: "online-sessions/ses_live", value: liveRecord },
+          { key: "online-sessions/ses_dead", value: deadRecord },
+        ],
+      }),
+      remove: async (key: string) => { removed.push(key) },
+    },
+  }
+  const listed = await listOnlineSessionsAcrossContexts(context as never, undefined, 100)
+  expect(listed.map((session) => session.id)).toEqual(["ses_live"])
+  expect(listed[0]?.status).toBe("running")
+  await Bun.sleep(30)
+  expect(removed).toContain("online-sessions/ses_dead")
 })

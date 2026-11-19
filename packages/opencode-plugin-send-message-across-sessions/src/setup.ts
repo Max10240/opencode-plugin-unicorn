@@ -4,6 +4,8 @@ import { acquireSessionDirectory, listOnlineSessions, listOnlineSessionsAcrossCo
 
 const SEND_TOOL = "send_message_across_sessions"
 const LIST_TOOL = "list_online_sessions"
+const DEFAULT_LIST_LIMIT = 50
+const MAX_LIST_LIMIT = 100
 
 export const MESSAGE_PREFIX = "Message from"
 export const SEND_TOOL_DESCRIPTION =
@@ -92,12 +94,35 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
         description: "List other online OpenCode sessions across working directories.",
         input: {
           type: "object",
-          properties: {},
+          properties: {
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: MAX_LIST_LIMIT,
+              description: "Maximum sessions to return (default 50).",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              description: "Number of sessions to skip for pagination.",
+            },
+          },
           required: [],
           additionalProperties: false,
         },
-        execute: async (_input, tool) =>
-          selectionResult(await listOnlineSessionsAcrossContexts(context, tool.sessionID)),
+        execute: async (rawInput, tool) => {
+          try {
+            return selectionResult(
+              await listOnlineSessionsAcrossContexts(context, tool.sessionID),
+              listPage(rawInput),
+            )
+          } catch (error) {
+            return {
+              content: `Unable to list online sessions: ${error instanceof Error ? error.message : String(error)}`,
+              metadata: { sessions: [], error: error instanceof Error ? error.message : String(error) },
+            }
+          }
+        },
       })
     })
 
@@ -111,25 +136,51 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
   }
 }
 
-function selectionResult(sessions: ReturnType<typeof listOnlineSessions>): ToolResult {
+function selectionResult(
+  sessions: ReturnType<typeof listOnlineSessions>,
+  page: { readonly limit: number; readonly offset: number } = { limit: DEFAULT_LIST_LIMIT, offset: 0 },
+): ToolResult {
   if (sessions.length === 0) {
     return {
       content: "No other online OpenCode sessions were found. Make sure the target session has started.",
-      metadata: { sessions: [] },
+      metadata: { sessions: [], total: 0, offset: 0, next: null },
     }
   }
+  const listed = sessions.slice(page.offset, page.offset + page.limit)
+  const end = page.offset + listed.length
+  const next = end < sessions.length ? end : null
+  if (listed.length === 0) {
+    return {
+      content: `No sessions at offset ${page.offset}; total is ${sessions.length}. Use list_online_sessions with offset=0.`,
+      metadata: { sessions: [], total: sessions.length, offset: page.offset, next: 0 },
+    }
+  }
+  const more = next !== null
+    ? `\n\nShowing ${page.offset + 1}-${end} of ${sessions.length}. Use list_online_sessions with offset=${next} to see more.`
+    : `\n\nShowing ${page.offset + 1}-${end} of ${sessions.length}.`
   return {
-    content: `Choose a target session, then call ${SEND_TOOL} again with target_session_id:\n\n${formatSessions(sessions)}`,
-    metadata: { sessions, requires_target_selection: true },
+    content: `Choose a target session, then call ${SEND_TOOL} again with target_session_id:\n\n${formatSessions(listed, page.offset)}${more}`,
+    metadata: { sessions: listed, total: sessions.length, offset: page.offset, next, requires_target_selection: true },
   }
 }
 
-function formatSessions(sessions: readonly ReturnType<typeof listOnlineSessions>[number][]) {
+function listPage(input: unknown) {
+  const value = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
+  const limit = typeof value.limit === "number" && Number.isSafeInteger(value.limit)
+    ? Math.min(MAX_LIST_LIMIT, Math.max(1, value.limit))
+    : DEFAULT_LIST_LIMIT
+  const offset = typeof value.offset === "number" && Number.isSafeInteger(value.offset)
+    ? Math.max(0, value.offset)
+    : 0
+  return { limit, offset }
+}
+
+function formatSessions(sessions: readonly ReturnType<typeof listOnlineSessions>[number][], offset = 0) {
   return sessions
     .map((session, index) => {
       const title = session.title ? ` ${session.title}` : ""
       const directory = session.directory ? ` cwd=${session.directory}` : ""
-      return `${index + 1}. ${session.id} [${session.status}]${title}${directory}`
+      return `${offset + index + 1}. ${session.id} [${session.status}]${title}${directory}`
     })
     .join("\n")
 }
