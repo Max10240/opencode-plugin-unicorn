@@ -95,6 +95,12 @@ function command(harness: Harness, title: string) {
   selected.run()
 }
 
+function commandByBind(harness: Harness, title: string, bind: string) {
+  const selected = harness.layers.flatMap((layer) => layer.commands).find((command) => command.title === title && command.bind === bind)
+  if (!selected) throw new Error(`Missing command: ${title} (${bind})`)
+  selected.run()
+}
+
 test("encrypts text, shows the result dialog, copies both values and closes", async () => {
   const harness = createHarness()
   const app = await render(harness)
@@ -121,7 +127,7 @@ test("encrypts text, shows the result dialog, copies both values and closes", as
   }
 })
 
-test("masks text by default, reveals it with ctrl+r, and reports cleared input", async () => {
+test("masks text by default, reveals it with ctrl+r, encrypts with enter, and copies with enter", async () => {
   const harness = createHarness()
   const app = await render(harness)
   try {
@@ -140,9 +146,23 @@ test("masks text by default, reveals it with ctrl+r, and reports cleared input",
     await waitFor(app, () => !app.captureCharFrame().includes("F1 closes help"), "encrypt help did not close")
 
     textarea.setText("secret text")
-    command(harness, "Encrypt")
-    await waitFor(app, () => app.captureCharFrame().includes("Encrypted with key"), "result dialog did not open")
+    await waitFor(app, () => {
+      const frame = app.captureCharFrame()
+      return frame.includes("*") && frame.includes("Masked")
+    }, "masked placeholder did not replace the plaintext")
+
+    commandByBind(harness, "Encrypt", "return")
+    await waitFor(app, () => app.captureCharFrame().includes("Encrypted with key"), "enter did not encrypt")
     expect(app.captureCharFrame()).toContain("Plaintext input cleared.")
+    expect(harness.calls.at(-1)).toEqual({ kind: "text", input: { text: "secret text", key: "decrypt" } })
+
+    commandByBind(harness, "Copy ciphertext", "c")
+    expect(harness.clipboard.at(-1)).toBe("ocsec1:secret text")
+    expect(app.captureCharFrame()).toContain("Encrypted with key")
+
+    commandByBind(harness, "Copy ciphertext and close", "return")
+    expect(harness.clipboard.at(-1)).toBe("ocsec1:secret text")
+    await waitFor(app, () => harness.dialog() === undefined, "enter did not close the result dialog")
   } finally {
     app.renderer.destroy()
   }

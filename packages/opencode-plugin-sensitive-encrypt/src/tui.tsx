@@ -61,6 +61,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   const [textValue, setTextValue] = createSignal("")
   const [concealed, setConcealed] = createSignal(true)
   const [textLength, setTextLength] = createSignal(0)
+  const [cursorOffset, setCursorOffset] = createSignal(0)
   const [help, setHelp] = createSignal(false)
   const [keyRole, setKeyRole] = createSignal<KeyRole>(props.defaultKey)
   const [textarea, setTextarea] = createSignal<TextareaRenderable>()
@@ -72,11 +73,35 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
 
   let lengthTimer: ReturnType<typeof setInterval> | undefined
 
+  const syncText = () => {
+    const area = textarea()
+    if (!area) return
+    const value = area.plainText
+    setTextValue(value)
+    setTextLength(value.length)
+    setCursorOffset(area.cursorOffset)
+  }
+
+  const maskedText = () => {
+    const value = textValue()
+    if (!value) return ""
+    const masked = value.replace(/[^\n]/g, "*")
+    const offset = Math.max(0, Math.min(masked.length, cursorOffset()))
+    return `${masked.slice(0, offset)}▏${masked.slice(offset)}`
+  }
+
+  const insertNewline = () => {
+    const area = textarea()
+    if (!area) return
+    area.newLine()
+    syncText()
+  }
+
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
     setTimeout(() => primary()?.focus(), 50)
     lengthTimer = setInterval(() => {
-      if (mode() === "text") setTextLength(textarea()?.plainText.length ?? 0)
+      if (mode() === "text") syncText()
     }, 300)
   })
 
@@ -87,7 +112,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   const toggleConcealed = () => {
     if (mode() !== "text") return
     setConcealed((value) => !value)
-    setTextLength(textarea()?.plainText.length ?? 0)
+    syncText()
     setTimeout(() => textarea()?.focus(), 0)
   }
 
@@ -107,7 +132,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   }
 
   const toggleMode = () => {
-    if (mode() === "text") setTextValue(textarea()?.plainText ?? "")
+    if (mode() === "text") syncText()
     const next: EncryptMode = mode() === "text" ? "file" : "text"
     setMode(next)
     setTimeout(() => (next === "text" ? textarea() : fileInput())?.focus(), 0)
@@ -142,6 +167,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
         textarea()?.setText("")
         setTextValue("")
         setTextLength(0)
+        setCursorOffset(0)
       }
       props.context.ui.dialog.clear()
       props.context.ui.dialog.show(() => <EncryptResultDialog context={props.context} result={result} cleared={mode() === "text"} />)
@@ -155,8 +181,12 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
 
   const commands = () => [
     { bind: "f2", title: "Encrypt", run: encrypt },
+    { bind: "return", title: "Encrypt", run: encrypt },
     { bind: "ctrl+t", title: "Switch text or file", run: toggleMode },
-    ...(mode() === "text" ? [{ bind: "ctrl+r", title: "Reveal or hide text", run: toggleConcealed }] : []),
+    ...(mode() === "text" ? [
+      { bind: "ctrl+r", title: "Reveal or hide text", run: toggleConcealed },
+      { bind: "shift+return", title: "Insert new line", run: insertNewline },
+    ] : []),
     { bind: "f1", title: "Toggle encrypt help", run: () => setHelp((value) => !value) },
     { bind: "escape", title: "Close encryption panel", run: () => {
       if (help()) setHelp(false)
@@ -204,7 +234,8 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
       <Show when={help()}>
         <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
           <text attributes={TextAttributes.BOLD}>Keyboard help</text>
-          <text fg={theme.text.muted}>F2 encrypts the current text or file.</text>
+          <text fg={theme.text.muted}>Enter encrypts; Shift+Enter inserts a new line.</text>
+          <text fg={theme.text.muted}>F2 also encrypts the current text or file.</text>
           <text fg={theme.text.muted}>Ctrl+T switches between text and file input.</text>
           <text fg={theme.text.muted}>Ctrl+R hides or reveals the text being encrypted.</text>
           <text fg={theme.text.muted}>Tab moves focus between input, output, and key.</text>
@@ -223,21 +254,39 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
           />
         }
       >
-        <textarea
-          ref={(value: TextareaRenderable) => { setTextarea(value); setTimeout(() => value.focus(), 0) }}
-          initialValue={textValue()}
-          height={8}
-          wrapMode="word"
-          placeholder="Type any text to encrypt…"
-          backgroundColor={theme.background.raised.high}
-          focusedBackgroundColor={theme.background.raised.high}
-          textColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
-          focusedTextColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
-          cursorColor={theme.text.formfield.base}
-        />
-        <text fg={theme.text.muted}>
-          {`${concealed() ? "Masked" : "Visible"} · ${textLength()} ${textLength() === 1 ? "character" : "characters"} · ctrl+r ${concealed() ? "reveal" : "hide"}`}
-        </text>
+        <box flexDirection="column" gap={0}>
+          <textarea
+            ref={(value: TextareaRenderable) => { setTextarea(value); setTimeout(() => value.focus(), 0) }}
+            initialValue={textValue()}
+            height={concealed() ? 1 : 8}
+            wrapMode="word"
+            placeholder="Type any text to encrypt…"
+            backgroundColor={theme.background.raised.high}
+            focusedBackgroundColor={theme.background.raised.high}
+            textColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
+            focusedTextColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
+            cursorColor={theme.text.formfield.base}
+            showCursor={!concealed()}
+            onContentChange={syncText}
+            onCursorChange={syncText}
+          />
+          <Show when={concealed()}>
+            <box
+              paddingLeft={1}
+              paddingRight={1}
+              minHeight={1}
+              backgroundColor={theme.background.raised.high}
+              onMouseUp={() => textarea()?.focus()}
+            >
+              <Show when={textValue().length > 0} fallback={<text fg={theme.text.muted}>Type any text to encrypt…</text>}>
+                <text fg={theme.text.formfield.base} wrapMode="word">{maskedText()}</text>
+              </Show>
+            </box>
+          </Show>
+          <text fg={theme.text.muted}>
+            {`${concealed() ? "Masked" : "Visible"} · ${textLength()} ${textLength() === 1 ? "character" : "characters"} · ctrl+r ${concealed() ? "reveal" : "hide"}`}
+          </text>
+        </box>
       </Show>
       <input
         ref={(value: InputRenderable) => { setOutInput(value) }}
@@ -248,19 +297,24 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
           Key: {keyRole() === "decrypt" ? "Decrypt" : "Encrypt"} ({key()?.keyID.slice(0, 8)}…) {props.keys.length > 1 ? "· tab focus, left/right change" : ""}
         </text>
       </box>
-      <text>f2 encrypt · ctrl+t text/file · {mode() === "text" ? "ctrl+r reveal/hide · " : ""}tab output/key · f1 help</text>
+      <text>enter/f2 encrypt · shift+enter newline · ctrl+t text/file · {mode() === "text" ? "ctrl+r reveal/hide · " : ""}tab output/key · f1 help</text>
     </box>
   )
 }
 
 function EncryptResultDialog(props: { context: Context; result: EncryptResult; cleared?: boolean }) {
   const copy = (value: string | undefined, label: string) => {
-    if (!value) return
+    if (!value) return false
     if (!props.context.renderer.copyToClipboardOSC52(value)) {
       void props.context.ui.toast.show({ message: `Could not copy ${label}`, variant: "error" })
-      return
+      return false
     }
     void props.context.ui.toast.show({ message: `Copied ${label}`, variant: "info" })
+    return true
+  }
+
+  const copyAndClose = () => {
+    if (copy(props.result.ciphertext ?? props.result.out, "ciphertext")) props.context.ui.dialog.clear()
   }
 
   const [target, setTarget] = createSignal<BoxRenderable>()
@@ -269,6 +323,7 @@ function EncryptResultDialog(props: { context: Context; result: EncryptResult; c
     target,
     priority: 20,
     commands: [
+      { bind: "return", title: "Copy ciphertext and close", run: copyAndClose },
       { bind: "c", title: "Copy ciphertext", run: () => copy(props.result.ciphertext ?? props.result.out, "ciphertext") },
       { bind: "ctrl+y", title: "Copy ciphertext", run: () => copy(props.result.ciphertext ?? props.result.out, "ciphertext") },
       { bind: "p", title: "Copy output path", run: () => copy(props.result.out, "output path") },
@@ -303,7 +358,7 @@ function EncryptResultDialog(props: { context: Context; result: EncryptResult; c
           <text wrapMode="word">{shown()}</text>
         </scrollbox>
       </Show>
-      <text>c / ctrl+y: copy ciphertext · p: copy output path · Esc: close</text>
+      <text>enter copy + close · c / ctrl+y copy · p: copy output path · Esc: close</text>
     </box>
   )
 }

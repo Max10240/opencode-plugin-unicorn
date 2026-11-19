@@ -286,7 +286,11 @@ function Preview(props: { context: Context; image: PreviewImage; enlarged?: bool
             onError={() => setFailed(true)}
           />
         </box>
-        <text fg={props.context.theme.text.muted} wrapMode="none" truncate>
+        <text fg={props.context.theme.text.muted} wrapMode="none" truncate onMouseUp={(event) => {
+          if (event.button !== 0) return
+          event.stopPropagation()
+          props.onOpen?.()
+        }}>
           {`${formatBytes(bytes.length)}${size() ? ` · ${size()}` : ""} · ${props.enlarged ? "Esc to close" : props.hint ?? "Enter/o enlarge"}`}
         </text>
       </Show>

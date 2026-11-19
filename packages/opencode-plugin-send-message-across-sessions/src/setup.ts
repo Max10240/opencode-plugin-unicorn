@@ -5,7 +5,7 @@ import { acquireSessionDirectory, listOnlineSessions, listOnlineSessionsAcrossCo
 const SEND_TOOL = "send_message_across_sessions"
 const LIST_TOOL = "list_online_sessions"
 
-export const MESSAGE_PREFIX = "来自"
+export const MESSAGE_PREFIX = "Message from"
 export const SEND_TOOL_DESCRIPTION =
   "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents."
 
@@ -16,7 +16,7 @@ type SendMessageInput = {
   readonly delivery?: "steer" | "queue"
 }
 
-export const REPLY_REQUEST = "\n---\n 上述 session 需要你的回复"
+export const REPLY_REQUEST = "\n---\nThe above session needs your reply."
 
 type PluginContext = Pick<Context, "event" | "session" | "storage" | "tool">
 type SessionPromptInput = Parameters<Context["session"]["prompt"]>[0]
@@ -43,7 +43,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
             },
             "need-reply": {
               type: "boolean",
-              description: "是否需要回复",
+              description: "Whether the target session should reply.",
             },
             delivery: {
               type: "string",
@@ -61,11 +61,11 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
           if (!input.target_session_id) return selectionResult(available)
 
           if (input.target_session_id === tool.sessionID)
-            return { content: "不能向当前 session 自己发送跨 session 消息。", metadata: { sent: false } }
+            return { content: "Cannot send a cross-session message to the current session.", metadata: { sent: false } }
 
           const target = available.find((session) => session.id === input.target_session_id)
 
-          const text = `${MESSAGE_PREFIX}<${tool.sessionID}>的消息: ${input.message}${input["need-reply"] === true ? REPLY_REQUEST : ""}`
+          const text = `${MESSAGE_PREFIX} <${tool.sessionID}>: ${input.message}${input["need-reply"] === true ? REPLY_REQUEST : ""}`
           const delivery = input.delivery === "queue" ? "queue" : "steer"
           try {
             await context.session.prompt({
@@ -75,12 +75,12 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
             })
           } catch (error) {
             return {
-              content: `消息发送失败，目标 session ${input.target_session_id} 不可用。`,
+              content: `Message delivery failed; target session ${input.target_session_id} is unavailable.`,
               metadata: { sent: false, error: error instanceof Error ? error.message : String(error) },
             }
           }
           return {
-            content: `消息已发送到 ${input.target_session_id}${target?.title ? `（${target.title}）` : ""}。`,
+            content: `Message sent to ${input.target_session_id}${target?.title ? ` (${target.title})` : ""}.`,
             metadata: { sent: true, target_session_id: input.target_session_id, delivery, text },
           }
         },
@@ -114,12 +114,12 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
 function selectionResult(sessions: ReturnType<typeof listOnlineSessions>): ToolResult {
   if (sessions.length === 0) {
     return {
-      content: "当前没有发现其他在线 OpenCode 会话。请确认目标会话已经启动。",
+      content: "No other online OpenCode sessions were found. Make sure the target session has started.",
       metadata: { sessions: [] },
     }
   }
   return {
-    content: `请选择目标会话，然后再次调用 ${SEND_TOOL} 并传入 target_session_id：\n\n${formatSessions(sessions)}`,
+    content: `Choose a target session, then call ${SEND_TOOL} again with target_session_id:\n\n${formatSessions(sessions)}`,
     metadata: { sessions, requires_target_selection: true },
   }
 }

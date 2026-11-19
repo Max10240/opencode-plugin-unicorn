@@ -56,18 +56,18 @@ test("uses steer delivery by default and supports an explicit queue", async () =
     expect(schema.properties.delivery).toMatchObject({ type: "string", enum: ["steer", "queue"] })
     expect(schema.properties.delivery.description).toContain('"steer" (default)')
     expect(schema.properties.target_session_id.description).toContain("omit")
-    expect(schema.properties["need-reply"]).toMatchObject({ type: "boolean", description: "是否需要回复" })
+    expect(schema.properties["need-reply"]).toMatchObject({ type: "boolean", description: "Whether the target session should reply." })
     expect(schema.required).toEqual(["message", "need-reply"])
     expect(schema.additionalProperties).toBe(false)
 
     const defaultResult = await send(registered, { target_session_id: TARGET_ID, message: "default", "need-reply": false })
     expect(prompts[0]).toMatchObject({ sessionID: TARGET_ID, delivery: "steer" })
-    expect(prompts[0]?.text).toBe(`${MESSAGE_PREFIX}<${SENDER_ID}>的消息: default`)
+    expect(prompts[0]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: default`)
     expect(defaultResult.metadata).toMatchObject({ sent: true, delivery: "steer" })
 
     await send(registered, { target_session_id: TARGET_ID, message: "queued", "need-reply": true, delivery: "queue" })
     expect(prompts[1]).toMatchObject({ sessionID: TARGET_ID, delivery: "queue" })
-    expect(prompts[1]?.text).toBe(`${MESSAGE_PREFIX}<${SENDER_ID}>的消息: queued\n---\n 上述 session 需要你的回复`)
+    expect(prompts[1]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: queued\n---\nThe above session needs your reply.`)
   } finally {
     await cleanup()
   }
@@ -79,7 +79,7 @@ test("reports a failed send without claiming the message was delivered", async (
   })
   try {
     const result = await send(registered, { target_session_id: TARGET_ID, message: "hello", "need-reply": false })
-    expect(result.content).toContain("消息发送失败")
+    expect(result.content).toContain("Message delivery failed")
     expect(result.metadata).toMatchObject({ sent: false, error: "target offline" })
   } finally {
     await cleanup()

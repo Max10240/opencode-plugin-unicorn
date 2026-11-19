@@ -208,8 +208,8 @@ async function runScenario(mode: Mode, localPackages: LocalPackages) {
     // Release the target's tool call only after both delivery modes are queued.
     await writeFile(path.join(workspaceB, "target-busy.marker"), "ready")
 
-    const expectedSteer = `来自<${steerSender.id}>的消息: ${steerMessage}`
-    const expectedQueue = `来自<${queueSender.id}>的消息: ${queueMessage}`
+    const expectedSteer = `Message from <${steerSender.id}>: ${steerMessage}`
+    const expectedQueue = `Message from <${queueSender.id}>: ${queueMessage}`
     try {
       await waitFor(async () => {
         const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(
@@ -427,7 +427,7 @@ async function startProxy() {
           ],
         },
       )
-      mock.on({ predicate: (request) => JSON.stringify(request.messages).includes("来自<") }, { content: "TARGET_RECEIVED" })
+      mock.on({ predicate: (request) => JSON.stringify(request.messages).includes("Message from <") }, { content: "TARGET_RECEIVED" })
       mock.on({}, { content: "READY" })
     },
     close: () => mock.stop(),
