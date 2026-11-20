@@ -64,6 +64,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | 功能 | 开关 | 作用 |
 | --- | --- | --- |
 | God agent | `features.god` | 注册 `god` agent（需显式启用），按 model ID 选择 system prompt |
+| 延迟队列 | `features.delayedQueue` | 消息先入队，等会话空闲且所有被监听的后台工作结束后再执行 |
 | 自动后台 | `features.nonBlocking` | 把长时间运行的 Bash 和 subagent 转入后台，让你继续工作 |
 | Prompt 检索 | `features.promptSearch` | 搜索所有历史 session 的 prompt，并插入而不发送 |
 | 当前对话检索 | `features.sessionSearch` | 搜索当前对话，跳转到匹配消息或复制原文 |
@@ -88,6 +89,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | 功能 | 嵌套对象 | 常用参数 |
 | --- | --- | --- |
 | God agent | `god` | `models`、`cache`、`cacheTtlMs`、`timeoutMs` |
+| 延迟队列 | `delayedQueue` | `keybind`（默认 `<leader>d`）、`queueKeybind`（默认 `f9`）、`recheckMs`（默认 `5000`）、`waitKinds`、`waitDescendants`、`pauseOnInterrupt`、`pauseOnFailure` |
 | 自动后台 | `nonBlocking` | `thresholdMs`（默认 `10000`） |
 | Prompt 检索 | `promptSearch` | `keybind`（默认 `ctrl+shift+r`）、`maxPrompts`（默认 `2000`）、`defaultScope`（`all` 或 `project`） |
 | 当前对话检索 | `sessionSearch` | `keybind`（默认 `ctrl+shift+f`）、`defaultIncludeAgent` |

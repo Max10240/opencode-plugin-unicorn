@@ -62,6 +62,7 @@ function UnicornStatusDialog(props: { context: Context }) {
     feature("Recommended config", recommendedConfigFeatureOption(options) !== false, "rules and commands", "features.recommendedOpencodeConfig=false"),
     feature("God agent", godFeatureEnabled(options), "opt-in prompt override", "enable features.god or provide god options"),
     feature("Infinite loop", !isFalse(options.features, "infiniteLoop"), "idle nudges for activated sessions", "features.infiniteLoop=false"),
+    feature("Delayed queue", !isFalse(options.features, "delayedQueue"), "idle-gated message queue", "features.delayedQueue=false"),
   ]
   const defaults = () => [
     `Prompt search scope: ${options.promptSearch?.defaultScope === "project" ? "current project" : "all projects"}`,

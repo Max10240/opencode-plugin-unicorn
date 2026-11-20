@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, infiniteLoopFeatureEnabled, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, infiniteLoopFeatureEnabled, delayedQueueFeatureEnabled, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -51,7 +51,7 @@ test("dead loop is enabled by default and can be disabled independently", () => 
 })
 
 test("every child receives exactly its own options, including unknown nested fields", () => {
-  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking", "infiniteLoop"]
+  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking", "infiniteLoop", "delayedQueue"]
   const options = Object.freeze({
     features: Object.freeze({ imageGen: false }), model: "legacy-model", keybind: "legacy-key", maxPrompts: 99, sessionSearchKeybind: "legacy-search-key",
     ...Object.fromEntries(names.map((name) => [name, Object.freeze({ marker: name, future: { values: [1, 2] } })])),
