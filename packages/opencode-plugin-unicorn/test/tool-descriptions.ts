@@ -1,7 +1,7 @@
 export const toolDescriptions = {
   image_gen: "Generate or edit one image and save it to a file without overwriting existing files.",
   show_img:
-    "Show a server-side image to the user without adding it to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB.",
+    "Show one or more server-side images to the user without adding them to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB each.",
   send_message_across_sessions:
     "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents.",
   decrypt_sensitive:

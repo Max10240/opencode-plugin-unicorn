@@ -3,7 +3,7 @@ import { mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
 import { MAX_PREVIEW_BYTES } from "../src/preview-assets.js"
-import { api, createSession, headers, previewEndpoint, readImagePreview, showImage } from "./e2e-utils.js"
+import { api, createSession, headers, previewEndpoint, readImagePreview, showImage, showImages } from "./e2e-utils.js"
 import { rasterFixtures } from "./fixtures.js"
 
 setDefaultTimeout(180_000)
@@ -35,6 +35,27 @@ test("real tool rejects invalid files, exposes no preview IDs, and recovers on t
     await writeFile(valid, rasterFixtures[0].bytes)
     expect((await showImage(e2e, sessionID, valid)).state.status).toBe("completed")
     expect(JSON.stringify(e2e.proxy.mock.getRequests().map((request) => request.body))).not.toContain("PRIVATE_NON_IMAGE_CONTENT")
+  } finally { await e2e.close() }
+})
+
+test("one real tool call prepares multiple ordered previews", async () => {
+  const e2e = await start()
+  try {
+    const sessionID = await createSession(e2e)
+    const files = rasterFixtures.slice(0, 2).map((fixture) => path.join(e2e.root, `multi-${fixture.kind}.png`))
+    await Promise.all(files.map((file, index) => writeFile(file, rasterFixtures[index]!.bytes)))
+    const part = await showImages(e2e, sessionID, files)
+    expect(part.state.status).toBe("completed")
+    const references = part.state.metadata.imagePreviews as Array<{ assetID: string; name: string }>
+    expect(references).toHaveLength(2)
+    expect(part.state.metadata.imagePreview).toEqual(references[0])
+    for (const [index, reference] of references.entries()) {
+      const result = await readImagePreview(e2e, sessionID, reference.assetID)
+      expect(Buffer.from(result.output.data, "base64")).toEqual(rasterFixtures[index]!.bytes)
+      expect(result.output.name).toBe(path.basename(files[index]!))
+    }
+    const bodies = JSON.stringify(e2e.proxy.mock.getRequests().map((request) => request.body))
+    for (const fixture of rasterFixtures) expect(bodies).not.toContain(fixture.bytes.toString("base64"))
   } finally { await e2e.close() }
 })
 

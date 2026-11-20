@@ -166,6 +166,25 @@ test("collapses multiple images and loads image_gen preview metadata through the
   } finally { app.renderer.destroy() }
 })
 
+test("one tool call with multiple references opens the carousel on demand", async () => {
+  const app = await renderPreview(async () => image(), 80, 45)
+  try {
+    app.setMessages({ a: [assistant(tool("first", "completed", {
+      imagePreviews: [
+        { assetID: "first", name: "first.png" },
+        { assetID: "second", name: "second.png" },
+      ],
+    }))] })
+    await app.waitForFrame((frame) => frame.includes("first.png") && frame.includes("1 of 2"))
+    command(app, "Enlarge image preview")
+    await app.waitForFrame((frame) => frame.includes("1/2"))
+    command(app, "Next image")
+    await app.waitForFrame((frame) => frame.includes("second.png") && frame.includes("2/2"))
+    command(app, "Previous image")
+    await app.waitForFrame((frame) => frame.includes("first.png") && frame.includes("1/2"))
+  } finally { app.renderer.destroy() }
+})
+
 test("aborts stale reads on image and session changes and on unmount", async () => {
   const pending = Promise.withResolvers<PreviewImage>()
   const calls: Array<{ sessionID: string; assetID: string; signal: AbortSignal; location: unknown }> = []

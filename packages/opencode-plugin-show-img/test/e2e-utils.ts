@@ -156,6 +156,21 @@ export async function showImage(e2e: E2E, sessionID: string, file: string) {
   return parts[0] as Record<string, any>
 }
 
+export async function showImages(e2e: E2E, sessionID: string, files: readonly string[]) {
+  const id = `call_${crypto.randomUUID()}`
+  const text = `E2E_SHOW_MANY_${id}`
+  e2e.proxy.mock.prependFixture({
+    match: { userMessage: text, sequenceIndex: 0 },
+    response: { toolCalls: [{ id, name: "show_img", arguments: JSON.stringify({ abs_file_paths: files }) }] },
+  })
+  e2e.proxy.mock.prependFixture({ match: { toolCallId: id }, response: { content: "SHOW_IMAGES_DONE" } })
+  await prompt(e2e, sessionID, text)
+  const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(e2e, `/api/experimental/session/${sessionID}/export`)
+  const parts = exported.data.messages.flatMap((message) => message.content ?? []).filter((part) => part.type === "tool" && part.id === id)
+  expect(parts).toHaveLength(1)
+  return parts[0] as Record<string, any>
+}
+
 export function previewEndpoint(e2e: E2E) {
   return `/api/rpc/max10240.show-img/read?${new URLSearchParams({ "location[directory]": e2e.workspace })}`
 }

@@ -118,10 +118,9 @@ function InlineImagePreviews(props: { context: Context }) {
 function groupEntries(entries: readonly PreviewEntry[]): PreviewGroup[] {
   const groups = new Map<string, PreviewEntry[]>()
   for (const entry of entries) {
-    const key = entry.key.slice(0, Math.max(0, entry.key.lastIndexOf(":")))
-    const group = groups.get(key)
+    const group = groups.get(entry.groupKey)
     if (group) group.push(entry)
-    else groups.set(key, [entry])
+    else groups.set(entry.groupKey, [entry])
   }
   return [...groups].map(([key, values]) => ({
     key,

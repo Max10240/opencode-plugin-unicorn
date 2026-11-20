@@ -26,13 +26,29 @@ export const ImagePreview = Rpc.define({
 export type PreviewReference = { assetID: string; name: string }
 export type PreviewImage = { mime: string; data: string; name: string }
 
-export function previewReference(metadata: unknown): PreviewReference | undefined {
-  if (!metadata || typeof metadata !== "object" || !("imagePreview" in metadata)) return
-  const value = metadata.imagePreview
+function parseReference(value: unknown): PreviewReference | undefined {
   if (!value || typeof value !== "object") return
   if (!("assetID" in value) || typeof value.assetID !== "string") return
   if (!("name" in value) || typeof value.name !== "string") return
   return { assetID: value.assetID, name: value.name }
+}
+
+export function previewReference(metadata: unknown): PreviewReference | undefined {
+  if (!metadata || typeof metadata !== "object" || !("imagePreview" in metadata)) return
+  return parseReference(metadata.imagePreview)
+}
+
+export function previewReferences(metadata: unknown): PreviewReference[] {
+  if (!metadata || typeof metadata !== "object") return []
+  if ("imagePreviews" in metadata && Array.isArray(metadata.imagePreviews)) {
+    const values = metadata.imagePreviews.flatMap((value) => {
+      const reference = parseReference(value)
+      return reference ? [reference] : []
+    })
+    if (values.length > 0) return values
+  }
+  const single = previewReference(metadata)
+  return single ? [single] : []
 }
 
 export function showImgEnabled(options: Readonly<Record<string, unknown>>): boolean {

@@ -9,10 +9,13 @@ export const MAX_PREVIEW_BYTES = 20 * 1024 * 1024
 
 type Asset = { sessionID: string; path: string; mime: string; name: string }
 
-export function createPreviewAssets(storage: Pick<Context["storage"], "get" | "set">) {
+export function createPreviewAssets(storage: Pick<Context["storage"], "get" | "set" | "remove">) {
   return {
+    async remove(assetID: string) {
+      await storage.remove(`${PREFIX}${assetID}`)
+    },
     async register(sessionID: string, absFilePath: string) {
-      if (!path.isAbsolute(absFilePath)) throw new Error("abs_file_path must be an absolute server-side file path")
+      if (!path.isAbsolute(absFilePath)) throw new Error("Image path must be an absolute server-side file path")
       const resolved = await realpath(absFilePath)
       const mime = await inspectImage(resolved)
       const assetID = randomUUID()

@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import { createPreviewAssets, MAX_PREVIEW_BYTES } from "../src/preview-assets.js"
-import { previewReference, showImgEnabled } from "../src/preview-rpc.js"
+import { previewReference, previewReferences, showImgEnabled } from "../src/preview-rpc.js"
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
 
@@ -14,6 +14,7 @@ function storage() {
     values,
     get: async (key: string) => values.get(key),
     set: async (key: string, value: Parameters<Context["storage"]["set"]>[1]) => { values.set(key, value) },
+    remove: async (key: string) => { values.delete(key) },
   }
 }
 
@@ -42,6 +43,8 @@ test("persists only an opaque reference and transfers bytes through the separate
     expect(await createPreviewAssets(store).read("session-a", reference.assetID)).toEqual(image)
     await expect(assets.read("session-b", reference.assetID)).rejects.toThrow("unavailable")
     await expect(assets.read("session-a", "unknown-id")).rejects.toThrow("unavailable")
+    await assets.remove(reference.assetID)
+    expect(store.values.size).toBe(0)
   })
 })
 
@@ -99,6 +102,15 @@ test("metadata parsing and feature toggles contain no image transport data", () 
   expect(previewReference({ imagePreview: "wrong" })).toBeUndefined()
   expect(previewReference({ imagePreview: { assetID: 1, name: "file.png" } })).toBeUndefined()
   expect(previewReference({ imagePreview: { assetID: "id", name: "file.png" } })).toEqual({ assetID: "id", name: "file.png" })
+  expect(previewReferences({ imagePreviews: [
+    { assetID: "a", name: "a.png" },
+    { assetID: 1, name: "bad.png" },
+    { assetID: "b", name: "b.png" },
+  ] })).toEqual([{ assetID: "a", name: "a.png" }, { assetID: "b", name: "b.png" }])
+  expect(previewReferences({ imagePreview: { assetID: "single", name: "single.png" } })).toEqual([
+    { assetID: "single", name: "single.png" },
+  ])
+  expect(previewReferences({ imagePreviews: [] })).toEqual([])
   expect(showImgEnabled({})).toBe(true)
   expect(showImgEnabled({ features: { showImg: false } })).toBe(false)
   expect(showImgEnabled({ features: { imageGen: false } })).toBe(true)

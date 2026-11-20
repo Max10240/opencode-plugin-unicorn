@@ -1,7 +1,7 @@
 import type { Renderable, ScrollBoxRenderable } from "@opentui/core"
-import { previewReference, type PreviewReference } from "./preview-rpc.js"
+import { previewReferences, type PreviewReference } from "./preview-rpc.js"
 
-export type PreviewEntry = PreviewReference & { key: string; sessionID: string; anchors: string[] }
+export type PreviewEntry = PreviewReference & { key: string; groupKey: string; sessionID: string; anchors: string[] }
 type Message = { id: string; type: string; content?: readonly { type: string; id?: string; name?: string; text?: string; state?: unknown }[] }
 
 export function previewEntries(sessionID: string, messages: readonly Message[], revertID?: string): PreviewEntry[] {
@@ -17,10 +17,17 @@ export function previewEntries(sessionID: string, messages: readonly Message[], 
       first = false
       const state = part.state as { status?: unknown; metadata?: unknown } | undefined
       if (!part.id || !["show_img", "image_gen"].includes(part.name ?? "") || state?.status !== "completed") return []
-      const reference = previewReference(state.metadata)
-      if (!reference) return []
-      return [{ ...reference, key: `${sessionID}:${message.id}:${part.id}`, sessionID,
-        anchors: [`session-part:${message.id}:${part.id}`, ...(boundary ? [message.id] : [])] }]
+      const references = previewReferences(state.metadata)
+      if (references.length === 0) return []
+      const groupKey = `${sessionID}:${message.id}`
+      const anchor = `session-part:${message.id}:${part.id}`
+      return references.map((reference, index) => ({
+        ...reference,
+        key: index === 0 ? `${groupKey}:${part.id}` : `${groupKey}:${part.id}#${index}`,
+        groupKey,
+        sessionID,
+        anchors: [anchor, ...(boundary && index === 0 ? [message.id] : [])],
+      }))
     })
   })
 }

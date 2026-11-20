@@ -23,7 +23,7 @@ preview below the tool output, and the image never enters model context.
 
 - **Inline previews.** Each image appears below its tool output and scrolls with the conversation.
 - **Enlarge with the keyboard or mouse.** Focus a preview and press `Enter` or `o`; click also works. Press `Esc` to close.
-- **Multiple images stay together.** Images from one tool message collapse into one preview with a gallery.
+- **Multiple images stay together.** One `show_img` call or several calls in one assistant message collapse into one preview with a gallery.
 - **No model context cost.** The model sees a path and a confirmation; image bytes stay between the server and the TUI.
 - **Works with remote servers.** The TUI fetches the preview through OpenCode's authenticated channel, so the client
   and server do not need a shared filesystem.
@@ -67,8 +67,20 @@ The agent calls:
 { "abs_file_path": "/srv/app/screenshots/checkout.png" }
 ```
 
-The path must be absolute and on the server. When image generation is also enabled, saved images are previewed
-automatically without an extra tool call.
+To show several images in one call, pass an ordered list:
+
+```json
+{
+  "abs_file_paths": [
+    "/srv/app/screenshots/checkout.png",
+    "/srv/app/screenshots/cart.png"
+  ]
+}
+```
+
+Paths must be absolute and on the server. Use `abs_file_path` for one image or `abs_file_paths` for several. The
+inline preview shows `1 of N`; press `Enter`/`o` or click it, then use `←`/`→` in the gallery. When image generation is
+also enabled, saved images are previewed automatically without an extra tool call.
 
 | Key | Action |
 | --- | --- |

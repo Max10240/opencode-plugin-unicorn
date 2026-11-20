@@ -13,6 +13,31 @@ test("each completed preview keeps its own tool anchor and only the first visibl
   expect(previewEntries("s", [{ id: "m", type: "assistant", content: [{ type: "reasoning", text: "thought" }, tool("image")] }])[0].anchors).toEqual(["session-part:m:image"])
 })
 
+test("multiple references from one tool call share a message group and keep unique keys", () => {
+  const multi = {
+    type: "tool",
+    id: "multi",
+    name: "show_img",
+    state: {
+      status: "completed",
+      metadata: {
+        imagePreviews: [
+          { assetID: "one", name: "one.png" },
+          { assetID: "two", name: "two.png" },
+        ],
+      },
+    },
+  }
+  const entries = previewEntries("s", [{ id: "m", type: "assistant", content: [multi] }])
+  expect(entries).toHaveLength(2)
+  expect(entries.map((entry) => entry.name)).toEqual(["one.png", "two.png"])
+  expect(entries[0].groupKey).toBe("s:m")
+  expect(entries[1].groupKey).toBe("s:m")
+  expect(entries[0].key).not.toBe(entries[1].key)
+  expect(entries[0].anchors).toEqual(["session-part:m:multi", "m"])
+  expect(entries[1].anchors).toEqual(["session-part:m:multi"])
+})
+
 test("reverted messages, malformed references and non-assistant messages cannot create previews", () => {
   expect(previewEntries("s", [{ id: "m", type: "user", content: [tool("image")] }])).toEqual([])
   expect(previewEntries("s", [{ id: "m", type: "assistant", content: [tool("image")] }], "m")).toEqual([])
