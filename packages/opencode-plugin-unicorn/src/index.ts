@@ -8,7 +8,7 @@ import { setupOpencodeGoUsage } from "@max10240/opencode-plugin-opencode-go-usag
 import { setupSensitiveEncrypt } from "@max10240/opencode-plugin-sensitive-encrypt"
 import { setupSensitiveProtection } from "@max10240/opencode-plugin-sensitive-protection"
 import { setupRecommendedOpencodeConfig } from "@max10240/opencode-plugin-recomended-opencode-config"
-import { setupDeadLoop } from "@max10240/opencode-plugin-dead-loop"
+import { setupInfiniteLoop } from "@max10240/opencode-plugin-infinite-loop"
 import { disposeAll } from "./cleanup.js"
 import { UnicornStatusRpc } from "./status-rpc.js"
 import { unicornRuntimeStatus } from "./status.js"
@@ -23,7 +23,7 @@ import {
   sensitiveProtectionFeatureEnabled,
   showImgFeatureEnabled,
   opencodeGoUsageFeatureEnabled,
-  deadLoopFeatureEnabled,
+  infiniteLoopFeatureEnabled,
 } from "./options.js"
 
 export default Plugin.define({
@@ -52,8 +52,8 @@ export default Plugin.define({
       cleanups.push(await setupSensitiveProtection(childContext(ctx, "sensitiveProtection")))
     if (sensitiveEncryptFeatureEnabled(ctx.options))
       cleanups.push(await setupSensitiveEncrypt(childContext(ctx, "sensitiveEncrypt")))
-    if (deadLoopFeatureEnabled(ctx.options))
-      cleanups.push(await setupDeadLoop(childContext(ctx, "deadLoop")))
+    if (infiniteLoopFeatureEnabled(ctx.options))
+      cleanups.push(await setupInfiniteLoop(childContext(ctx, "infiniteLoop")))
 
     if (cleanups.length === 0) return
     return () => disposeAll(cleanups)
@@ -72,5 +72,5 @@ export {
   nonBlockingFeatureEnabled,
   showImgFeatureEnabled,
   opencodeGoUsageFeatureEnabled,
-  deadLoopFeatureEnabled,
+  infiniteLoopFeatureEnabled,
 } from "./options.js"

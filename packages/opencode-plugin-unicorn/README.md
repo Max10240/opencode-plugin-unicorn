@@ -73,6 +73,7 @@ the same name:
 | Image generation | `features.imageGen` | Generates or edits images and saves them as files |
 | Image preview | `features.showImg` | Shows images inline without adding image bytes to model context |
 | OpenCode Go usage | `features.opencodeGoUsage` | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account |
+| Infinite loop | `features.infiniteLoop` | Keeps an activated session working with idle nudges until its time window ends |
 | Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
@@ -97,6 +98,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | Image generation | `imageGen` | `model`, `baseURL`, `integrationID` |
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
+| Infinite loop | `infiniteLoop` | `keybind` (default `ctrl+shift+i`), `overviewKeybind` (default `ctrl+shift+o`), `cooldownMs` (default `300000`), `delayMs`, `recheckMs`, `presets`, duration bounds |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled`, `defaultSort` (`updated` or `created`) |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |

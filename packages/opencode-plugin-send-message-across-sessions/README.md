@@ -59,8 +59,9 @@ Just ask the agent in plain language:
 The agent uses `list_online_sessions` to find the target and `send_message_across_sessions` to deliver the message. If
 it does not know which session you mean, it returns the list and asks you to choose.
 
-`list_online_sessions` returns up to 50 sessions per page. Pass `offset` to page through larger lists; the result
-metadata includes `total` and the next offset.
+`list_online_sessions` returns up to 20 sessions per page. Pass `offset` to page through larger lists; the result
+metadata includes `total` and the next offset. The list is served from an event-maintained directory, so the
+tool never queries the session database while a turn is running.
 
 ### Delivery modes
 

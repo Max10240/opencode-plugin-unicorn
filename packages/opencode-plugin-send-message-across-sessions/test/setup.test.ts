@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test"
+import { beforeEach, expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
 import { MESSAGE_PREFIX, SEND_TOOL_DESCRIPTION, setupSendMessageAcrossSessions } from "../src/setup.js"
-import { listOnlineSessionsAcrossContexts } from "../src/session-directory.js"
+import { listOnlineSessionsAcrossContexts, resetSessionDirectoryForTests } from "../src/session-directory.js"
+
+beforeEach(() => resetSessionDirectoryForTests())
 
 const TARGET_ID = "ses_target"
 const SENDER_ID = "ses_sender"
@@ -16,11 +18,15 @@ const targetRecord = {
   updatedAt: 2,
 }
 
-async function setup(prompt: (input: Record<string, unknown>) => Promise<void>, scan?: () => Promise<any>) {
+async function setup(
+  prompt: (input: Record<string, unknown>) => Promise<void>,
+  scan?: () => Promise<any>,
+  list?: () => Promise<any>,
+) {
   const registered = new Map<string, Info>()
   const context = {
     event: { subscribe: async function* () {} },
-    session: { prompt },
+    session: { prompt, ...(list === undefined ? {} : { list }) },
     storage: {
       scan: scan ?? (async () => ({ entries: [{ key: `online-sessions/${TARGET_ID}`, value: targetRecord }] })),
       set: async () => {},
@@ -112,10 +118,10 @@ test("paginates the listed sessions and reports the total", async () => {
     const first = await list.execute({}, { sessionID: SENDER_ID } as ToolContext) as any
     expect(first.metadata.total).toBe(60)
     expect(first.metadata.offset).toBe(0)
-    expect(first.metadata.next).toBe(50)
-    expect(first.metadata.sessions).toHaveLength(50)
-    expect(first.content).toContain("Showing 1-50 of 60.")
-    expect(first.content).toContain("offset=50")
+    expect(first.metadata.next).toBe(20)
+    expect(first.metadata.sessions).toHaveLength(20)
+    expect(first.content).toContain("Showing 1-20 of 60.")
+    expect(first.content).toContain("offset=20")
 
     const second = await list.execute({ offset: 50 }, { sessionID: SENDER_ID } as ToolContext) as any
     expect(second.metadata.total).toBe(60)
@@ -137,6 +143,7 @@ test("does not hang when storage scan stalls or repeats pagination", async () =>
   expect(Date.now() - started).toBeLessThan(1_000)
   expect(Array.isArray(empty)).toBe(true)
 
+  resetSessionDirectoryForTests()
   let calls = 0
   const repeated = {
     storage: {
@@ -185,4 +192,62 @@ test("uses session.list as the authoritative source and prunes stale storage", a
   expect(listed[0]?.status).toBe("running")
   await Bun.sleep(30)
   expect(removed).toContain("online-sessions/ses_dead")
+})
+
+test("the list tool reads the event directory without querying session.list during execute", async () => {
+  let listCalls = 0
+  const list = async () => {
+    listCalls++
+    throw new Error("session database unavailable")
+  }
+  const { registered, cleanup } = await setup(async () => {}, undefined, list)
+  try {
+    await Bun.sleep(50)
+    const before = listCalls
+    const tool = registered.get("list_online_sessions")!
+    const result = await tool.execute({}, { sessionID: SENDER_ID } as ToolContext) as any
+    expect(result.metadata.sessions.map((session: any) => session.id)).toContain(TARGET_ID)
+    expect(listCalls).toBe(before)
+  } finally {
+    await cleanup()
+  }
+})
+
+test("a stalled session.list cannot block the list tool", async () => {
+  const list = () => new Promise<never>(() => {})
+  const { registered, cleanup } = await setup(async () => {}, undefined, list)
+  try {
+    const started = Date.now()
+    const tool = registered.get("list_online_sessions")!
+    const result = await tool.execute({}, { sessionID: SENDER_ID } as ToolContext) as any
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(result.metadata.sessions.map((session: any) => session.id)).toContain(TARGET_ID)
+  } finally {
+    await cleanup()
+  }
+})
+
+test("compacts long titles and directories and strips control characters", async () => {
+  const title = "first\u0000line\n" + "x".repeat(500)
+  const directory = "/tmp/" + "y".repeat(300)
+  const scan = async () => ({
+    entries: [{
+      key: "online-sessions/ses_long",
+      value: { ...targetRecord, id: "ses_long", title, directory, updatedAt: 9 },
+    }],
+  })
+  const { registered, cleanup } = await setup(async () => {}, scan)
+  try {
+    const tool = registered.get("list_online_sessions")!
+    const result = await tool.execute({}, { sessionID: SENDER_ID } as ToolContext) as any
+    const item = result.metadata.sessions.find((session: any) => session.id === "ses_long")
+    expect(item.title.length).toBeLessThanOrEqual(80)
+    expect(item.directory.length).toBeLessThanOrEqual(120)
+    expect(item.title).not.toContain("\n")
+    expect(item.title).not.toContain("\u0000")
+    expect(result.content.length).toBeLessThan(20_000)
+    expect(result.content).not.toContain("x".repeat(200))
+  } finally {
+    await cleanup()
+  }
 })

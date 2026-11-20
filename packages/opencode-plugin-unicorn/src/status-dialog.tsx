@@ -7,6 +7,10 @@ import { COMMAND_ID as SESSION_SEARCH_COMMAND } from "@max10240/opencode-plugin-
 import { COMMAND_ID as GO_USAGE_COMMAND } from "@max10240/opencode-plugin-opencode-go-usage/tui"
 import { COMMAND_ID as RECOMMENDED_COMMAND } from "@max10240/opencode-plugin-recomended-opencode-config/tui"
 import { HISTORY_COMMAND_ID } from "@max10240/opencode-plugin-sensitive-protection/tui"
+import {
+  COMMAND_ID as INFINITE_LOOP_COMMAND,
+  OVERVIEW_COMMAND_ID as INFINITE_LOOPS_COMMAND,
+} from "@max10240/opencode-plugin-infinite-loop/tui"
 import type { UnicornRuntimeStatus } from "./status.js"
 import { UnicornStatusRpc } from "./status-rpc.js"
 import { godFeatureEnabled, recommendedConfigFeatureOption } from "./options.js"
@@ -57,7 +61,7 @@ function UnicornStatusDialog(props: { context: Context }) {
     feature("Send message", !isFalse(options.features, "sendMessageAcrossSessions"), "cross-session messaging", "features.sendMessageAcrossSessions=false"),
     feature("Recommended config", recommendedConfigFeatureOption(options) !== false, "rules and commands", "features.recommendedOpencodeConfig=false"),
     feature("God agent", godFeatureEnabled(options), "opt-in prompt override", "enable features.god or provide god options"),
-    feature("Dead loop", !isFalse(options.features, "deadLoop"), "idle nudges for activated sessions", "features.deadLoop=false"),
+    feature("Infinite loop", !isFalse(options.features, "infiniteLoop"), "idle nudges for activated sessions", "features.infiniteLoop=false"),
   ]
   const defaults = () => [
     `Prompt search scope: ${options.promptSearch?.defaultScope === "project" ? "current project" : "all projects"}`,
@@ -72,6 +76,8 @@ function UnicornStatusDialog(props: { context: Context }) {
       commandRow(props.context, "Notepad", NOTEPAD_COMMAND, optionKeybind(options.notepad, "Ctrl+Shift+N")),
       commandRow(props.context, "Go usage", GO_USAGE_COMMAND, optionKeybind(options.opencodeGoUsage, "none")),
       commandRow(props.context, "Protection history", HISTORY_COMMAND_ID, optionKeybind(options.sensitiveProtection, "Ctrl+Shift+H", "historyKeybind")),
+      commandRow(props.context, "Infinite loop", INFINITE_LOOP_COMMAND, optionKeybind(options.infiniteLoop, "Ctrl+Shift+I")),
+      commandRow(props.context, "Infinite loops", INFINITE_LOOPS_COMMAND, optionKeybind(options.infiniteLoop, "Ctrl+Shift+O", "overviewKeybind")),
       commandRow(props.context, "Encrypt", "sensitive-encrypt.encrypt", "none"),
       commandRow(props.context, "Recommended config", RECOMMENDED_COMMAND, "none"),
       commandRow(props.context, "Unicorn status", UNICORN_STATUS_COMMAND_ID, "none"),
@@ -85,6 +91,8 @@ function UnicornStatusDialog(props: { context: Context }) {
       NOTEPAD_COMMAND,
       GO_USAGE_COMMAND,
       HISTORY_COMMAND_ID,
+      INFINITE_LOOP_COMMAND,
+      INFINITE_LOOPS_COMMAND,
       "sensitive-encrypt.encrypt",
       RECOMMENDED_COMMAND,
       UNICORN_STATUS_COMMAND_ID,

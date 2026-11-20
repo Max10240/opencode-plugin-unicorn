@@ -81,7 +81,7 @@ test("Unicorn wires the dead loop through its feature gate", async () => {
           opencodeGoUsage: false,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
-          deadLoop: enabled,
+          infiniteLoop: enabled,
         },
       },
       session: {

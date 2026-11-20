@@ -1,10 +1,21 @@
 import { describe, expect, test } from "bun:test"
-import { DAY_MS, formatDuration, HOUR_MS, MINUTE_MS, parseDuration, parsePresets } from "../src/duration.js"
+import {
+  DAY_MS,
+  formatDuration,
+  HOUR_MS,
+  MINUTE_MS,
+  parseCooldown,
+  parseDuration,
+  parsePresets,
+  SECOND_MS,
+} from "../src/duration.js"
 
 const BOUNDS = { minMs: 5 * MINUTE_MS, maxMs: 7 * DAY_MS }
 
 describe("parseDuration", () => {
   test("accepts unit suffixes", () => {
+    const seconds = { minMs: SECOND_MS, maxMs: 7 * DAY_MS }
+    expect(parseDuration("30s", seconds)).toEqual({ ok: true, ms: 30 * SECOND_MS })
     expect(parseDuration("30m", BOUNDS)).toEqual({ ok: true, ms: 30 * MINUTE_MS })
     expect(parseDuration("2h", BOUNDS)).toEqual({ ok: true, ms: 2 * HOUR_MS })
     expect(parseDuration("1d", BOUNDS)).toEqual({ ok: true, ms: 1 * DAY_MS })
@@ -40,6 +51,29 @@ describe("parseDuration", () => {
     const tight = { minMs: MINUTE_MS, maxMs: HOUR_MS }
     expect(parseDuration("30m", tight)).toEqual({ ok: true, ms: 30 * MINUTE_MS })
     expect(parseDuration("2h", tight).ok).toBe(false)
+  })
+})
+
+describe("parseCooldown", () => {
+  const cooldown = { minMs: 0, maxMs: DAY_MS }
+
+  test("treats bare numbers as minutes", () => {
+    expect(parseCooldown("5", cooldown)).toEqual({ ok: true, ms: 5 * MINUTE_MS })
+    expect(parseCooldown("1", cooldown)).toEqual({ ok: true, ms: MINUTE_MS })
+  })
+
+  test("accepts zero and unit suffixes", () => {
+    expect(parseCooldown("0", cooldown)).toEqual({ ok: true, ms: 0 })
+    expect(parseCooldown("0m", cooldown)).toEqual({ ok: true, ms: 0 })
+    expect(parseCooldown("90s", cooldown)).toEqual({ ok: true, ms: 90 * SECOND_MS })
+    expect(parseCooldown("1h30m", cooldown)).toEqual({ ok: true, ms: HOUR_MS + 30 * MINUTE_MS })
+  })
+
+  test("rejects invalid input and bounds", () => {
+    expect(parseCooldown("abc", cooldown).ok).toBe(false)
+    expect(parseCooldown("2x", cooldown).ok).toBe(false)
+    expect(parseCooldown("2d", cooldown).ok).toBe(false)
+    expect(parseCooldown("-1", cooldown).ok).toBe(false)
   })
 })
 

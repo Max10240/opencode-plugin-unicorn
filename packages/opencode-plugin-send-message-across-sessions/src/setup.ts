@@ -4,8 +4,11 @@ import { acquireSessionDirectory, listOnlineSessions, listOnlineSessionsAcrossCo
 
 const SEND_TOOL = "send_message_across_sessions"
 const LIST_TOOL = "list_online_sessions"
-const DEFAULT_LIST_LIMIT = 50
+const DEFAULT_LIST_LIMIT = 20
 const MAX_LIST_LIMIT = 100
+const MAX_CONTENT_BYTES = 16 * 1024
+const MAX_TITLE_LENGTH = 80
+const MAX_DIRECTORY_LENGTH = 120
 
 export const MESSAGE_PREFIX = "Message from"
 export const SEND_TOOL_DESCRIPTION =
@@ -99,7 +102,7 @@ export async function setupSendMessageAcrossSessions(context: PluginContext) {
               type: "integer",
               minimum: 1,
               maximum: MAX_LIST_LIMIT,
-              description: "Maximum sessions to return (default 50).",
+              description: "Maximum sessions to return (default 20).",
             },
             offset: {
               type: "integer",
@@ -146,7 +149,7 @@ function selectionResult(
       metadata: { sessions: [], total: 0, offset: 0, next: null },
     }
   }
-  const listed = sessions.slice(page.offset, page.offset + page.limit)
+  const listed = sessions.slice(page.offset, page.offset + page.limit).map(compactSession)
   const end = page.offset + listed.length
   const next = end < sessions.length ? end : null
   if (listed.length === 0) {
@@ -158,10 +161,36 @@ function selectionResult(
   const more = next !== null
     ? `\n\nShowing ${page.offset + 1}-${end} of ${sessions.length}. Use list_online_sessions with offset=${next} to see more.`
     : `\n\nShowing ${page.offset + 1}-${end} of ${sessions.length}.`
+  const content = limitBytes(
+    `Choose a target session, then call ${SEND_TOOL} again with target_session_id:\n\n${formatSessions(listed, page.offset)}${more}`,
+    MAX_CONTENT_BYTES,
+  )
   return {
-    content: `Choose a target session, then call ${SEND_TOOL} again with target_session_id:\n\n${formatSessions(listed, page.offset)}${more}`,
+    content,
     metadata: { sessions: listed, total: sessions.length, offset: page.offset, next, requires_target_selection: true },
   }
+}
+
+function compactSession(session: ReturnType<typeof listOnlineSessions>[number]): ReturnType<typeof listOnlineSessions>[number] {
+  return {
+    ...session,
+    ...(session.title === undefined ? {} : { title: clip(sanitize(session.title), MAX_TITLE_LENGTH) }),
+    ...(session.directory === undefined ? {} : { directory: clip(sanitize(session.directory), MAX_DIRECTORY_LENGTH) }),
+  }
+}
+
+function sanitize(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim()
+}
+
+function clip(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`
+}
+
+function limitBytes(value: string, max: number): string {
+  const bytes = Buffer.from(value, "utf8")
+  if (bytes.length <= max) return value
+  return `${bytes.subarray(0, max).toString("utf8")}\n[truncated]`
 }
 
 function listPage(input: unknown) {

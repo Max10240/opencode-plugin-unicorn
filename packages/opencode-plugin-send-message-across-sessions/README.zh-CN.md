@@ -56,7 +56,7 @@
 Agent 会用 `list_online_sessions` 找到目标，再用 `send_message_across_sessions` 发送。如果它不知道你指哪个 session，会先把
 列表返回给你选择。
 
-`list_online_sessions` 每页最多返回 50 个 session；列表更大时传 `offset` 翻页，结果 metadata 包含 `total` 和下一页 offset。
+`list_online_sessions` 每页最多返回 20 个 session；列表更大时传 `offset` 翻页，结果 metadata 包含 `total` 和下一页 offset。列表由事件维护的内存目录提供，工具执行期间不会查询会话数据库。
 
 ### 投递方式
 

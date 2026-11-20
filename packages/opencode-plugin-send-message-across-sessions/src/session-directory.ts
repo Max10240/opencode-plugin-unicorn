@@ -26,21 +26,28 @@ type SessionRecord = {
 }
 
 const sessions = new Map<string, SessionRecord>()
+const deleted = new Set<string>()
 const SESSION_STORAGE_PREFIX = "online-sessions/"
-const LIST_SCAN_TIMEOUT_MS = 2_000
-const MAX_SCAN_PAGES = 1_000
+const SEED_TIMEOUT_MS = 2_000
+const TOOL_WAIT_MS = 250
+const MAX_SCAN_PAGES = 200
 let watcher:
   | {
       readonly controller: AbortController
       references: number
     }
   | undefined
+let seeded = false
+let seeding: Promise<void> | undefined
+let generation = 0
 
 export function acquireSessionDirectory(context: EventContext): () => void {
   if (!watcher) {
     const controller = new AbortController()
     watcher = { controller, references: 0 }
     void watchEvents(context, controller.signal)
+    // Seed outside the tool path. The first list call only waits briefly for it.
+    void seed(context)
   }
   watcher.references += 1
   let released = false
@@ -52,6 +59,11 @@ export function acquireSessionDirectory(context: EventContext): () => void {
     if (watcher.references <= 0) {
       watcher.controller.abort()
       watcher = undefined
+      seeded = false
+      seeding = undefined
+      generation += 1
+      sessions.clear()
+      deleted.clear()
     }
   }
 }
@@ -62,28 +74,69 @@ export function listOnlineSessions(excludeSessionID?: string): OnlineSession[] {
     .sort((left, right) => right.updatedAt - left.updatedAt)
 }
 
+/**
+ * Returns the in-memory directory. It never queries the session database: the initial seed and
+ * the event watcher own that work, so a busy turn can never deadlock a tool call.
+ */
 export async function listOnlineSessionsAcrossContexts(
   context: StorageContext,
   excludeSessionID?: string,
-  timeoutMs = LIST_SCAN_TIMEOUT_MS,
+  timeoutMs = TOOL_WAIT_MS,
 ): Promise<OnlineSession[]> {
-  const authoritative = await withTimeout(listFromSessionApi(context), timeoutMs).catch(() => undefined)
-  if (authoritative !== undefined) {
-    const live = new Set(authoritative.map((session) => session.id))
-    void withTimeout(pruneStoredSessions(context, live), timeoutMs).catch(() => {})
-    return authoritative
-      .filter((session) => session.id !== excludeSessionID)
-      .sort((left, right) => right.updatedAt - left.updatedAt)
+  const empty = sessions.size === 0
+  if (!seeded || empty) {
+    if (!seeding) void seed(context, SEED_TIMEOUT_MS, seeded && empty)
+    if (seeding) await withTimeout(seeding, timeoutMs).catch(() => {})
   }
+  return listOnlineSessions(excludeSessionID)
+}
 
-  const all = new Map(sessions)
-  if (typeof context.storage?.scan === "function") {
-    await withTimeout(scanStoredSessions(context, all), timeoutMs).catch(() => undefined)
-  }
+/** Test isolation: drop the process-wide directory and watcher. */
+export function resetSessionDirectoryForTests(): void {
+  watcher?.controller.abort()
+  watcher = undefined
+  seeded = false
+  seeding = undefined
+  generation += 1
+  sessions.clear()
+  deleted.clear()
+}
 
-  return [...all.values()]
-    .filter((session) => session.id !== excludeSessionID)
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+async function seed(context: StorageContext, timeoutMs = SEED_TIMEOUT_MS, force = false): Promise<void> {
+  if (seeding) return seeding
+  if (seeded && !force) return
+  const run = generation
+  const current = (async () => {
+    const all = new Map(sessions)
+    const merge = () => {
+      if (generation !== run) return
+      // Merge without resurrecting a session deleted while the seed was running.
+      for (const [id, record] of all) {
+        if (deleted.has(id)) continue
+        const existing = sessions.get(id)
+        if (!existing || record.updatedAt >= existing.updatedAt) sessions.set(id, record)
+      }
+    }
+    if (typeof context.storage?.scan === "function") {
+      await withTimeout(scanStoredSessions(context, all), timeoutMs).catch(() => undefined)
+      // Make durable records available even if the session API is slow or stalled.
+      merge()
+    }
+    const authoritative = await withTimeout(listFromSessionApi(context), timeoutMs).catch(() => undefined)
+    if (generation !== run) return
+    if (authoritative !== undefined) {
+      for (const record of authoritative) all.set(record.id, record)
+      const live = new Set(authoritative.map((session) => session.id))
+      void withTimeout(pruneStoredSessions(context, live, run), timeoutMs).catch(() => {})
+    }
+    merge()
+    if (generation === run) seeded = true
+  })()
+  seeding = current
+  void current.finally(() => {
+    if (seeding === current) seeding = undefined
+  }).catch(() => {})
+  return current
 }
 
 async function listFromSessionApi(context: StorageContext): Promise<SessionRecord[] | undefined> {
@@ -104,8 +157,8 @@ async function listFromSessionApi(context: StorageContext): Promise<SessionRecor
       if (record) result.push(record)
     }
     const next = page.cursor?.next
-    if (!next) break
-    cursor = next as string
+    if (typeof next !== "string" || !next) break
+    cursor = next
   }
   return result
 }
@@ -142,11 +195,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | und
   })
 }
 
-async function pruneStoredSessions(context: StorageContext, live: ReadonlySet<string>) {
+async function pruneStoredSessions(context: StorageContext, live: ReadonlySet<string>, generationAtStart: number) {
   if (typeof context.storage?.scan !== "function") return
   let after: string | undefined
   const seen = new Set<string>()
   for (let pageIndex = 0; pageIndex < MAX_SCAN_PAGES; pageIndex++) {
+    if (generation !== generationAtStart) return
     const page = await context.storage.scan({
       prefix: SESSION_STORAGE_PREFIX,
       limit: 200,
@@ -154,6 +208,7 @@ async function pruneStoredSessions(context: StorageContext, live: ReadonlySet<st
     })
     if (!page || !Array.isArray(page.entries)) return
     for (const entry of page.entries) {
+      if (generation !== generationAtStart) return
       if (!isSessionRecord(entry.value) || live.has(entry.value.id)) continue
       sessions.delete(entry.value.id)
       try { await context.storage.remove(entry.key) } catch {}
@@ -177,6 +232,7 @@ async function scanStoredSessions(context: StorageContext, all: Map<string, Sess
     if (!page || !Array.isArray(page.entries)) return
     for (const entry of page.entries) {
       if (!isSessionRecord(entry.value)) continue
+      if (deleted.has(entry.value.id)) continue
       const current = all.get(entry.value.id)
       if (!current || entry.value.updatedAt >= current.updatedAt) all.set(entry.value.id, entry.value)
     }
@@ -188,28 +244,35 @@ async function scanStoredSessions(context: StorageContext, all: Map<string, Sess
 }
 
 async function watchEvents(context: EventContext, signal: AbortSignal) {
-  try {
-    for await (const event of context.event.subscribe({ signal })) {
-      const typedEvent = event as unknown as {
-        type: string
-        created?: number
-        location?: { directory?: string }
-        data?: unknown
-      }
-      const updated = updateFromEvent(typedEvent)
-      if (!updated) continue
-
-      try {
-        if (typedEvent.type === "session.deleted") {
-          await context.storage.remove(sessionStorageKey(updated.id))
-        } else if (isSessionDirectoryEvent(typedEvent.type)) {
-          await context.storage.set(sessionStorageKey(updated.id), toStorageRecord(updated))
+  while (!signal.aborted) {
+    try {
+      for await (const event of context.event.subscribe({ signal })) {
+        const typedEvent = event as unknown as {
+          type: string
+          created?: number
+          location?: { directory?: string }
+          data?: unknown
         }
-      } catch {
-        // Keep the in-memory directory live when durable storage fails.
+        const updated = updateFromEvent(typedEvent)
+        if (!updated) continue
+
+        try {
+          if (typedEvent.type === "session.deleted") {
+            await context.storage.remove(sessionStorageKey(updated.id))
+          } else if (isSessionDirectoryEvent(typedEvent.type)) {
+            await context.storage.set(sessionStorageKey(updated.id), toStorageRecord(updated))
+          }
+        } catch {
+          // Keep the in-memory directory live when durable storage fails.
+        }
       }
+    } catch {
+      // Reconnect and re-seed to recover events missed during the gap.
     }
-  } catch {}
+    if (signal.aborted) return
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    void seed(context, SEED_TIMEOUT_MS, true)
+  }
 }
 
 function updateFromEvent(event: {
@@ -222,8 +285,15 @@ function updateFromEvent(event: {
   const sessionID = typeof data.sessionID === "string" ? data.sessionID : undefined
   if (!sessionID) return
   const now = typeof event.created === "number" ? event.created : Date.now()
-  const current = sessions.get(sessionID)
 
+  if (event.type === "session.deleted") {
+    sessions.delete(sessionID)
+    deleted.add(sessionID)
+    return { id: sessionID, status: "idle", createdAt: now, updatedAt: now }
+  }
+
+  deleted.delete(sessionID)
+  const current = sessions.get(sessionID)
   if (event.type === "session.created") {
     const location = isRecord(data.location) ? data.location : undefined
     sessions.set(sessionID, {
@@ -236,11 +306,6 @@ function updateFromEvent(event: {
       updatedAt: now,
     })
     return sessions.get(sessionID)
-  }
-
-  if (event.type === "session.deleted") {
-    sessions.delete(sessionID)
-    return { id: sessionID, status: "idle", createdAt: now, updatedAt: now }
   }
 
   const next: SessionRecord = {
