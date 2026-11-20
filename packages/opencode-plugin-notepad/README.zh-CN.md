@@ -69,7 +69,7 @@
 
 ```text
 Notepad — /path/to/current/folder
-/ Search...
+/ Type to filter notes · Tab for list
 
 This folder
   Follow up: review notepad storage
@@ -79,25 +79,25 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · p pin · s sort: updated · c/ctrl+y copy · g/ctrl+p scope · tab search · ?/f1 help
+ctrl+n add · ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+s sort: updated · ctrl+y copy · ctrl+g scope · ↑/↓ select · tab search/notes · f1 help
 ```
 
 | 按键 | 操作 |
 | --- | --- |
-| `a` | 新增笔记，默认保存到当前文件夹 |
-| `e` | 编辑选中的笔记；`f2` 或 `ctrl+s` 保存，`esc` 取消 |
-| `d` | 确认后删除 |
+| `Ctrl+N` | 新增笔记，默认保存到当前文件夹 |
+| `Ctrl+E` | 编辑选中的笔记；`f2` 或 `ctrl+s` 保存，`esc` 取消 |
+| `Ctrl+D` | 删除选中的笔记；连按两次确认 |
 | `Ctrl+Z` | 恢复当前文件夹最近删除的一条笔记 |
-| `p` | 固定/取消固定选中的笔记；固定笔记始终排在顶部 |
-| `s` | 在“最近更新”和“创建时间”之间切换排序 |
-| `c` / `Ctrl+Y` | 复制笔记内容并显示提示 |
-| `g` / `Ctrl+P` | 在当前文件夹和 Global 之间切换 |
-| `Tab` | 聚焦搜索框；`Enter`、`Esc` 或 `Tab` 回到列表 |
+| `Ctrl+P` | 固定/取消固定选中的笔记；固定笔记始终排在顶部 |
+| `Ctrl+S` | 在“最近更新”和“创建时间”之间切换排序 |
+| `Ctrl+Y` | 复制笔记内容并显示提示 |
+| `Ctrl+G` | 在当前文件夹和 Global 之间切换 |
+| `Tab` | 在搜索框和笔记列表之间切换 |
 | `↑` / `↓` | 选择笔记 |
-| `?` / `F1` | 显示快捷键帮助 |
-| `Esc` | 关闭帮助或记事本 |
+| `F1` | 显示或关闭快捷键帮助 |
+| `Esc` | 关闭帮助、返回笔记列表或关闭记事本 |
 
-搜索框聚焦时用 `F1`；`?` 在笔记列表中可用，也可以作为普通字符输入。
+可打印字符始终输入到搜索框；操作使用 Ctrl 组合键，在两种焦点下都生效。
 
 编辑器中按 `ctrl+g` 或 `ctrl+p` 可以在 **This folder** 和 **Global** 之间切换保存目标。
 

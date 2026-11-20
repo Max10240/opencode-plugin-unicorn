@@ -150,6 +150,21 @@ export async function openPanel(context: Context, sessionID: string, options: De
   }
 
   const items = state.items
+  let pendingDelete: string | undefined
+  let deleteTimer: ReturnType<typeof setTimeout> | undefined
+  const clearPendingDelete = () => {
+    if (deleteTimer !== undefined) clearTimeout(deleteTimer)
+    deleteTimer = undefined
+    pendingDelete = undefined
+  }
+  const armPendingDelete = (id: string) => {
+    clearPendingDelete()
+    pendingDelete = id
+    deleteTimer = setTimeout(() => {
+      deleteTimer = undefined
+      pendingDelete = undefined
+    }, 3_000)
+  }
   const result = await context.ui.dialog.select<string>({
     title: "Delayed prompts",
     placeholder: "Search",
@@ -165,31 +180,40 @@ export async function openPanel(context: Context, sessionID: string, options: De
     },
     actions: [
       {
-        bind: "s",
+        bind: "ctrl+s",
         title: "steer now",
         selection: "required",
         onTrigger: (value) => {
+          clearPendingDelete()
           void deliver(context, sessionID, value)
         },
       },
       {
-        bind: "d",
+        bind: "ctrl+d",
         title: "delete",
         selection: "required",
         onTrigger: (value) => {
+          if (pendingDelete !== value) {
+            armPendingDelete(value)
+            void context.ui.toast.show({ message: "Press ctrl+d again to delete", variant: "warning" })
+            return
+          }
+          clearPendingDelete()
           void remove(context, sessionID, value, options)
         },
       },
       {
-        bind: "p",
+        bind: "ctrl+p",
         title: state.paused ? "resume" : "pause",
         selection: "none",
         onTrigger: () => {
+          clearPendingDelete()
           void togglePause(context, sessionID, options, state.paused)
         },
       },
     ],
   })
+  clearPendingDelete()
 
   if (result === undefined) return
   await deliver(context, sessionID, result)

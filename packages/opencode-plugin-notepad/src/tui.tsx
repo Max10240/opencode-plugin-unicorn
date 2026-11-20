@@ -88,7 +88,11 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const [searchTarget, setSearchTarget] = createSignal<InputRenderable>()
   const [dialogOpen, setDialogOpen] = createSignal(false)
   const [help, setHelp] = createSignal(false)
+  const [pendingDelete, setPendingDelete] = createSignal<string>()
   const theme = props.context.theme.surface("dialog")
+  const formBackground = theme.background?.formfield?.base ?? theme.background?.base
+  const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
+  const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
   const defaultSort: NoteSort = props.context.options.defaultSort === "created" ? "created" : "updated"
   const storage = (() => {
     try {
@@ -115,6 +119,13 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const entries = createMemo(() => [...pinnedMatches(), ...folderMatches(), ...globalMatches()])
   const selectedNote = createMemo(() => entries().find((note) => note.id === selected()) ?? entries()[0])
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
+  let deleteTimer: ReturnType<typeof setTimeout> | undefined
+
+  const clearPendingDelete = () => {
+    if (deleteTimer !== undefined) clearTimeout(deleteTimer)
+    deleteTimer = undefined
+    setPendingDelete(undefined)
+  }
 
   createEffect(() => {
     const items = entries()
@@ -123,6 +134,12 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
       return
     }
     if (!items.some((note) => note.id === selected())) setSelected(items[0]?.id)
+  })
+
+  createEffect(() => {
+    selected()
+    query()
+    clearPendingDelete()
   })
 
   createEffect(() => {
@@ -138,11 +155,15 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
 
   onCleanup(() => {
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
+    if (deleteTimer !== undefined) clearTimeout(deleteTimer)
   })
 
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
-    setTimeout(() => listTarget()?.focus(), 50)
+    setTimeout(() => {
+      const target = searchTarget()
+      if (target && !target.isDestroyed) target.focus()
+    }, 50)
   })
 
   const focusSearch = () => {
@@ -225,15 +246,16 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   const remove = async () => {
     const note = selectedNote()
     if (!note) return
-    const confirmed = await withDialog(() => props.context.ui.dialog.confirm({
-      title: "Delete note?",
-      message: `${note.text.replace(/\s+/g, " ").slice(0, 120)}${note.text.length > 120 ? "…" : ""}`,
-      label: { confirm: "Delete", cancel: "Cancel" },
-    }))
-    if (!confirmed) {
-      await openList(props.context, props.directory, note.id)
+    if (pendingDelete() !== note.id) {
+      clearPendingDelete()
+      setPendingDelete(note.id)
+      deleteTimer = setTimeout(() => {
+        deleteTimer = undefined
+        setPendingDelete(undefined)
+      }, 3_000)
       return
     }
+    clearPendingDelete()
     try {
       await props.context.client.rpc(NotepadRpc).remove({ id: note.id }, { location: props.context.location })
       deletedNotes.set(props.directory, note)
@@ -309,26 +331,20 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     }
   }
 
+  // The panel has a text input, so actions are Ctrl combos that work in either focus.
   props.context.keymap.layer(() => ({
     mode: "modal",
-    target: listTarget,
     priority: 20,
     enabled: () => !dialogOpen(),
     commands: [
-      { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
-      { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },
-      { bind: "a", title: "Add note", run: () => void add() },
-      { bind: "e", title: "Edit note", run: () => void edit() },
-      { bind: "d", title: "Delete note", run: () => void remove() },
+      { bind: "ctrl+n", title: "Add note", run: () => void add() },
+      { bind: "ctrl+e", title: "Edit note", run: () => void edit() },
+      { bind: "ctrl+d", title: "Delete note", run: () => void remove() },
       { bind: "ctrl+z", title: "Undo delete", run: () => void undoDelete(), enabled: () => deletedNotes.has(props.directory) },
-      { bind: "c", title: "Copy note", run: () => copy(selectedNote()) },
       { bind: "ctrl+y", title: "Copy note", run: () => copy(selectedNote()) },
-      { bind: "p", title: "Toggle note pin", run: () => void togglePin() },
-      { bind: "s", title: "Change note sort", run: cycleSort },
-      { bind: "g", title: "Toggle note scope", run: () => void toggleScope() },
-      { bind: "ctrl+p", title: "Toggle note scope", run: () => void toggleScope() },
-      { bind: "tab", title: "Search notes", run: focusSearch },
-      { bind: "?", title: "Toggle notepad help", run: () => setHelp((value) => !value) },
+      { bind: "ctrl+p", title: "Toggle note pin", run: () => void togglePin() },
+      { bind: "ctrl+s", title: "Change note sort", run: cycleSort },
+      { bind: "ctrl+g", title: "Toggle note scope", run: () => void toggleScope() },
       { bind: "f1", title: "Toggle notepad help", run: () => setHelp((value) => !value) },
       { bind: "escape", title: "Close notepad", run: () => {
         if (help()) setHelp(false)
@@ -339,17 +355,32 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
 
   props.context.keymap.layer(() => ({
     mode: "modal",
+    target: listTarget,
+    priority: 20,
+    enabled: () => !dialogOpen(),
+    commands: [
+      { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
+      { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },
+      { bind: "tab", title: "Search notes", run: focusSearch },
+      { bind: "shift+tab", title: "Search notes", run: focusSearch },
+    ],
+  }))
+
+  props.context.keymap.layer(() => ({
+    mode: "modal",
     target: searchTarget,
     priority: 20,
+    enabled: () => !dialogOpen(),
     commands: [
+      { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
+      { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },
       { bind: "escape", title: "Back to notes", run: () => {
         if (help()) setHelp(false)
         else focusList()
       } },
       { bind: "return", title: "Back to notes", run: focusList },
       { bind: "tab", title: "Back to notes", run: focusList },
-      { bind: "f1", title: "Toggle notepad help", run: () => setHelp((value) => !value) },
-      ...(help() ? [{ bind: "?", title: "Toggle notepad help", run: () => setHelp(false) }] : []),
+      { bind: "shift+tab", title: "Back to notes", run: focusList },
     ],
   }))
 
@@ -357,64 +388,70 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
-        <text fg={theme.text.muted}>?/f1 help · esc close</text>
+        <text fg={theme.text.muted}>f1 help · esc close</text>
       </box>
       <text fg={theme.text.muted}>{props.context.ui.format.path(props.directory)}</text>
       <Show when={help()}>
         <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
           <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
-          <text fg={theme.text.muted}>a add · e edit · d delete · p pin · s sort</text>
-          <text fg={theme.text.muted}>c / ctrl+y copy · ctrl+z undo delete · g/ctrl+p scope</text>
-          <text fg={theme.text.muted}>tab search · ?/f1 help · esc close</text>
+          <text fg={theme.text.muted}>ctrl+n add · ctrl+e edit · ctrl+d delete (press twice) · ctrl+p pin</text>
+          <text fg={theme.text.muted}>ctrl+y copy · ctrl+z undo delete · ctrl+s sort · ctrl+g scope</text>
+          <text fg={theme.text.muted}>↑/↓ select · tab search / notes · f1 help · esc close</text>
         </box>
       </Show>
       <input
         ref={(value: InputRenderable) => setSearchTarget(value)}
         onInput={setQuery}
         onSubmit={focusList}
-        placeholder={query() ? "" : "Press Tab to search"}
+        placeholder={query() ? "" : "Type to filter notes · Tab for list"}
         placeholderColor={theme.text.muted}
+        backgroundColor={formBackground}
+        focusedBackgroundColor={formFocusedBackground}
         textColor={theme.text.formfield.base}
-        focusedTextColor={theme.text.formfield.base}
+        focusedTextColor={formFocusedText}
         cursorColor={theme.text.formfield.base}
       />
       <scrollbox ref={(value: ScrollBoxRenderable) => setListTarget(value)} focusable maxHeight={18}>
-        <Show when={entries().length > 0} fallback={<text fg={theme.text.muted}>No notes yet. Press a to add one.</text>}>
+        <Show when={entries().length > 0} fallback={<text fg={theme.text.muted}>No notes yet. Press ctrl+n to add one.</text>}>
           <Show when={pinnedMatches().length > 0}>
             <text fg={theme.text.muted}>Pinned</text>
             <For each={pinnedMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} theme={theme} />}
+              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
             </For>
           </Show>
           <Show when={folderMatches().length > 0}>
             <text fg={theme.text.muted}>This folder</text>
             <For each={folderMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} theme={theme} />}
+              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
             </For>
           </Show>
           <Show when={globalMatches().length > 0}>
             <text fg={theme.text.muted}>Global</text>
             <For each={globalMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} theme={theme} />}
+              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
             </For>
           </Show>
         </Show>
       </scrollbox>
-      <text fg={theme.text.muted}>
-        {`a add · e edit · d delete · p pin · s sort: ${sort()}${deletedNotes.has(props.directory) ? " · ctrl+z undo delete" : ""} · c/ctrl+y copy · g/ctrl+p scope · tab search · ?/f1 help`}
+      <text fg={theme.text.muted} wrapMode="word">
+        {`ctrl+n add · ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · ctrl+s sort: ${sort()} · ctrl+y copy · ctrl+g scope${deletedNotes.has(props.directory) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/notes · f1 help`}
       </text>
     </box>
   )
 }
 
-function NoteRow(props: { note: Note; selected: boolean; theme: any }) {
+function NoteRow(props: { note: Note; selected: boolean; pending: boolean; theme: any }) {
   const first = () => props.note.text.replace(/\s+/g, " ").slice(0, 140)
   return (
     <box id={props.note.id} flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={props.selected ? props.theme.background.raised.high : undefined}>
       <text fg={props.selected ? props.theme.text.base : props.theme.text.muted} wrapMode="word">
         {`${props.note.pinned === true ? "★ " : ""}${first()}`}
       </text>
-      <text fg={props.theme.text.muted}>{`${props.note.pinned === true ? "pinned · " : ""}${props.note.scope === "global" ? "global" : "folder"} · ${age(props.note.updatedAt)}`}</text>
+      <text fg={props.pending ? (props.theme.text.feedback?.warning?.base ?? props.theme.text.base) : props.theme.text.muted}>
+        {props.pending
+          ? "Press ctrl+d again to delete."
+          : `${props.note.pinned === true ? "pinned · " : ""}${props.note.scope === "global" ? "global" : "folder"} · ${age(props.note.updatedAt)}`}
+      </text>
     </box>
   )
 }
@@ -427,7 +464,7 @@ function moveSelection(entries: readonly Note[], selected: string | undefined, s
 
 function setSearchTargetFocus(target: () => InputRenderable | undefined, focus: boolean) {
   const input = target()
-  if (!input) return
+  if (!input || input.isDestroyed) return
   if (focus) input.focus()
 }
 
@@ -451,6 +488,9 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
   const [scope, setScope] = createSignal<NoteScope>(props.initial.scope)
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
   const theme = props.context.theme.surface("dialog")
+  const formBackground = theme.background?.formfield?.base ?? theme.background?.base
+  const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
+  const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
   let textarea: TextareaRenderable | undefined
 
   onMount(() => {
@@ -498,8 +538,10 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
         wrapMode="word"
         placeholder="Write a note…"
         placeholderColor={theme.text.muted}
+        backgroundColor={formBackground}
+        focusedBackgroundColor={formFocusedBackground}
         textColor={theme.text.formfield.base}
-        focusedTextColor={theme.text.formfield.base}
+        focusedTextColor={formFocusedText}
         cursorColor={theme.text.base}
       />
       <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel · ctrl+g / ctrl+p target: {scope() === "global" ? "Global" : "This folder"}</text>

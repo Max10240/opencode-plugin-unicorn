@@ -134,7 +134,7 @@ test("uses defaultIncludeAgent, shows result metadata, remembers role changes, a
     const commands = harness.layers.flatMap((layer) => layer.commands)
     expect(commands.find((item) => item.title === "Toggle agent messages")?.bind).toBe("ctrl+t")
     expect(commands.some((item) => item.title === "Toggle session search help" && item.bind === "f1")).toBe(true)
-    expect(commands.some((item) => item.title === "Toggle session search help" && item.bind === "?")).toBe(true)
+    expect(commands.filter((item) => item.bind && /^(?:shift\+)?[a-z?0-9]$/i.test(item.bind))).toEqual([])
 
     command(harness, "Toggle agent messages")
     await waitFor(app, (frame) => frame.includes("user only"), "agent messages did not hide")

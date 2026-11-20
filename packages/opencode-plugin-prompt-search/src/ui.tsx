@@ -42,8 +42,10 @@ export function SearchField(props: {
       onSubmit={props.onSubmit}
       placeholder={props.placeholder}
       placeholderColor={props.theme.text.muted}
+      backgroundColor={props.theme.background?.formfield?.base ?? props.theme.background?.base}
+      focusedBackgroundColor={props.theme.background?.formfield?.focused ?? props.theme.background?.raised?.high}
       textColor={props.theme.text.formfield.base}
-      focusedTextColor={props.theme.text.formfield.base}
+      focusedTextColor={props.theme.text?.formfield?.focused ?? props.theme.text.formfield.base}
       cursorColor={props.theme.text.formfield.base}
     />
   )
@@ -152,7 +154,7 @@ export function HelpPanel(props: { theme: UiTheme; lines: readonly string[] }) {
     <box flexDirection="column" gap={0} paddingLeft={1} paddingRight={1} backgroundColor={props.theme.background.raised.high}>
       <text fg={props.theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
       <For each={props.lines}>{(line) => <text fg={props.theme.text.muted}>{line}</text>}</For>
-      <text fg={props.theme.text.muted}>?/f1 close help · esc close</text>
+      <text fg={props.theme.text.muted}>f1 close help · esc close</text>
     </box>
   )
 }

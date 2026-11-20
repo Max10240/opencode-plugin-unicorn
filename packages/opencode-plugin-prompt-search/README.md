@@ -77,10 +77,10 @@ Press `ctrl+shift+r` or search for **Search previous prompts** in the command pa
 | `Ctrl+P` | Switch between all projects and the current project |
 | `Ctrl+Y` | Copy the selected prompt |
 | `Ctrl+Shift+Y` / `Alt+Y` | Copy the prompt and session metadata as JSON |
-| `?` / `F1` | Show keyboard help |
+| `F1` | Show or close keyboard help |
 | `Esc` | Close help or the dialog |
 
-Use `F1` while the search box is focused; `?` works in the results list and is kept available for literal searches.
+Printable characters always go to the search box. Panel actions use Ctrl or Alt combinations and work in either focus.
 
 The shortcut is chosen to avoid OpenCode's built-in bindings. You can change it to anything that feels natural.
 

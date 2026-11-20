@@ -153,6 +153,8 @@ test("renders notes, filters both scopes, toggles scope, copies, and deletes", a
     command(harness, "Back to notes")
 
     command(harness, "Delete note")
+    await waitFor(app, () => app.captureCharFrame().includes("Press ctrl+d again"), "delete confirmation was not shown")
+    command(harness, "Delete note")
     await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "note was not deleted")
     expect(harness.notes()).toEqual([])
   } finally {
@@ -176,8 +178,10 @@ test("restores the last deleted note", async () => {
     await waitFor(app, () => app.captureCharFrame().includes("★ Recover me"), "note was not pinned")
 
     command(harness, "Delete note")
+    await waitFor(app, () => app.captureCharFrame().includes("Press ctrl+d again"), "delete confirmation was not shown")
+    command(harness, "Delete note")
     await waitFor(app, () => app.captureCharFrame().includes("No notes yet"), "note was not deleted")
-    expect(app.captureCharFrame()).toContain("ctrl+z undo delete")
+    expect(app.captureCharFrame()).toContain("ctrl+z undo")
 
     command(harness, "Undo delete")
     await waitFor(app, () => app.captureCharFrame().includes("Recover me"), "note was not restored")
@@ -210,8 +214,9 @@ test("pins notes, changes sort mode, exposes explicit editor save keys, and reme
     command(harness, "Add note")
     await waitFor(app, () => app.captureCharFrame().includes("f2 / ctrl+s save"), "note editor did not open")
     const bindings = harness.layers.flatMap((layer) => layer.commands)
-    expect(bindings.filter((item) => item.title === "Toggle note scope").map((item) => item.bind)).toEqual(expect.arrayContaining(["g", "ctrl+p"]))
+    expect(bindings.filter((item) => item.title === "Toggle note scope").map((item) => item.bind)).toEqual(expect.arrayContaining(["ctrl+g", "ctrl+p"]))
     expect(bindings.some((item) => item.title === "Toggle notepad help" && item.bind === "f1")).toBe(true)
+    expect(bindings.filter((item) => item.bind && /^(?:shift\+)?[a-z?0-9]$/i.test(item.bind))).toEqual([])
     expect(harness.layers.flatMap((layer) => layer.commands).filter((entry) => entry.title === "Save note").map((entry) => entry.bind)).toEqual(["f2", "ctrl+s"])
     await Bun.sleep(60)
     find(app.renderer.root, TextareaRenderable)!.setText("Pinned note")

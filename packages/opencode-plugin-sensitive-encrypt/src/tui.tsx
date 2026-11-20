@@ -68,8 +68,13 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   const [fileInput, setFileInput] = createSignal<InputRenderable>()
   const [outInput, setOutInput] = createSignal<InputRenderable>()
   const [keyTarget, setKeyTarget] = createSignal<BoxRenderable>()
+  const [keyFocused, setKeyFocused] = createSignal(false)
   const primary = () => mode() === "text" ? textarea() : fileInput()
   const key = () => props.keys.find((item) => item.role === keyRole()) ?? props.keys[0]
+  const keyTextColor = () => props.keys.length > 1 && !keyFocused() ? theme.text.muted : theme.text.base
+  const formBackground = theme.background?.formfield?.base ?? theme.background?.base
+  const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
+  const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
 
   let lengthTimer: ReturnType<typeof setInterval> | undefined
 
@@ -117,12 +122,22 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
   }
 
   const focusPrimary = () => {
+    setKeyFocused(false)
     setTimeout(() => primary()?.focus(), 0)
   }
 
   const focusKey = () => {
-    if (props.keys.length > 1) keyTarget()?.focus()
-    else focusPrimary()
+    if (props.keys.length > 1) {
+      setKeyFocused(true)
+      keyTarget()?.focus()
+    } else {
+      focusPrimary()
+    }
+  }
+
+  const focusOutput = () => {
+    setKeyFocused(false)
+    outInput()?.focus()
   }
 
   const cycleKey = (delta: number) => {
@@ -135,6 +150,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
     if (mode() === "text") syncText()
     const next: EncryptMode = mode() === "text" ? "file" : "text"
     setMode(next)
+    setKeyFocused(false)
     setTimeout(() => (next === "text" ? textarea() : fileInput())?.focus(), 0)
   }
 
@@ -200,7 +216,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
     priority: 20,
     commands: [
       ...commands(),
-      { bind: "tab", title: "Focus ciphertext output", run: () => outInput()?.focus() },
+      { bind: "tab", title: "Focus ciphertext output", run: focusOutput },
     ],
   }))
   props.context.keymap.layer(() => ({
@@ -239,7 +255,7 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
           <text fg={theme.text.muted}>Ctrl+T switches between text and file input.</text>
           <text fg={theme.text.muted}>Ctrl+R hides or reveals the text being encrypted.</text>
           <text fg={theme.text.muted}>Tab moves focus between input, output, and key.</text>
-          <text fg={theme.text.muted}>F1 closes help. Esc closes the panel.</text>
+          <text fg={theme.text.muted}>F1 closes help. Esc closes help first, then the panel.</text>
         </box>
       </Show>
       <text>
@@ -248,23 +264,30 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
       <Show
         when={mode() === "text"}
         fallback={
-          <input
-            ref={(value: InputRenderable) => { setFileInput(value); setTimeout(() => value.focus(), 0) }}
-            placeholder="$TMPDIR/secret.txt"
-          />
+          <box onMouseUp={() => setKeyFocused(false)}>
+            <input
+              ref={(value: InputRenderable) => { setFileInput(value); setTimeout(() => value.focus(), 0) }}
+              placeholder="$TMPDIR/secret.txt"
+              backgroundColor={formBackground}
+              focusedBackgroundColor={formFocusedBackground}
+              textColor={theme.text.formfield.base}
+              focusedTextColor={formFocusedText}
+              cursorColor={theme.text.formfield.base}
+            />
+          </box>
         }
       >
-        <box flexDirection="column" gap={0}>
+        <box flexDirection="column" gap={0} onMouseUp={() => setKeyFocused(false)}>
           <textarea
             ref={(value: TextareaRenderable) => { setTextarea(value); setTimeout(() => value.focus(), 0) }}
             initialValue={textValue()}
             height={concealed() ? 1 : 8}
             wrapMode="word"
             placeholder="Type any text to encrypt…"
-            backgroundColor={theme.background.raised.high}
-            focusedBackgroundColor={theme.background.raised.high}
+            backgroundColor={concealed() ? theme.background.raised.high : formBackground}
+            focusedBackgroundColor={concealed() ? theme.background.raised.high : formFocusedBackground}
             textColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
-            focusedTextColor={concealed() ? theme.background.raised.high : theme.text.formfield.base}
+            focusedTextColor={concealed() ? theme.background.raised.high : formFocusedText}
             cursorColor={theme.text.formfield.base}
             showCursor={!concealed()}
             onContentChange={syncText}
@@ -288,16 +311,33 @@ function EncryptPanel(props: { context: Context; keys: KeyInfo[]; defaultKey: Ke
           </text>
         </box>
       </Show>
-      <input
-        ref={(value: InputRenderable) => { setOutInput(value) }}
-        placeholder="Ciphertext output (optional, under $TMPDIR)"
-      />
-      <box ref={(value: BoxRenderable) => setKeyTarget(value)} focusable={props.keys.length > 1}>
-        <text>
+      <box onMouseUp={() => setKeyFocused(false)}>
+        <input
+          ref={(value: InputRenderable) => { setOutInput(value) }}
+          placeholder="Ciphertext output (optional, under $TMPDIR)"
+          backgroundColor={formBackground}
+          focusedBackgroundColor={formFocusedBackground}
+          textColor={theme.text.formfield.base}
+          focusedTextColor={formFocusedText}
+          cursorColor={theme.text.formfield.base}
+        />
+      </box>
+      <box
+        ref={(value: BoxRenderable) => setKeyTarget(value)}
+        focusable={props.keys.length > 1}
+        backgroundColor={keyFocused() ? theme.background.raised.high : undefined}
+        onMouseUp={() => {
+          if (props.keys.length > 1) {
+            setKeyFocused(true)
+            keyTarget()?.focus()
+          }
+        }}
+      >
+        <text fg={keyTextColor()}>
           Key: {keyRole() === "decrypt" ? "Decrypt" : "Encrypt"} ({key()?.keyID.slice(0, 8)}…) {props.keys.length > 1 ? "· tab focus, left/right change" : ""}
         </text>
       </box>
-      <text>enter/f2 encrypt · shift+enter newline · ctrl+t text/file · {mode() === "text" ? "ctrl+r reveal/hide · " : ""}tab output/key · f1 help</text>
+      <text fg={theme.text.muted} wrapMode="word">enter/f2 encrypt · shift+enter newline · ctrl+t text/file · {mode() === "text" ? "ctrl+r reveal/hide · " : ""}tab output/key · f1 help</text>
     </box>
   )
 }

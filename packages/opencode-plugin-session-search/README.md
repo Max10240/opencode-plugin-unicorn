@@ -69,10 +69,10 @@ Press `ctrl+shift+f`, or choose **Search current session** from the command pale
 | `Ctrl+Y` | Copy the entire selected message without jumping |
 | `Ctrl+T` | Switch between user-only and user + agent messages |
 | `Tab` | Move focus between search and results |
-| `?` / `F1` | Show keyboard help |
+| `F1` | Show or close keyboard help |
 | `Esc` | Close help or the dialog |
 
-Use `F1` while the search box is focused; `?` works in the results list and is kept available for literal searches.
+Printable characters always go to the search box. Panel actions use Ctrl combinations and work in either focus.
 
 Up to 100 matches are shown at once. Results highlight matching text and show the role, match kind, relative time,
 and availability state. Keep typing to narrow them down. A copy confirmation appears in the dialog and fades after a

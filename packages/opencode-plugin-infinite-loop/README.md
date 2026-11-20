@@ -20,7 +20,7 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
 - Abnormal endings keep the loop going: a failed turn, or a system interruption (shutdown,
   superseded, inactivity), is picked up from the execution event stream and the loop retries.
 - Only a manual user interruption pauses the loop. It resumes with the next turn that completes
-  normally. An explicit stop (panel `d`/`ctrl+x`, `/` RPC stop, or `D` stop all) ends the task.
+  normally. An explicit stop (panel `ctrl+d` twice, `/` RPC stop, or `ctrl+shift+d` stop all) ends the task.
 - Tasks live in memory only: there is no history, and a server restart clears them.
 - The runtime is shared across projects in one OpenCode process, so the all-projects panel can
   see and stop every active loop.
@@ -29,16 +29,18 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
 
 - `/infinite-loop 2h` starts a two-hour window for the current session.
 - `/infinite-loop 90m cooldown=10m` starts with a per-run cooldown override.
-- `/infinite-loop` (or `ctrl+shift+i`) opens the panel: presets (15m, 1h, 2h, 3h, 8h, 1d), custom
-  duration (`90m`, `1h30m`, `2d12h`, bare numbers are hours), custom cooldown (`5m`, `1h`, `0`,
-  bare numbers are minutes), live status, and `d`/`ctrl+x` to stop.
+- `/infinite-loop` (or `ctrl+shift+i`) opens the panel: clickable presets (15m, 1h, 2h, 3h, 8h, 1d),
+  custom duration (`90m`, `1h30m`, `2d12h`, bare numbers are hours), custom cooldown (`5m`, `1h`, `0`,
+  bare numbers are minutes), live status, and `ctrl+d` twice to stop.
 - `/infinite-loops` (or `ctrl+shift+o`) opens the all-projects panel. Inside any panel,
   `ctrl+a` switches between this session and all projects.
-- All-projects panel: `↑/↓` or `j/k` select, `d` stop the selected loop, `D` stop all (with
-  confirmation), `r` refresh, `?/f1` help, `esc` close.
+- All-projects panel: `↑/↓` select, `ctrl+d` twice to stop the selected loop, `ctrl+shift+d` stop all
+  (with confirmation), `ctrl+r` refresh, `f1` help, `esc` close.
+- Printable characters always belong to the duration and cooldown inputs; panel actions are Ctrl
+  combinations, so they behave the same regardless of focus.
 - Bounds: 5 minutes to 7 days by default; cooldown 0 to 30 days. Out-of-range input is rejected
   with the closest valid range shown.
-- `?`/`f1` opens keyboard help; `esc` closes help first, then the panel.
+- `f1` opens keyboard help; `esc` closes help first, then the panel.
 
 ## Options
 

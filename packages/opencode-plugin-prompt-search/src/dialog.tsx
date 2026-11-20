@@ -170,10 +170,8 @@ export function PromptSearchDialog(props: {
 
   const focusResults = () => resultsTarget()?.focus()
   const focusInput = () => inputTarget()?.focus()
-  const commands = (questionMark: boolean) => [
+  const commands = () => [
     { bind: "f1", title: "Toggle prompt help", run: () => setHelp((value) => !value) },
-    ...(questionMark ? [{ bind: "?", title: "Toggle prompt help", run: () => setHelp((value) => !value) }] : []),
-    ...(!questionMark && help() ? [{ bind: "?", title: "Toggle prompt help", run: () => setHelp(false) }] : []),
     { bind: "ctrl+p", title: "Toggle prompt scope", run: toggleScope },
     { bind: "ctrl+y", title: "Copy prompt", run: copy },
     { bind: "ctrl+shift+y,alt+y", title: "Copy prompt details", run: copyDetails },
@@ -187,7 +185,7 @@ export function PromptSearchDialog(props: {
     target: inputTarget,
     priority: 20,
     commands: [
-      ...commands(false),
+      ...commands(),
       { bind: "up", title: "Previous prompt", run: () => move(-1) },
       { bind: "down", title: "Next prompt", run: () => move(1) },
       { bind: "tab", title: "Focus prompt results", run: focusResults },
@@ -199,11 +197,9 @@ export function PromptSearchDialog(props: {
     target: resultsTarget,
     priority: 20,
     commands: [
-      ...commands(true),
+      ...commands(),
       { bind: "up", title: "Previous prompt", run: () => move(-1) },
       { bind: "down", title: "Next prompt", run: () => move(1) },
-      { bind: "k", title: "Previous prompt", run: () => move(-1) },
-      { bind: "j", title: "Next prompt", run: () => move(1) },
       { bind: "tab", title: "Focus prompt search", run: focusInput },
       { bind: "return", title: "Use prompt", run: () => void select(selectedEntry()) },
     ],
@@ -245,10 +241,10 @@ export function PromptSearchDialog(props: {
     <DialogFrame
       theme={theme}
       title="Search previous prompts"
-      meta={`${scopeLabel()} · ${countLabel()} · ?/f1 help · esc close`}
+      meta={`${scopeLabel()} · ${countLabel()} · f1 help · esc close`}
       footer={
         <FooterHints theme={theme}>
-          {`ctrl+p ${scopeHint()} · ctrl+y copy · ctrl+shift+y/alt+y details · ↑/↓ select · enter use · tab focus · ?/f1 help`}
+          {`ctrl+p ${scopeHint()} · ctrl+y copy · ctrl+shift+y/alt+y details · ↑/↓ select · enter use · tab focus · f1 help`}
         </FooterHints>
       }
     >

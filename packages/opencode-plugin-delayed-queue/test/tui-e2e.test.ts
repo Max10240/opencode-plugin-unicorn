@@ -125,7 +125,15 @@ test("opens the management panel and deletes one pending message", async () => {
 
     tui.send(["C-x", "d"])
     await tui.waitFor("Delayed prompts", "management panel did not open")
-    tui.send(["d"])
+    // Typing the old action letter filters the list instead of steering or deleting.
+    tui.type("d")
+    await Bun.sleep(300)
+    expect(tui.pane()).toContain("Delayed prompts")
+    expect(tui.pane()).not.toContain("Delayed prompt sent")
+    tui.send(["BSpace"])
+    tui.send(["C-d"])
+    await tui.waitFor("Press ctrl+d again", "the first Ctrl+D did not request confirmation")
+    tui.send(["C-d"])
     await tui.waitFor("1 of 1", "panel did not update after delete")
     tui.send(["Escape"])
     await tui.waitFor("1 delayed", "deleted message was not removed from the dock")

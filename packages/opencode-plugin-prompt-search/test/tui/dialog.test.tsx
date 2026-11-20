@@ -176,7 +176,7 @@ test("shows preview and relative time, copies the prompt and details, and opens 
     expect(commands.find((item) => item.title === "Copy prompt details")?.bind).toBe("ctrl+shift+y,alt+y")
     expect(commands.find((item) => item.title === "Focus prompt results")?.bind).toBe("tab")
     expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "f1")).toBe(true)
-    expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "?")).toBe(true)
+    expect(commands.filter((item) => item.bind && /^(?:shift\+)?[a-z?0-9]$/i.test(item.bind))).toEqual([])
 
     command(harness, "Copy prompt")
     expect(harness.copied).toEqual(["first prompt"])

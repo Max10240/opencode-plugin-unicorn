@@ -161,10 +161,8 @@ export function SessionSearchDialog(props: {
   }
   const focusResults = () => scroll()?.focus()
   const focusInput = () => input()?.focus()
-  const commands = (questionMark: boolean) => [
+  const commands = () => [
     { bind: "f1", title: "Toggle session search help", run: () => setHelp((value) => !value) },
-    ...(questionMark ? [{ bind: "?", title: "Toggle session search help", run: () => setHelp((value) => !value) }] : []),
-    ...(!questionMark && help() ? [{ bind: "?", title: "Toggle session search help", run: () => setHelp(false) }] : []),
     { bind: "ctrl+t", title: "Toggle agent messages", run: toggleRoles },
     { bind: "ctrl+y", title: "Copy selected message", run: () => copy(selectedEntry()) },
     ...(help()
@@ -172,18 +170,16 @@ export function SessionSearchDialog(props: {
       : [{ bind: "escape", title: "Close session search", run: () => props.context.ui.dialog.clear() }]),
   ]
   registerKeymap(props.context, () => ({ mode: "modal", target: input, priority: 20, commands: [
-    ...commands(false),
+    ...commands(),
     { bind: "up", title: "Previous result", run: () => move(-1) },
     { bind: "down", title: "Next result", run: () => move(1) },
     { bind: "tab", title: "Focus session results", run: focusResults },
     { bind: "return", title: "Jump to message", run: () => void choose(selectedEntry()) },
   ] }))
   registerKeymap(props.context, () => ({ mode: "modal", target: scroll, priority: 20, commands: [
-    ...commands(true),
+    ...commands(),
     { bind: "up", title: "Previous result", run: () => move(-1) },
     { bind: "down", title: "Next result", run: () => move(1) },
-    { bind: "k", title: "Previous result", run: () => move(-1) },
-    { bind: "j", title: "Next result", run: () => move(1) },
     { bind: "tab", title: "Focus session search", run: focusInput },
     { bind: "return", title: "Jump to message", run: () => void choose(selectedEntry()) },
   ] }))
@@ -209,10 +205,10 @@ export function SessionSearchDialog(props: {
   return <DialogFrame
     theme={theme}
     title="Search current session"
-    meta={`${roleLabel()} · ${result().matches.length}/${result().total} matches · ?/f1 help · esc close`}
+    meta={`${roleLabel()} · ${result().matches.length}/${result().total} matches · f1 help · esc close`}
     footer={
       <FooterHints theme={theme}>
-        {`↑/↓ select · enter jump · ctrl+y copy · ctrl+t ${roleHint()} · tab focus · ?/f1 help`}
+        {`↑/↓ select · enter jump · ctrl+y copy · ctrl+t ${roleHint()} · tab focus · f1 help`}
       </FooterHints>
     }
   >

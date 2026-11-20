@@ -84,7 +84,7 @@ test.serial("panel takes custom durations and cooldowns, keeps nudging, and stop
       tui.send(["Enter"])
       await tui.waitFor("Running · sent", "the panel did not open")
       await tui.waitFor("This session", "the current-session section is missing")
-      await tui.waitFor("[1] 15m", "the presets row is missing")
+      await tui.waitFor("15m", "the presets row is missing")
 
       // The loop nudges while the panel is open; the cooldown is two seconds.
       await waitFor(
@@ -94,15 +94,20 @@ test.serial("panel takes custom durations and cooldowns, keeps nudging, and stop
       )
       await tui.waitFor("Running · sent", "the panel did not show the running status")
 
-      // Focus order is duration -> cooldown -> presets; d on the presets row stops the loop.
-      tui.send(["Tab"])
-      tui.send(["Tab"])
-      tui.send(["d"])
-      await tui.waitFor("Infinite loop stopped", "stop did not run from the presets row")
+      // A printable action letter belongs to the duration input and must not stop the loop.
+      tui.type("d")
+      await Bun.sleep(200)
+      expect((await rpcStatus(e2e, sessionID)).active).toBe(true)
+      tui.send(["BSpace"])
+
+      // Stop works while the duration input is focused; the first Ctrl+D asks for confirmation.
+      tui.send(["C-d"])
+      await tui.waitFor("Press ctrl+d again", "the stop confirmation is missing")
+      tui.send(["C-d"])
+      await tui.waitFor("Infinite loop stopped", "the second Ctrl+D did not stop the loop")
       await tui.waitFor("Stopped at", "the stopped outcome is missing")
 
       // Typing "24h" in the duration input: digits must never trigger a preset.
-      tui.send(["Tab"])
       tui.type("24h")
       await tui.waitFor("= 1d", "the custom duration preview is missing")
       await tui.waitUntil(() => !tui.pane().includes("Running · sent"), "a preset fired while typing a custom duration")
@@ -123,13 +128,9 @@ test.serial("panel takes custom durations and cooldowns, keeps nudging, and stop
         30_000,
       )
 
-      // A digit on the presets row quick-starts that preset (the third preset is 2h).
-      tui.send(["Tab"])
-      tui.send(["3"])
-      await tui.waitFor("Infinite loop started · runs for 2h", "the preset digit did not quick-start")
-
       // Leave the session clean.
-      tui.send(["d"])
+      tui.send(["C-d"])
+      tui.send(["C-d"])
       await tui.waitFor("Infinite loop stopped", "the cleanup stop did not run")
       expect((await rpcStatus(e2e, sessionID)).active).toBe(false)
     } finally {
@@ -197,14 +198,18 @@ test.serial("all-projects panel lists and stops loops from another directory", a
       await tui.waitFor("workspace-b", "the second directory is missing")
       await tui.waitFor("(current)", "the current-session marker is missing")
 
-      // The first row is the current session in this fixture; d stops it.
-      tui.send(["d"])
+      // The first row is the current session in this fixture; Ctrl+D asks before stopping.
+      tui.send(["C-d"])
+      await tui.waitFor("Press ctrl+d again", "the first stop confirmation is missing")
+      tui.send(["C-d"])
       await tui.waitFor("Infinite loop stopped", "the selected loop did not stop")
       await waitFor(async () => (await rpcStatus(e2e, first)).active === false, "the first loop is still active", 10_000)
       await tui.waitFor("Infinite loops · 1 running", "the header did not drop to one loop")
 
       // Stop the remaining loop from the same panel.
-      tui.send(["d"])
+      tui.send(["C-d"])
+      await tui.waitFor("Press ctrl+d again", "the second stop confirmation is missing")
+      tui.send(["C-d"])
       await tui.waitFor("Infinite loop stopped", "the remaining loop did not stop")
       await waitFor(async () => (await rpcStatus(e2e, second)).active === false, "the second loop is still active", 10_000)
       await tui.waitFor("No running loops", "the empty all-projects state is missing")
@@ -282,9 +287,9 @@ test.serial("manual interrupt pauses the panel and does not auto-recover", async
       expect((await rpcStatus(e2e, sessionID)).sentCount).toBe(paused.sentCount)
 
       // The paused panel can still stop the task explicitly.
-      tui.send(["Tab"])
-      tui.send(["Tab"])
-      tui.send(["d"])
+      tui.send(["C-d"])
+      await tui.waitFor("Press ctrl+d again", "the stop confirmation is missing")
+      tui.send(["C-d"])
       await tui.waitFor("Infinite loop stopped", "the cleanup stop did not run")
       expect((await rpcStatus(e2e, sessionID)).active).toBe(false)
     } finally {

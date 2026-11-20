@@ -11,7 +11,7 @@
 - `/delayed-queue <消息>` 或 `/delay <消息>`：把消息加入当前会话的延迟队列。
 - 输入框上方会出现待投递栏，位置和样式与官方 queued prompt 栏一致。
 - 点击该栏，或不带消息运行 `/delayed-queue`，打开管理面板。
-- 面板中 `enter` 或 `s` 立即 steer，`d` 删除，`p` 暂停/恢复整个队列。
+- 面板中 `enter` 或 `ctrl+s` 立即 steer，`ctrl+d` 连按两次删除，`ctrl+p` 暂停/恢复整个队列；字母输入始终进入搜索框。
 
 延迟消息最终以普通 user prompt 投递，因此会像官方 queued prompt 一样出现在 transcript 中。队列按会话持久化，
 热重载和服务重启后会保留；重启恢复的队列默认暂停。

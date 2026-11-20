@@ -73,7 +73,7 @@ With Unicorn, the notepad is enabled by default:
 
 ```text
 Notepad — /path/to/current/folder
-/ Search...
+/ Type to filter notes · Tab for list
 
 This folder
   Follow up: review notepad storage
@@ -83,25 +83,25 @@ Global
   Remember to check release notes
   global · 3m ago
 
-a add · e edit · d delete · p pin · s sort: updated · c/ctrl+y copy · g/ctrl+p scope · tab search · ?/f1 help
+ctrl+n add · ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+s sort: updated · ctrl+y copy · ctrl+g scope · ↑/↓ select · tab search/notes · f1 help
 ```
 
 | Key | Action |
 | --- | --- |
-| `a` | Add a note; it starts in the current folder |
-| `e` | Edit the selected note; `f2` or `ctrl+s` saves, `esc` cancels |
-| `d` | Delete the selected note after confirmation |
+| `Ctrl+N` | Add a note; it starts in the current folder |
+| `Ctrl+E` | Edit the selected note; `f2` or `ctrl+s` saves, `esc` cancels |
+| `Ctrl+D` | Delete the selected note; press again to confirm |
 | `Ctrl+Z` | Restore the last deleted note for this folder |
-| `p` | Pin or unpin the selected note; pinned notes stay at the top |
-| `s` | Switch the sort order between last updated and created |
-| `c` / `Ctrl+Y` | Copy the note text and show a confirmation |
-| `g` / `Ctrl+P` | Move the note between the current folder and Global |
-| `Tab` | Focus the search box; `Enter`, `Esc`, or `Tab` returns to the list |
+| `Ctrl+P` | Pin or unpin the selected note; pinned notes stay at the top |
+| `Ctrl+S` | Switch the sort order between last updated and created |
+| `Ctrl+Y` | Copy the note text and show a confirmation |
+| `Ctrl+G` | Move the note between the current folder and Global |
+| `Tab` | Switch between the search box and the note list |
 | `↑` / `↓` | Select a note |
-| `?` / `F1` | Show keyboard help |
-| `Esc` | Close help or the notepad |
+| `F1` | Show or close keyboard help |
+| `Esc` | Close help, return to the note list, or close the notepad |
 
-Use `F1` while the search box is focused; `?` works in the note list and is kept available for literal searches.
+Printable characters always go to the search box. Actions use Ctrl combinations and work in either focus.
 
 In the editor, `ctrl+g` or `ctrl+p` changes the save target between **This folder** and **Global**.
 

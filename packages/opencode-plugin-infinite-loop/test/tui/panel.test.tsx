@@ -193,22 +193,21 @@ test("registers current-session and overview commands with keybinds and slashes"
   expect(overview?.slash).toMatchObject({ name: "infinite-loops", arguments: true })
 })
 
-test("typing-relevant keys only live in focus-scoped layers", async () => {
+test("the keymap never binds printable characters", async () => {
   const harness = createHarness()
   const app = await render(harness)
   try {
     command(harness, "Open infinite loop")
     await waitFor(app, () => app.captureCharFrame().includes("Not running"), "panel did not open")
-    const base = harness.layers.find((layer) => layer.commands.some((entry) => entry.bind === "escape"))
-    expect(base).toBeDefined()
-    expect(base?.commands.every((entry) => entry.bind !== "d" && entry.bind !== "return" && !/^\d$/.test(entry.bind ?? ""))).toBe(true)
+    const commands = harness.layers.flatMap((layer) => layer.commands)
+    const printable = commands.filter((entry) => entry.bind && /^(?:shift\+)?[a-z?0-9]$/i.test(entry.bind))
+    expect(printable).toEqual([])
+    expect(commands.some((entry) => entry.bind === "ctrl+d")).toBe(true)
+    expect(commands.some((entry) => entry.bind === "ctrl+a")).toBe(true)
     const duration = harness.layers.find((layer) => layer.commands.some((entry) => entry.bind === "return" && entry.title === "Start infinite loop"))
     expect(typeof duration?.target).toBe("function")
-    const cooldown = harness.layers.find((layer) => layer.commands.some((entry) => entry.bind === "tab" && entry.title === "Focus presets"))
+    const cooldown = harness.layers.find((layer) => layer.commands.some((entry) => entry.bind === "tab" && entry.title === "Focus duration"))
     expect(typeof cooldown?.target).toBe("function")
-    const presets = harness.layers.find((layer) => layer.commands.some((entry) => entry.bind === "2"))
-    expect(typeof presets?.target).toBe("function")
-    expect(presets?.commands.some((entry) => entry.bind === "d")).toBe(true)
   } finally {
     app.renderer.destroy()
   }
@@ -240,7 +239,7 @@ test("panel shows presets, active status, and parses duration and cooldown live"
   try {
     command(harness, "Open infinite loop")
     await waitFor(app, () => app.captureCharFrame().includes("Infinite loop"), "panel did not open")
-    await waitFor(app, () => app.captureCharFrame().includes("[1] 15m"), "presets missing")
+    await waitFor(app, () => app.captureCharFrame().includes("15m"), "presets missing")
     await waitFor(app, () => app.captureCharFrame().includes("Running · sent 2 nudges"), "status missing")
     await waitFor(app, () => app.captureCharFrame().includes("Cooling down"), "cooldown status missing")
 
@@ -294,16 +293,17 @@ test("empty inputs start the default duration and default cooldown", async () =>
   }
 })
 
-test("preset key starts with the cooldown input value", async () => {
+test("clicking a preset starts it with the cooldown input value", async () => {
   const harness = createHarness()
   const app = await render(harness)
   try {
     command(harness, "Open infinite loop")
-    await waitFor(app, () => app.captureCharFrame().includes("[1] 15m"), "panel did not open")
+    await waitFor(app, () => app.captureCharFrame().includes("15m"), "panel did not open")
     const inputs = findAll(app.renderer.root, InputRenderable)
     inputs[1]!.value = "0"
     await app.flush()
-    command(harness, "Start infinite loop for 15m")
+    const preset = app.renderer.root.findDescendantById("infinite-loop-preset-15m")!
+    await app.mockMouse.click(preset.x + 1, preset.y)
     await waitFor(app, () => harness.calls.includes("start:900000:0"), "preset start was not called")
   } finally {
     app.renderer.destroy()
@@ -344,6 +344,8 @@ test("all-projects view groups loops and stops the selected one", async () => {
     await waitFor(app, () => app.captureCharFrame().includes("/workspace"), "workspace group missing")
     await waitFor(app, () => app.captureCharFrame().includes("/other"), "other group missing")
     await waitFor(app, () => app.captureCharFrame().includes("(current)"), "current marker missing")
+    command(harness, "Stop selected infinite loop")
+    await waitFor(app, () => app.captureCharFrame().includes("Press ctrl+d again"), "stop confirmation missing")
     command(harness, "Stop selected infinite loop")
     await waitFor(app, () => harness.calls.includes("stop:session-1"), "stop selected was not called")
   } finally {

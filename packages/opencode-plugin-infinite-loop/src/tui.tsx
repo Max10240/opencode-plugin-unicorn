@@ -1,6 +1,6 @@
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { TextAttributes, type BoxRenderable, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { formatDuration, parseCooldown, parseDuration, type DurationBounds } from "./duration.js"
 import { MAX_COOLDOWN_MS, infiniteLoopEnabled, parseInfiniteLoopOptions, type InfiniteLoopOptions } from "./options.js"
@@ -313,16 +313,34 @@ function InfiniteLoopPanel(props: {
   const [help, setHelp] = createSignal(false)
   const [loading, setLoading] = createSignal(true)
   const [now, setNow] = createSignal(Date.now())
+  const [pendingStop, setPendingStop] = createSignal<string>()
   let durationInput: InputRenderable | undefined
   let cooldownInput: InputRenderable | undefined
-  let presetsBox: BoxRenderable | undefined
   let loopList: ScrollBoxRenderable | undefined
   let refreshingCurrent = false
   let refreshingAll = false
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
+  let stopTimer: ReturnType<typeof setTimeout> | undefined
   const durationTarget = () => durationInput
   const cooldownTarget = () => cooldownInput
-  const presetsTarget = () => presetsBox
+  const formBackground = theme.background?.formfield?.base ?? theme.background?.base
+  const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
+  const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
+
+  const clearPendingStop = () => {
+    if (stopTimer !== undefined) clearTimeout(stopTimer)
+    stopTimer = undefined
+    setPendingStop(undefined)
+  }
+
+  const armPendingStop = (sessionID: string) => {
+    clearPendingStop()
+    setPendingStop(sessionID)
+    stopTimer = setTimeout(() => {
+      stopTimer = undefined
+      setPendingStop(undefined)
+    }, 3_000)
+  }
 
   const refreshCurrent = async () => {
     if (!props.sessionID || refreshingCurrent) return
@@ -361,6 +379,7 @@ function InfiniteLoopPanel(props: {
       return
     }
     setWorking(true)
+    clearPendingStop()
     try {
       const status = (await props.context.client.rpc(InfiniteLoopRpc).start({
         sessionID: props.sessionID,
@@ -424,6 +443,7 @@ function InfiniteLoopPanel(props: {
     setWorking(true)
     try {
       setState((await stop(props.context, props.sessionID)) ?? state())
+      clearPendingStop()
       void refreshAll()
     } finally {
       setWorking(false)
@@ -431,18 +451,41 @@ function InfiniteLoopPanel(props: {
   }
 
   const stopSelected = async () => {
-    const item = loops()[selected()]
+    const item = selectedItem()
     if (!item || working()) return
     setWorking(true)
     try {
       await stop(props.context, item.sessionID)
+      clearPendingStop()
       await Promise.all([refreshAll(), item.sessionID === props.sessionID ? refreshCurrent() : Promise.resolve()])
     } finally {
       setWorking(false)
     }
   }
 
+  const requestStopCurrent = () => {
+    if (!props.sessionID || working() || state()?.active !== true) return
+    if (pendingStop() === props.sessionID) {
+      clearPendingStop()
+      void stopCurrent()
+      return
+    }
+    armPendingStop(props.sessionID)
+  }
+
+  const requestStopSelected = () => {
+    const item = selectedItem()
+    if (!item || working()) return
+    if (pendingStop() === item.sessionID) {
+      clearPendingStop()
+      void stopSelected()
+      return
+    }
+    armPendingStop(item.sessionID)
+  }
+
   const stopAll = async () => {
+    clearPendingStop()
     const items = loops()
     if (items.length === 0) {
       void props.context.ui.toast.show({ message: "No running loops", variant: "info" })
@@ -493,6 +536,12 @@ function InfiniteLoopPanel(props: {
   })
 
   createEffect(() => {
+    selected()
+    view()
+    clearPendingStop()
+  })
+
+  createEffect(() => {
     const item = loops()[selected()]
     if (!item || !loopList) return
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
@@ -520,6 +569,7 @@ function InfiniteLoopPanel(props: {
     onCleanup(() => {
       clearInterval(ticker)
       if (scrollTimer !== undefined) clearTimeout(scrollTimer)
+      if (stopTimer !== undefined) clearTimeout(stopTimer)
     })
   })
 
@@ -616,8 +666,8 @@ function InfiniteLoopPanel(props: {
     return "waiting"
   }
 
-  // Escape closes help first. The all view keeps its own key layer; the current view's
-  // typing layers are target-scoped so "24h" or "1d" never trigger presets or stop.
+  // Every printable key belongs to the inputs. Panel actions are Ctrl combos so they
+  // behave the same whether the duration input, cooldown input, or loop list has focus.
   props.context.keymap.layer(() => ({
     mode: "modal",
     priority: 20,
@@ -633,11 +683,18 @@ function InfiniteLoopPanel(props: {
       { bind: "f1", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
       { bind: "ctrl+a", title: "Toggle all infinite loops", run: toggleView, enabled: () => props.sessionID !== undefined },
       {
-        bind: "ctrl+x",
-        title: "Stop this infinite loop",
-        enabled: () => view() === "current" && state()?.active === true && !working(),
-        run: () => void stopCurrent(),
+        bind: "ctrl+d",
+        title: view() === "all" ? "Stop selected infinite loop" : "Stop this infinite loop",
+        enabled: () => !working() && (view() === "all" ? selectedItem() !== undefined : state()?.active === true),
+        run: () => {
+          if (view() === "all") requestStopSelected()
+          else requestStopCurrent()
+        },
       },
+      { bind: "ctrl+shift+d", title: "Stop all infinite loops", enabled: () => view() === "all" && !working(), run: () => void stopAll() },
+      { bind: "ctrl+r", title: "Refresh infinite loops", enabled: () => view() === "all", run: () => void refresh() },
+      { bind: "up", title: "Previous infinite loop", enabled: () => view() === "all", run: () => moveSelection(-1) },
+      { bind: "down", title: "Next infinite loop", enabled: () => view() === "all", run: () => moveSelection(1) },
     ],
   }))
   props.context.keymap.layer(() => ({
@@ -648,6 +705,7 @@ function InfiniteLoopPanel(props: {
     commands: [
       { bind: "return", title: "Start infinite loop", enabled: () => !working(), run: startCustom },
       { bind: "tab", title: "Focus cooldown", run: () => cooldownTarget()?.focus() },
+      { bind: "shift+tab", title: "Focus cooldown", run: () => cooldownTarget()?.focus() },
       { bind: "f1", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
     ],
   }))
@@ -658,50 +716,8 @@ function InfiniteLoopPanel(props: {
     enabled: () => view() === "current",
     commands: [
       { bind: "return", title: "Start infinite loop", enabled: () => !working(), run: startCustom },
-      { bind: "tab", title: "Focus presets", run: () => presetsTarget()?.focus() },
-      { bind: "f1", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
-    ],
-  }))
-  props.context.keymap.layer(() => ({
-    mode: "modal",
-    priority: 20,
-    target: presetsTarget,
-    enabled: () => view() === "current",
-    commands: [
-      ...presets.slice(0, 9).map((preset, index) => ({
-        bind: String(index + 1),
-        title: `Start infinite loop for ${preset}`,
-        enabled: () => !working(),
-        run: () => startPreset(preset),
-      })),
-      {
-        bind: "return",
-        title: "Start default infinite loop",
-        enabled: () => !working(),
-        run: () => {
-          const cooldown = cooldownValue()
-          if (cooldown.ok) void startWith(props.options.defaultDurationMs, cooldown.value)
-        },
-      },
-      { bind: "d", title: "Stop infinite loop", enabled: () => !working(), run: () => void stopCurrent() },
       { bind: "tab", title: "Focus duration", run: () => durationTarget()?.focus() },
-      { bind: "?", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
-      { bind: "f1", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
-    ],
-  }))
-  props.context.keymap.layer(() => ({
-    mode: "modal",
-    priority: 20,
-    enabled: () => view() === "all",
-    commands: [
-      { bind: "up", title: "Previous infinite loop", run: () => moveSelection(-1) },
-      { bind: "k", title: "Previous infinite loop", run: () => moveSelection(-1) },
-      { bind: "down", title: "Next infinite loop", run: () => moveSelection(1) },
-      { bind: "j", title: "Next infinite loop", run: () => moveSelection(1) },
-      { bind: "d", title: "Stop selected infinite loop", enabled: () => !working(), run: () => void stopSelected() },
-      { bind: "shift+d", title: "Stop all infinite loops", enabled: () => !working(), run: () => void stopAll() },
-      { bind: "r", title: "Refresh infinite loops", run: () => void refresh() },
-      { bind: "?", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
+      { bind: "shift+tab", title: "Focus duration", run: () => durationTarget()?.focus() },
       { bind: "f1", title: "Toggle infinite loop help", run: () => { setHelp((value) => !value) } },
     ],
   }))
@@ -712,11 +728,14 @@ function InfiniteLoopPanel(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {view() === "all" ? `Infinite loops${loops().length > 0 ? ` · ${loops().length} running` : ""}` : "Infinite loop"}
         </text>
-        <text fg={theme.text.muted}>{view() === "all" ? "?/f1 help · esc close" : "?/f1 help · esc close"}</text>
+        <text fg={theme.text.muted}>f1 help · esc close</text>
       </box>
       <Show when={view() === "current"}>
         <text fg={theme.text.muted} wrapMode="word">{currentTitle()}</text>
         <text fg={theme.text.base}>{currentHeadline()}</text>
+        <Show when={props.sessionID !== undefined && pendingStop() === props.sessionID}>
+          <text fg={theme.text.feedback?.warning?.base ?? theme.text.base}>Press ctrl+d again to stop this loop.</text>
+        </Show>
         <For each={currentDetails()}>{(line) => <text fg={theme.text.muted} wrapMode="word">{line}</text>}</For>
       </Show>
       <Show when={view() === "all"}>
@@ -728,21 +747,31 @@ function InfiniteLoopPanel(props: {
       <Show when={help()}>
         <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
           <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
-          <text fg={theme.text.muted}>enter start · tab duration / cooldown / presets · 1-6 preset duration</text>
-          <text fg={theme.text.muted}>d stop (presets or selected loop) · ctrl+x stop this loop · ctrl+a all projects / this session</text>
-          <text fg={theme.text.muted}>↑/↓ or j/k select · D stop all · r refresh · ?/f1 help · esc close</text>
+          <text fg={theme.text.muted}>enter start · tab duration / cooldown · click a preset to start it</text>
+          <text fg={theme.text.muted}>ctrl+d stop this loop (press twice) · ctrl+a all projects / this session</text>
+          <text fg={theme.text.muted}>↑/↓ select · ctrl+d stop selected (twice) · ctrl+shift+d stop all · ctrl+r refresh</text>
+          <text fg={theme.text.muted}>f1 help · esc close</text>
         </box>
       </Show>
       <Show when={view() === "current"}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Start</text>
         <Show when={presets.length > 0}>
-          <box
-            ref={(value: BoxRenderable) => { presetsBox = value }}
-            focusable
-            backgroundColor={theme.background.raised.high}
-            onMouseUp={() => presetsBox?.focus()}
-          >
-            <text fg={theme.text.base}>{presets.map((preset, index) => `[${index + 1}] ${preset}`).join("  ")}</text>
+          <box flexDirection="row" gap={1}>
+            <For each={presets}>
+              {(preset) => (
+                <box
+                  id={`infinite-loop-preset-${preset}`}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={theme.background.raised.high}
+                  onMouseUp={() => {
+                    if (!working()) startPreset(preset)
+                  }}
+                >
+                  <text fg={theme.text.base}>{preset}</text>
+                </box>
+              )}
+            </For>
           </box>
         </Show>
         <input
@@ -753,8 +782,10 @@ function InfiniteLoopPanel(props: {
           onInput={setCustom}
           placeholder={`e.g. 90m, 2h, 1h30m · empty = ${formatDuration(props.options.defaultDurationMs)}`}
           placeholderColor={theme.text.muted}
+          backgroundColor={formBackground}
+          focusedBackgroundColor={formFocusedBackground}
           textColor={theme.text.formfield.base}
-          focusedTextColor={theme.text.formfield.base}
+          focusedTextColor={formFocusedText}
           cursorColor={theme.text.formfield.base}
         />
         <Show
@@ -775,8 +806,10 @@ function InfiniteLoopPanel(props: {
           onInput={setCooldownText}
           placeholder={`Cooldown · e.g. 5m, 1h, 0 · empty = ${formatDuration(props.options.cooldownMs)}`}
           placeholderColor={theme.text.muted}
+          backgroundColor={formBackground}
+          focusedBackgroundColor={formFocusedBackground}
           textColor={theme.text.formfield.base}
-          focusedTextColor={theme.text.formfield.base}
+          focusedTextColor={formFocusedText}
           cursorColor={theme.text.formfield.base}
         />
         <Show
@@ -795,7 +828,9 @@ function InfiniteLoopPanel(props: {
           )}
         </Show>
         <text fg={theme.text.muted} wrapMode="word">Message: {props.options.message}</text>
-        <text fg={theme.text.muted}>ctrl+a all projects · enter start · tab duration/cooldown/presets · d stop · ctrl+x stop · f1 help · esc close</text>
+        <text fg={theme.text.muted} wrapMode="word">
+          {`${state()?.active ? "ctrl+d stop (twice) · " : ""}ctrl+a all projects · enter start · tab duration/cooldown · click preset · f1 help · esc close`}
+        </text>
       </Show>
       <Show when={view() === "all"}>
         <Show when={loading() && loops().length === 0} fallback={
@@ -814,6 +849,7 @@ function InfiniteLoopPanel(props: {
                           theme={theme}
                           now={now()}
                           phaseLabel={phaseLabel(item)}
+                          pending={item.sessionID === pendingStop()}
                         />
                       )}
                     </For>
@@ -821,7 +857,7 @@ function InfiniteLoopPanel(props: {
                 )}
               </For>
             </scrollbox>
-            <text fg={theme.text.muted}>↑/↓ select · d stop selected · D stop all · r refresh · ctrl+a this session · ?/f1 help · esc close</text>
+            <text fg={theme.text.muted} wrapMode="word">↑/↓ select · ctrl+d stop selected (twice) · ctrl+shift+d stop all · ctrl+r refresh · ctrl+a this session · f1 help · esc close</text>
           </Show>
         }>
           <text fg={theme.text.muted}>Loading loops…</text>
@@ -838,6 +874,7 @@ function LoopRow(props: {
   theme: any
   now: number
   phaseLabel: string
+  pending: boolean
 }) {
   const title = () => props.item.title ?? props.item.sessionID
   const ends = () => {
@@ -864,8 +901,10 @@ function LoopRow(props: {
       <text fg={props.selected ? props.theme.text.base : props.theme.text.muted} wrapMode="word">
         {`${props.selected ? "▸ " : "  "}${title()}${props.current ? " (current)" : ""}`}
       </text>
-      <text fg={props.theme.text.muted}>
-        {`ends ${ends()} · ${left()} left · sent ${sent()} · ${props.phaseLabel}`}
+      <text fg={props.pending ? (props.theme.text.feedback?.warning?.base ?? props.theme.text.base) : props.theme.text.muted}>
+        {props.pending
+          ? "Press ctrl+d again to stop this loop."
+          : `ends ${ends()} · ${left()} left · sent ${sent()} · ${props.phaseLabel}`}
       </text>
     </box>
   )

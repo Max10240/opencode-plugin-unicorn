@@ -159,6 +159,15 @@ async function pressUntil(current: Tui, key: string, text: string, message: stri
   }
 }
 
+async function closeNotepad(current: Tui) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!current.pane().includes("esc close")) return
+    current.send(["Escape"])
+    await Bun.sleep(100)
+  }
+  await current.waitUntil(() => !current.pane().includes("esc close"), "notepad did not close")
+}
+
 test("searches previous prompts and inserts the selected draft", async () => {
   tui.send(["F12"])
   await tui.waitFor("Search previous prompts", "prompt search dialog did not open")
@@ -188,25 +197,24 @@ test("creates, scopes and copies a note through the real notepad panel", async (
   tui.send(["Enter"])
   await tui.waitFor("No notes yet", "empty notepad did not open")
   await Bun.sleep(75)
-  await pressUntil(tui, "a", "f2 / ctrl+s save", "note editor did not open")
+  await pressUntil(tui, "C-n", "f2 / ctrl+s save", "note editor did not open")
   await Bun.sleep(100)
   tui.type(MARKER)
   await tui.waitFor(MARKER, "note text did not appear")
   tui.send(["F2"])
   await tui.waitFor("folder ·", "note was not scoped to the current folder")
   await Bun.sleep(75)
-  tui.send(["p"])
+  tui.send(["C-p"])
   await tui.waitFor("Note pinned", "note was not pinned")
   await tui.waitFor("★ " + MARKER, "pinned note marker did not appear")
-  tui.send(["s"])
+  tui.send(["C-s"])
   await tui.waitFor("sort: created", "sort mode did not change")
-  tui.send(["g"])
+  tui.send(["C-g"])
   await tui.waitFor("global ·", "note scope did not change")
   await tui.waitFor("Moved to Global", "scope change did not report success")
-  tui.send(["c"])
+  tui.send(["C-y"])
   await tui.waitFor("Copied note", "copy action did not report success")
-  tui.send(["Escape"])
-  await tui.waitUntil(() => !tui.pane().includes("esc close"), "notepad dialog did not close")
+  await closeNotepad(tui)
 })
 
 test("keeps panel keys out of the composer and other dialogs", async () => {
@@ -229,32 +237,31 @@ test("keeps panel keys out of the composer and other dialogs", async () => {
   await openSlash(tui, "/notepad", "Capture and manage notes")
   await tui.waitFor(MARKER, "note did not persist after reopening")
   expect(tui.pane()).toContain("global ·")
-  tui.send(["Escape"])
-  await tui.waitUntil(() => !tui.pane().includes("esc close"), "notepad did not close after persistence check")
+  await closeNotepad(tui)
 })
 
 test("edits, cancels and deletes a persisted note", async () => {
   await openSlash(tui, "/notepad", "Capture and manage notes")
   await tui.waitFor(MARKER, "note did not reopen for editing")
   await Bun.sleep(75)
-  await pressUntil(tui, "e", "f2 / ctrl+s save", "note editor did not reopen")
+  await pressUntil(tui, "C-e", "f2 / ctrl+s save", "note editor did not reopen")
   await Bun.sleep(100)
   tui.type(" EDITED")
   await tui.waitFor(" EDITED", "edited text did not appear")
   tui.send(["F2"])
   await tui.waitFor("EDITED", "note edit was not saved")
   await Bun.sleep(75)
-  await pressUntil(tui, "e", "f2 / ctrl+s save", "note editor did not reopen for cancel")
+  await pressUntil(tui, "C-e", "f2 / ctrl+s save", "note editor did not reopen for cancel")
   await Bun.sleep(100)
   tui.send(["Escape"])
   await tui.waitUntil(() => !tui.pane().includes("f2 / ctrl+s save") && tui.pane().includes(MARKER), "cancel did not return to the note list")
   await Bun.sleep(100)
-  await pressUntil(tui, "d", "Delete note?", "delete confirmation did not open")
-  tui.send(["Enter"])
+  tui.send(["C-d"])
+  await tui.waitFor("Press ctrl+d again", "delete confirmation did not open")
+  tui.send(["C-d"])
   await tui.waitFor("No notes yet", "note was not deleted")
   await Bun.sleep(75)
-  tui.send(["Escape"])
-  await tui.waitUntil(() => !tui.pane().includes("esc close"), "notepad did not close after deleting")
+  await closeNotepad(tui)
   await Bun.sleep(75)
 })
 

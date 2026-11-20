@@ -29,6 +29,14 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
 - Switches follow the existing `features` pattern. Disabling one plugin must not affect another. Plugins with server
   and TUI entries must honor the corresponding switch on both sides.
 
+## TUI Input Panels
+
+- A panel with any text input must not bind printable single-character shortcuts, regardless of focus.
+- Use Ctrl/Alt combinations for actions; keep arrows, Tab, Enter, F1, and Escape for navigation.
+- The selected row stays highlighted while an input is focused, and input focus uses a distinct focused background.
+- Destructive actions use a second press to confirm, and tmux E2E tests must prove that typing action letters does not
+  trigger them while the Ctrl combination does.
+
 ## Tool Descriptions
 
 - Tool descriptions must be concise and direct, describing only the purpose and necessary usage limits.

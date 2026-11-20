@@ -40,7 +40,7 @@ const state = {
 type SelectOptions = {
   title: string
   options: Array<{ title: string; value: string; footer?: string }>
-  actions: Array<{ title: string; selection: string; onTrigger: (value: string) => void }>
+  actions: Array<{ bind: string; title: string | ((option: { value: string } | undefined) => string); selection: string; onTrigger: (value: string) => void }>
   search: (query: string, options: Array<{ title: string; value: string }>) => Array<{ title: string; value: string }>
   onSelect?: (value: string) => void
 }
@@ -145,13 +145,18 @@ test("slash without text opens the delayed prompt panel", async () => {
   expect(panel.title).toBe("Delayed prompts")
   expect(panel.options.map((item) => item.title)).toEqual(["first delayed", "second delayed"])
   expect(panel.search("second", panel.options).map((item) => item.value)).toEqual(["msg_2"])
+  expect(panel.actions.map((item) => item.bind)).toEqual(["ctrl+s", "ctrl+d", "ctrl+p"])
 })
 
-test("panel delete action removes the selected prompt", async () => {
+test("panel delete action requires a second Ctrl+D", async () => {
   const fx = harness()
   await fx.layer.commands[0].run("")
   await Bun.sleep(0)
   const action = fx.dialogs[0]!.actions.find((entry) => entry.title === "delete")!
+  action.onTrigger("msg_1")
+  await Bun.sleep(0)
+  expect(fx.calls).not.toContain("remove:msg_1")
+  expect(fx.toasts.at(-1)?.message).toBe("Press ctrl+d again to delete")
   action.onTrigger("msg_1")
   await Bun.sleep(0)
   expect(fx.calls).toContain("remove:msg_1")
