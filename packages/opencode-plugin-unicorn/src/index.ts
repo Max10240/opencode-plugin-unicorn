@@ -9,6 +9,7 @@ import { setupSensitiveEncrypt } from "@max10240/opencode-plugin-sensitive-encry
 import { setupSensitiveProtection } from "@max10240/opencode-plugin-sensitive-protection"
 import { setupRecommendedOpencodeConfig } from "@max10240/opencode-plugin-recomended-opencode-config"
 import { setupDeadLoop } from "@max10240/opencode-plugin-dead-loop"
+import { setupDelayedQueue } from "@max10240/opencode-plugin-delayed-queue"
 import { disposeAll } from "./cleanup.js"
 import { UnicornStatusRpc } from "./status-rpc.js"
 import { unicornRuntimeStatus } from "./status.js"
@@ -24,6 +25,7 @@ import {
   showImgFeatureEnabled,
   opencodeGoUsageFeatureEnabled,
   deadLoopFeatureEnabled,
+  delayedQueueFeatureEnabled,
 } from "./options.js"
 
 export default Plugin.define({
@@ -54,6 +56,8 @@ export default Plugin.define({
       cleanups.push(await setupSensitiveEncrypt(childContext(ctx, "sensitiveEncrypt")))
     if (deadLoopFeatureEnabled(ctx.options))
       cleanups.push(await setupDeadLoop(childContext(ctx, "deadLoop")))
+    if (delayedQueueFeatureEnabled(ctx.options))
+      cleanups.push(await setupDelayedQueue(childContext(ctx, "delayedQueue")))
 
     if (cleanups.length === 0) return
     return () => disposeAll(cleanups)
@@ -73,4 +77,5 @@ export {
   showImgFeatureEnabled,
   opencodeGoUsageFeatureEnabled,
   deadLoopFeatureEnabled,
+  delayedQueueFeatureEnabled,
 } from "./options.js"

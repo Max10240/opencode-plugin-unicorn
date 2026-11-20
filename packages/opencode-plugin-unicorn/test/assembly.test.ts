@@ -15,7 +15,7 @@ test("Unicorn honors both its feature gate and show-img's own nested options on 
       let rpc = 0
       const context = {
         options: {
-          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: feature, sensitiveEncrypt: false, sensitiveProtection: false },
+          features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: feature, sensitiveEncrypt: false, sensitiveProtection: false, delayedQueue: false },
           showImg: { features: { showImg: nested } },
         },
         storage: {},
@@ -46,6 +46,7 @@ test("Unicorn wires OpenCode Go usage through its feature gate", async () => {
           opencodeGoUsage: enabled,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
+          delayedQueue: false,
         },
       },
       rpc: {
@@ -81,6 +82,7 @@ test("Unicorn wires the dead loop through its feature gate", async () => {
           opencodeGoUsage: false,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
+          delayedQueue: false,
           deadLoop: enabled,
         },
       },
@@ -120,7 +122,7 @@ test("Unicorn exposes sensitive encryption by default and passes through nested 
   const registered = new Map<string, Info>()
   const context = {
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: false, sensitiveProtection: false },
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: false, notepad: false, showImg: false, sensitiveProtection: false, delayedQueue: false },
       sensitiveEncrypt: { publicKeyFileForEncrypt: publicFile, decrypt: false },
     },
     tool: {
@@ -161,6 +163,7 @@ test("features.sensitiveEncrypt false disables the tool without creating keys", 
         showImg: false,
         sensitiveEncrypt: false,
         sensitiveProtection: false,
+          delayedQueue: false,
       },
       sensitiveEncrypt: { keyDirectory },
     },
@@ -197,7 +200,7 @@ test("the assembled image tool uses nested model, URL and credentials without le
   const imageGen = Object.freeze({ model: "nested-provider/nested-model", baseURL: `${server.url.origin}/nested`, integrationID: "nested-auth" })
   const context = Object.freeze({
     options: {
-      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, notepad: false, showImg: false, sensitiveEncrypt: false, sensitiveProtection: false }, imageGen,
+      features: { recommendedOpencodeConfig: false, sendMessageAcrossSessions: false, imageGen: true, notepad: false, showImg: false, sensitiveEncrypt: false, sensitiveProtection: false, delayedQueue: false }, imageGen,
       model: "flat/model", baseURL: `${server.url.origin}/flat`, integrationID: "flat-auth", promptSearch: { model: "sibling/model" },
     },
     session: { get: async () => ({ model: { providerID: "chat-provider", id: "chat-model" }, location: { directory } }) },
@@ -233,4 +236,47 @@ test("the assembled image tool uses nested model, URL and credentials without le
     finally { server.stop(true); await rm(directory, { recursive: true, force: true }) }
   }
   expect(disposed).toBe(true)
+})
+
+test("Unicorn wires the delayed queue through its independent feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let hooks = 0
+    let rpc = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          deadLoop: false,
+          delayedQueue: enabled,
+        },
+      },
+      storage: { scan: async () => ({ entries: [] }) },
+      event: { subscribe: async function* () {} },
+      session: {
+        hook: async () => {
+          hooks++
+          return { dispose: async () => { hooks-- } }
+        },
+      },
+      rpc: {
+        register: async () => {
+          rpc++
+          return { dispose: async () => { rpc-- } }
+        },
+      },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(hooks).toBe(enabled ? 2 : 0)
+    expect(rpc).toBe(2 + Number(enabled))
+    if (cleanup) await cleanup()
+    expect(hooks).toBe(0)
+    expect(rpc).toBe(0)
+  }
 })

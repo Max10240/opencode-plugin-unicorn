@@ -64,6 +64,7 @@ See the [Unicorn README](./packages/opencode-plugin-unicorn/README.md) for every
 | [Notepad](./packages/opencode-plugin-notepad) | A scratchpad for folder-scoped and global notes | You think of a follow-up or reminder and do not want to derail the agent |
 | [Sensitive encrypt](./packages/opencode-plugin-sensitive-encrypt) | Encrypt text or files with a public key and decrypt only to a file | Secrets need to be stored, moved, or handed to an agent without exposing plaintext |
 | [Sensitive protection](./packages/opencode-plugin-sensitive-protection) | Protects credential files by redacting secret values before they reach the model | Credentials, tokens, or private keys live on your machine |
+| [Delayed queue](./packages/opencode-plugin-delayed-queue) | Queue a message until the session is idle and all background work has finished | You want to send a follow-up without interrupting the current turn or a running shell/subagent |
 | [Recommended config](./packages/opencode-plugin-recomended-opencode-config) | Adds curated rules and commands, and sets OpenAI `store:false` | You want a safer, more consistent OpenCode setup without writing rules yourself |
 
 ## Install only what you need
@@ -81,6 +82,7 @@ Every plugin also works standalone. Open its README for the exact config, keybin
 - [Notepad](./packages/opencode-plugin-notepad/README.md)
 - [Sensitive encrypt](./packages/opencode-plugin-sensitive-encrypt/README.md)
 - [Sensitive protection](./packages/opencode-plugin-sensitive-protection/README.md)
+- [Delayed queue](./packages/opencode-plugin-delayed-queue/README.md)
 - [Recommended config](./packages/opencode-plugin-recomended-opencode-config/README.md)
 
 Server-side features are configured in `opencode.jsonc`; TUI features are configured in `cli.json`. Some plugins use

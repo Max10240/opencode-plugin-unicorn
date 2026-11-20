@@ -10,7 +10,7 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
       let slots = 0
       const context = {
         options: {
-          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false },
+          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false, delayedQueue: false },
           showImg: { features: { showImg: nested } },
         },
         ui: { slot: () => { slots++; return () => { slots-- } } },
@@ -40,6 +40,7 @@ test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate"
           promptSearch: false,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
+          delayedQueue: false,
           sessionSearch: false,
           nonBlocking: false,
           deadLoop: false,
@@ -72,6 +73,7 @@ test("dead loop is wired through Unicorn's independent TUI feature gate", async 
           promptSearch: false,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
+          delayedQueue: false,
           sessionSearch: false,
           nonBlocking: false,
           deadLoop: enabled,
@@ -99,6 +101,7 @@ test("non-blocking is wired through Unicorn's independent feature gate", async (
           promptSearch: false,
           sensitiveEncrypt: false,
           sensitiveProtection: false,
+          delayedQueue: false,
           sessionSearch: false,
           nonBlocking: enabled,
         },
@@ -135,4 +138,36 @@ test("scoped TUI contexts retain reactive host getters", () => {
     expect(sessions.options).toBe(context.options.sessionSearch)
     dispose()
   })
+})
+
+test("delayed queue is wired through Unicorn's independent TUI feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let layers = 0
+    let slots = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: false,
+          promptSearch: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          sessionSearch: false,
+          nonBlocking: false,
+          deadLoop: false,
+          delayedQueue: enabled,
+        },
+      },
+      keymap: { layer: () => { layers++ } },
+      ui: { slot: () => { slots++; return () => { slots-- } } },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(layers).toBe(enabled ? 3 : 2)
+    expect(slots).toBe(enabled ? 1 : 0)
+    if (cleanup) await cleanup()
+  }
 })

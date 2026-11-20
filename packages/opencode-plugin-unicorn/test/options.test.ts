@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { childContext, deadLoopFeatureEnabled, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
+import { childContext, deadLoopFeatureEnabled, delayedQueueFeatureEnabled, godFeatureEnabled, imageGenFeatureEnabled, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, recommendedConfigFeatureOption, sendMessageAcrossSessionsFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, type ChildPlugin } from "../src/options.js"
 
 test("prompt search is enabled by default and can be disabled independently", () => {
   expect(promptSearchFeatureEnabled({})).toBe(true)
@@ -50,8 +50,15 @@ test("dead loop is enabled by default and can be disabled independently", () => 
   expect(deadLoopFeatureEnabled({ features: { imageGen: false } })).toBe(true)
 })
 
+test("delayed queue is enabled by default and can be disabled independently", () => {
+  expect(delayedQueueFeatureEnabled({})).toBe(true)
+  expect(delayedQueueFeatureEnabled({ features: { delayedQueue: true } })).toBe(true)
+  expect(delayedQueueFeatureEnabled({ features: { delayedQueue: false } })).toBe(false)
+  expect(delayedQueueFeatureEnabled({ features: { deadLoop: false } })).toBe(true)
+})
+
 test("every child receives exactly its own options, including unknown nested fields", () => {
-  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking", "deadLoop"]
+  const names: ChildPlugin[] = ["recommendedOpencodeConfig", "sendMessageAcrossSessions", "imageGen", "notepad", "showImg", "opencodeGoUsage", "promptSearch", "sensitiveEncrypt", "sensitiveProtection", "sessionSearch", "nonBlocking", "deadLoop", "delayedQueue"]
   const options = Object.freeze({
     features: Object.freeze({ imageGen: false }), model: "legacy-model", keybind: "legacy-key", maxPrompts: 99, sessionSearchKeybind: "legacy-search-key",
     ...Object.fromEntries(names.map((name) => [name, Object.freeze({ marker: name, future: { values: [1, 2] } })])),
@@ -92,11 +99,11 @@ test("scoping options preserves live host getters and does not change sibling co
 
 test("feature gates win over child options and remain independent", () => {
   const options = {
-    features: { imageGen: false, showImg: false, opencodeGoUsage: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false, notepad: false, nonBlocking: false },
+    features: { imageGen: false, showImg: false, opencodeGoUsage: false, promptSearch: false, sensitiveEncrypt: false, sensitiveProtection: false, sessionSearch: false, sendMessageAcrossSessions: false, recommendedOpencodeConfig: false, notepad: false, nonBlocking: false, deadLoop: false, delayedQueue: false },
     recommendedOpencodeConfig: { enabled: true }, imageGen: { enabled: true }, sessionSearch: { keybind: "f11" },
   }
   expect(recommendedConfigFeatureOption(options)).toBe(false)
-  for (const enabled of [imageGenFeatureEnabled, notepadFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled, nonBlockingFeatureEnabled]) {
+  for (const enabled of [imageGenFeatureEnabled, notepadFeatureEnabled, showImgFeatureEnabled, promptSearchFeatureEnabled, sessionSearchFeatureEnabled, sendMessageAcrossSessionsFeatureEnabled, nonBlockingFeatureEnabled, deadLoopFeatureEnabled, delayedQueueFeatureEnabled]) {
     expect(enabled(options)).toBe(false)
     expect(enabled({})).toBe(true)
   }
