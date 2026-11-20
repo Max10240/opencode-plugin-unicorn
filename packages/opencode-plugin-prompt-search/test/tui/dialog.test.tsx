@@ -13,6 +13,7 @@ import { parseQuery } from "../../src/query.js"
 const theme = {
   text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" } },
   background: { raised: { high: "#333333" } },
+  border: { base: "#444444" },
   formfield: { base: "#ffffff" },
   surface: () => theme,
 }
@@ -20,7 +21,15 @@ const theme = {
 const now = Date.now()
 
 const entries: PromptEntry[] = [
-  { sessionID: "s1", messageID: "m1", text: "first prompt", created: now - 300_000, projectID: "p1" },
+  {
+    sessionID: "s1",
+    messageID: "m1",
+    text: "first prompt",
+    title: "First session",
+    directory: "/worktrees/feature-a",
+    created: now - 300_000,
+    projectID: "p1",
+  },
   { sessionID: "s1", messageID: "m2", text: "second prompt", created: now - 240_000, projectID: "p1" },
   { sessionID: "s2", messageID: "m3", text: "third prompt", created: now - 180_000, projectID: "p2" },
 ]
@@ -146,7 +155,7 @@ test("toggles between all projects and the current project", async () => {
   }
 })
 
-test("shows preview and relative time, copies the selected prompt, and opens help", async () => {
+test("shows preview and relative time, copies the prompt and details, and opens help", async () => {
   const harness = createDialogHarness()
   const app = await render(harness)
   try {
@@ -159,10 +168,12 @@ test("shows preview and relative time, copies the selected prompt, and opens hel
     expect(frame).toContain("Preview")
     expect(frame).toContain("5m ago")
     expect(frame).toContain("first prompt")
+    expect(frame).toMatch(/─{40,}/)
 
     const commands = harness.layers.flatMap((layer) => layer.commands)
     expect(commands.find((item) => item.title === "Toggle prompt scope")?.bind).toBe("ctrl+p")
     expect(commands.find((item) => item.title === "Copy prompt")?.bind).toBe("ctrl+y")
+    expect(commands.find((item) => item.title === "Copy prompt details")?.bind).toBe("ctrl+shift+y,alt+y")
     expect(commands.find((item) => item.title === "Focus prompt results")?.bind).toBe("tab")
     expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "f1")).toBe(true)
     expect(commands.some((item) => item.title === "Toggle prompt help" && item.bind === "?")).toBe(true)
@@ -170,6 +181,19 @@ test("shows preview and relative time, copies the selected prompt, and opens hel
     command(harness, "Copy prompt")
     expect(harness.copied).toEqual(["first prompt"])
     await waitFor(app, () => app.captureCharFrame().includes("Copied prompt"), "copy confirmation did not appear")
+
+    command(harness, "Copy prompt details")
+    expect(JSON.parse(harness.copied.at(-1)!)).toEqual({
+      prompt: "first prompt",
+      sessionID: "s1",
+      messageID: "m1",
+      projectID: "p1",
+      directory: "/worktrees/feature-a",
+      title: "First session",
+      created: now - 300_000,
+      createdAt: new Date(now - 300_000).toISOString(),
+    })
+    await waitFor(app, () => app.captureCharFrame().includes("Copied prompt details"), "detail copy confirmation did not appear")
 
     command(harness, "Toggle prompt help")
     await waitFor(app, () => app.captureCharFrame().includes("close help"), "help panel did not open")

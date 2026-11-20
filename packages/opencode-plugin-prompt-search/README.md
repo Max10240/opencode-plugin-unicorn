@@ -66,6 +66,7 @@ Press `ctrl+shift+r` or search for **Search previous prompts** in the command pa
 3. Press `Ctrl+P` to switch between all projects and the current project.
 4. Press `Enter` to insert the original prompt at the cursor.
 5. Edit it if needed, then send when you are ready.
+6. Press `Ctrl+Shift+Y` (or `Alt+Y`) to copy the prompt with its session metadata as JSON.
 
 | Key | Action |
 | --- | --- |
@@ -75,6 +76,7 @@ Press `ctrl+shift+r` or search for **Search previous prompts** in the command pa
 | `Tab` | Move focus between search and results |
 | `Ctrl+P` | Switch between all projects and the current project |
 | `Ctrl+Y` | Copy the selected prompt |
+| `Ctrl+Shift+Y` / `Alt+Y` | Copy the prompt and session metadata as JSON |
 | `?` / `F1` | Show keyboard help |
 | `Esc` | Close help or the dialog |
 
@@ -108,5 +110,8 @@ still available on the server, but prompts from deleted and already-evicted sess
 - **Deleting a session does not immediately delete its cached prompts.** They remain until the storage budget evicts
   them.
 - **A prompt is inserted, never sent.** You always get the final say before it reaches the agent.
+- **Detailed copy is JSON.** `Ctrl+Shift+Y` or `Alt+Y` copies `prompt`, `sessionID`, `messageID`, `projectID`,
+  `directory`, `title`, `created`, and `createdAt`. `directory` is the session's working directory, including a Git
+  worktree. `Alt+Y` (Option+Y on macOS) is a fallback for terminals that cannot distinguish Shift with Ctrl.
 - **The index is separate from the session database.** It is TUI storage, and uninstalling the plugin does not delete
   your conversations.

@@ -11,6 +11,7 @@ import {
   HighlightText,
   NoticeLine,
   ResultList,
+  ResultSeparator,
   SearchField,
   formatRelative,
 } from "./ui.js"
@@ -135,6 +136,32 @@ export function PromptSearchDialog(props: {
     showNotice(`Copied prompt · ${entry.text.length} chars`)
   }
 
+  const copyDetails = () => {
+    const entry = selectedEntry()
+    if (!entry) {
+      showNotice("Select a prompt to copy")
+      return
+    }
+    const created = Number.isFinite(entry.created) && entry.created > 0 ? new Date(entry.created) : undefined
+    const createdAt = created && !Number.isNaN(created.getTime()) ? created.toISOString() : null
+    const details = {
+      prompt: entry.text,
+      sessionID: entry.sessionID,
+      messageID: entry.messageID,
+      projectID: entry.projectID ?? null,
+      directory: entry.directory ?? null,
+      title: entry.title ?? null,
+      created: created && createdAt ? created.getTime() : null,
+      createdAt,
+    }
+    const json = JSON.stringify(details, null, 2)
+    if (!props.context.renderer.copyToClipboardOSC52(json)) {
+      showNotice("Could not copy prompt details")
+      return
+    }
+    showNotice(`Copied prompt details · JSON · ${json.length} chars`)
+  }
+
   const move = (delta: number) => {
     const count = results().length
     if (count === 0) return
@@ -149,6 +176,7 @@ export function PromptSearchDialog(props: {
     ...(!questionMark && help() ? [{ bind: "?", title: "Toggle prompt help", run: () => setHelp(false) }] : []),
     { bind: "ctrl+p", title: "Toggle prompt scope", run: toggleScope },
     { bind: "ctrl+y", title: "Copy prompt", run: copy },
+    { bind: "ctrl+shift+y,alt+y", title: "Copy prompt details", run: copyDetails },
     ...(help()
       ? [{ bind: "escape", title: "Close prompt help", run: () => setHelp(false) }]
       : [{ bind: "escape", title: "Close prompt search", run: () => dialog.clear() }]),
@@ -220,7 +248,7 @@ export function PromptSearchDialog(props: {
       meta={`${scopeLabel()} · ${countLabel()} · ?/f1 help · esc close`}
       footer={
         <FooterHints theme={theme}>
-          {`ctrl+p ${scopeHint()} · ctrl+y copy · ↑/↓ select · enter use · tab focus · ?/f1 help`}
+          {`ctrl+p ${scopeHint()} · ctrl+y copy · ctrl+shift+y/alt+y details · ↑/↓ select · enter use · tab focus · ?/f1 help`}
         </FooterHints>
       }
     >
@@ -243,6 +271,7 @@ export function PromptSearchDialog(props: {
             "Prefix a word with - to exclude it.",
             "Ctrl+P switches all projects and the current project.",
             "Ctrl+Y copies the selected prompt.",
+            "Ctrl+Shift+Y or Alt+Y copies prompt details as JSON.",
             "Tab moves focus between search and results.",
           ]}
         />
@@ -295,17 +324,21 @@ function PromptRow(props: {
   const source = () => props.entry.title ?? `${props.entry.sessionID.slice(0, 8)}…`
   const directory = () => shortDirectory(props.entry.directory)
   return (
-    <box
-      id={resultID(props.index)}
-      flexDirection="column"
-      paddingLeft={1}
-      paddingRight={1}
-      backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
-    >
-      <HighlightText theme={props.theme} text={text()} ranges={ranges()} muted={!props.selected} />
-      <text fg={props.theme.text.muted} wrapMode="none" truncate>
-        {`${props.index + 1}. prompt · ${source()} · ${formatRelative(props.entry.created, props.now)}${directory() ? ` · ${directory()}` : ""}`}
-      </text>
+    <box id={resultID(props.index)} flexDirection="column">
+      <Show when={props.index > 0}>
+        <ResultSeparator theme={props.theme} />
+      </Show>
+      <box
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
+      >
+        <HighlightText theme={props.theme} text={text()} ranges={ranges()} muted={!props.selected} />
+        <text fg={props.theme.text.muted} wrapMode="none" truncate>
+          {`${props.index + 1}. prompt · ${source()} · ${formatRelative(props.entry.created, props.now)}${directory() ? ` · ${directory()}` : ""}`}
+        </text>
+      </box>
     </box>
   )
 }

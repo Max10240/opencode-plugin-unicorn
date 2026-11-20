@@ -13,6 +13,7 @@ import {
   HighlightText,
   NoticeLine,
   ResultList,
+  ResultSeparator,
   SearchField,
   formatRelative,
 } from "./ui.js"
@@ -266,17 +267,21 @@ function SessionRow(props: {
     props.queued ? "queued, unavailable" : "",
   ].filter(Boolean).join(" · ")
   return (
-    <box
-      id={`session-search-result-${props.index}`}
-      flexDirection="column"
-      paddingLeft={1}
-      paddingRight={1}
-      backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
-    >
-      <HighlightText theme={props.theme} text={props.entry.preview} ranges={props.entry.ranges} muted={!props.selected} />
-      <text fg={props.theme.text.muted} wrapMode="none" truncate>
-        {`${role()} · ${part()} · ${formatRelative(props.entry.created, props.now)}${status() ? ` · ${status()}` : ""}`}
-      </text>
+    <box id={`session-search-result-${props.index}`} flexDirection="column">
+      <Show when={props.index > 0}>
+        <ResultSeparator theme={props.theme} />
+      </Show>
+      <box
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        backgroundColor={props.selected ? props.theme.background.raised.high : undefined}
+      >
+        <HighlightText theme={props.theme} text={props.entry.preview} ranges={props.entry.ranges} muted={!props.selected} />
+        <text fg={props.theme.text.muted} wrapMode="none" truncate>
+          {`${role()} · ${part()} · ${formatRelative(props.entry.created, props.now)}${status() ? ` · ${status()}` : ""}`}
+        </text>
+      </box>
     </box>
   )
 }
