@@ -65,6 +65,38 @@ export function ResultList(props: {
   )
 }
 
+export function ResultSeparator(props: { theme: UiTheme }) {
+  return (
+    <box
+      width="100%"
+      height={1}
+      flexShrink={0}
+      border={["top"]}
+      borderColor={separatorColor(props.theme)}
+      customBorderChars={RESULT_SEPARATOR_BORDER}
+    />
+  )
+}
+
+const RESULT_SEPARATOR_BORDER = {
+  topLeft: "",
+  topRight: "",
+  bottomLeft: "",
+  bottomRight: "",
+  vertical: "",
+  horizontal: "─",
+  topT: "",
+  bottomT: "",
+  leftT: "",
+  rightT: "",
+  cross: "",
+}
+
+function separatorColor(theme: UiTheme) {
+  const border = theme.border
+  return (border && typeof border === "object" && "base" in border ? border.base : border) ?? theme.text.muted
+}
+
 export function FooterHints(props: { theme: UiTheme; children: JSX.Element }) {
   return <text fg={props.theme.text.muted}>{props.children}</text>
 }

@@ -63,6 +63,7 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 3. 按 `Ctrl+P` 在“全部项目”和“当前项目”之间切换。
 4. 按 `Enter` 把原 prompt 插入光标位置。
 5. 需要的话改一改，再发送。
+6. 按 `Ctrl+Shift+Y`（或 `Alt+Y`）可把 prompt 连同 session 元信息复制为 JSON。
 
 | 按键 | 操作 |
 | --- | --- |
@@ -72,6 +73,7 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 | `Tab` | 在搜索框和结果之间移动焦点 |
 | `Ctrl+P` | 在“全部项目”和“当前项目”之间切换 |
 | `Ctrl+Y` | 复制选中的 prompt |
+| `Ctrl+Shift+Y` / `Alt+Y` | 复制 prompt 和 session 元信息（JSON） |
 | `?` / `F1` | 显示快捷键帮助 |
 | `Esc` | 关闭帮助或弹窗 |
 
@@ -101,4 +103,7 @@ Prompt 检索给 TUI 加了一个跨 session 的反向搜索。找回旧 prompt�
 - **历史必须曾经保存。** 如果 session 在插件第一次索引它之前就被删除，OpenCode 已经无法导出它，这部分 prompt 找不回来。
 - **删除 session 不会立即清理缓存。** 对应 prompt 会保留到存储预算把它们淘汰。
 - **选中只会插入，不会发送。** 最终发什么，由你决定。
+- **详细复制是 JSON。** `Ctrl+Shift+Y` 或 `Alt+Y` 复制 `prompt`、`sessionID`、`messageID`、`projectID`、
+  `directory`、`title`、`created` 和 `createdAt`。`directory` 是 session 的工作目录，Git worktree 会话就是
+  worktree 目录。终端无法区分 Ctrl+Shift 时可用 `Alt+Y`（macOS 上为 Option+Y）。
 - **索引独立于 session 数据库。** 它属于 TUI 存储，卸载插件不会删除你的对话。

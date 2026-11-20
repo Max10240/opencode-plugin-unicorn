@@ -12,6 +12,7 @@ import { TranscriptIndex } from "../../src/search.js"
 const theme = {
   text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" }, feedback: { success: { base: "#00ff00" }, error: { base: "#ff0000" } } },
   background: { raised: { high: "#333333" } },
+  border: { base: "#444444" },
   formfield: { base: "#ffffff" },
   surface: () => theme,
 }
@@ -92,6 +93,7 @@ test("defaults to user messages, toggles agent text, and copies without jumping"
   try {
     await waitFor(app, (frame) => frame.includes("user message one"), "session search results did not render")
     expect(app.captureCharFrame()).toContain("user only")
+    expect(app.captureCharFrame()).toMatch(/─{40,}/)
     expect(app.captureCharFrame()).not.toContain("agent message one")
     expect(harness.layers.flatMap((layer) => layer.commands).find((item) => item.title === "Copy selected message")?.bind).toBe("ctrl+y")
     expect(harness.layers.flatMap((layer) => layer.commands).find((item) => item.title === "Toggle agent messages")?.bind).toBe("ctrl+t")

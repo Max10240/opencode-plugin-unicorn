@@ -173,6 +173,8 @@ test("searches previous prompts and inserts the selected draft", async () => {
   await tui.waitUntil(() => !tui.pane().includes("close help"), "prompt search help did not close")
   tui.send(["C-y"])
   await tui.waitFor("Copied prompt", "prompt search copy did not report success")
+  tui.send(["M-y"])
+  await tui.waitFor("Copied prompt details", "prompt details copy did not report success")
   tui.send(["Down", "Down"])
   tui.send(["Enter"])
   await tui.waitUntil(() => !tui.pane().includes("Search previous prompts"), "prompt search dialog did not close after selection")
