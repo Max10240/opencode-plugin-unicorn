@@ -33,7 +33,10 @@ export default Plugin.define({
       const cleanup = setupSensitiveProtectionTui(childContext(context, "sensitiveProtection"))
       if (cleanup) cleanups.push(cleanup)
     }
-    if (infiniteLoopFeatureEnabled(context.options)) setupInfiniteLoopTui(childContext(context, "infiniteLoop"))
+    if (infiniteLoopFeatureEnabled(context.options)) {
+      const cleanup = setupInfiniteLoopTui(childContext(context, "infiniteLoop"))
+      if (cleanup) cleanups.push(cleanup)
+    }
     return () => disposeAllSync(cleanups)
   },
 })

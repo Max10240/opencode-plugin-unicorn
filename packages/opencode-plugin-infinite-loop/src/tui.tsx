@@ -61,6 +61,8 @@ export function setupInfiniteLoopTui(context: Context) {
       },
     ],
   }))
+
+  return setupInfiniteLoopStatus(context, options)
 }
 
 export async function openInfiniteLoop(context: Context, options: InfiniteLoopOptions, input?: string): Promise<void> {
@@ -89,6 +91,126 @@ function showPanel(context: Context, options: InfiniteLoopOptions, view: View, s
   context.ui.dialog.show(() => (
     <InfiniteLoopPanel context={context} options={options} initialView={view} sessionID={sessionID} />
   ))
+}
+
+const statusListeners = new Set<() => void>()
+
+function notifyLoopStatusChanged() {
+  for (const listener of statusListeners) listener()
+}
+
+function setupInfiniteLoopStatus(context: Context, options: InfiniteLoopOptions): (() => void) | undefined {
+  if (typeof context.ui?.slot !== "function") return
+  try {
+    return context.ui.slot({
+      append: "prompt.footer.status",
+      render: (input) => <InfiniteLoopStatusChip context={context} options={options} sessionID={input.sessionID} />,
+    })
+  } catch {
+    // The panel and slash commands still work without a footer slot.
+    return
+  }
+}
+
+function InfiniteLoopStatusChip(props: { context: Context; options: InfiniteLoopOptions; sessionID?: string }) {
+  const theme = props.context.theme
+  const [status, setStatus] = createSignal<InfiniteLoopStatusPayload>()
+  const [hovered, setHovered] = createSignal(false)
+  let request = 0
+
+  const refresh = async () => {
+    const sessionID = props.sessionID
+    if (!sessionID) {
+      setStatus(undefined)
+      return
+    }
+    const current = ++request
+    try {
+      const value = (await props.context.client.rpc(InfiniteLoopRpc).status({ sessionID })) as InfiniteLoopStatusPayload
+      if (current !== request || props.sessionID !== sessionID) return
+      setStatus(value.active ? value : undefined)
+    } catch {
+      if (current === request && props.sessionID === sessionID) setStatus(undefined)
+    }
+  }
+
+  const notify = () => {
+    void refresh()
+  }
+
+  createEffect(() => {
+    // Re-read when the footer moves to another session.
+    props.sessionID
+    void refresh()
+  })
+
+  onMount(() => {
+    statusListeners.add(notify)
+    void refresh()
+    // Remaining time is minute-granularity; the badge itself refreshes once a minute.
+    const timer = setInterval(() => void refresh(), 60_000)
+    let stopEvents: (() => void) | undefined
+    if (typeof props.context.data?.listen === "function") {
+      try {
+        stopEvents = props.context.data.listen(({ details }) => {
+          if (!details.type.startsWith("session.execution.")) return
+          const sessionID = (details.data as { sessionID?: string } | undefined)?.sessionID
+          if (sessionID === props.sessionID) void refresh()
+        })
+      } catch {
+        // The minute timer still keeps the badge current.
+      }
+    }
+    onCleanup(() => {
+      statusListeners.delete(notify)
+      clearInterval(timer)
+      stopEvents?.()
+    })
+  })
+
+  const remaining = () => {
+    const deadline = status()?.deadline
+    if (deadline === undefined) return ""
+    return formatDuration(Math.max(0, deadline - Date.now()))
+  }
+
+  const label = () => {
+    const value = status()
+    if (!value?.active) return ""
+    const time = remaining()
+    const phase = value.phase === "paused" ? "PAUSED" : "LOOP"
+    return time ? `∞ ${phase} · ${time}` : `∞ ${phase}`
+  }
+
+  const color = () =>
+    status()?.phase === "paused" ? theme.text.feedback.warning.base : theme.text.action.primary.base
+
+  return (
+    <Show when={status()?.active}>
+      <box
+        id="infinite-loop-status-chip"
+        flexShrink={0}
+        paddingLeft={1}
+        paddingRight={1}
+        backgroundColor={theme.background.raised.high}
+        onMouseOver={() => setHovered(true)}
+        onMouseOut={() => setHovered(false)}
+        onMouseUp={(event) => {
+          if (event.button !== 0 || !props.sessionID) return
+          event.stopPropagation()
+          showPanel(props.context, props.options, "current", props.sessionID)
+        }}
+      >
+        <text
+          fg={hovered() ? theme.text.action.primary.base : color()}
+          attributes={TextAttributes.BOLD}
+          wrapMode="none"
+        >
+          {label()}
+        </text>
+      </box>
+    </Show>
+  )
 }
 
 function currentSessionID(context: Context): string | undefined {
@@ -126,6 +248,7 @@ async function start(context: Context, sessionID: string, durationMs: number, co
       durationMs,
       ...(cooldownMs === undefined ? {} : { cooldownMs }),
     })) as InfiniteLoopStatusPayload
+    notifyLoopStatusChanged()
     const effective = status.cooldownMs ?? cooldownMs ?? 0
     void context.ui.toast.show({
       message: `Infinite loop started · runs for ${formatDuration(durationMs)}${effective > 0 ? ` · cooldown ${formatDuration(effective)}` : " · no cooldown"}`,
@@ -140,10 +263,12 @@ async function stop(context: Context, sessionID: string): Promise<InfiniteLoopSt
   try {
     const before = (await context.client.rpc(InfiniteLoopRpc).status({ sessionID })) as InfiniteLoopStatusPayload
     if (!before.active) {
+      notifyLoopStatusChanged()
       void context.ui.toast.show({ message: "Infinite loop is not running", variant: "info" })
       return before
     }
     const status = (await context.client.rpc(InfiniteLoopRpc).stop({ sessionID })) as InfiniteLoopStatusPayload
+    notifyLoopStatusChanged()
     void context.ui.toast.show({ message: "Infinite loop stopped", variant: "info" })
     return status
   } catch (error) {
@@ -244,6 +369,7 @@ function InfiniteLoopPanel(props: {
       })) as InfiniteLoopStatusPayload
       setState(status)
       setError(undefined)
+      notifyLoopStatusChanged()
       const effective = status.cooldownMs ?? cooldownMs ?? 0
       void props.context.ui.toast.show({
         message: `Infinite loop started · runs for ${formatDuration(durationMs)}${effective > 0 ? ` · cooldown ${formatDuration(effective)}` : " · no cooldown"}`,
@@ -330,6 +456,7 @@ function InfiniteLoopPanel(props: {
     })
     if (confirmed) {
       await Promise.allSettled(items.map((item) => props.context.client.rpc(InfiniteLoopRpc).stop({ sessionID: item.sessionID })))
+      notifyLoopStatusChanged()
       void props.context.ui.toast.show({
         message: `Stopped ${items.length} ${items.length === 1 ? "infinite loop" : "infinite loops"}`,
         variant: "info",

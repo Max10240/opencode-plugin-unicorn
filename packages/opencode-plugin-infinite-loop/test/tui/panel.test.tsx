@@ -12,7 +12,13 @@ type Harness = Awaited<ReturnType<typeof createHarness>>
 type Loop = Record<string, unknown>
 
 const theme = {
-  text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" }, feedback: { error: { base: "#ff0000" } } },
+  text: {
+    base: "#ffffff",
+    muted: "#aaaaaa",
+    formfield: { base: "#ffffff" },
+    action: { primary: { base: "#00ffff" } },
+    feedback: { error: { base: "#ff0000" }, warning: { base: "#ffaa00" }, info: { base: "#00aaff" } },
+  },
   background: { raised: { high: "#333333" } },
   formfield: { base: "#ffffff" },
   surface: () => theme,
@@ -62,6 +68,7 @@ function createHarness(server: {
 } = {}) {
   const toasts: Array<{ message: string; variant?: string }> = []
   const layers: Array<{ target?: unknown; enabled?: () => boolean; commands: Array<{ id?: string; bind?: string; title?: string; slash?: unknown; run: (input?: string) => unknown }> }> = []
+  const slots: Array<{ append?: string; render: (input: any) => JSX.Element }> = []
   const [dialog, setDialog] = createSignal<{ render: () => JSX.Element } | undefined>()
   const calls: string[] = []
 
@@ -109,11 +116,15 @@ function createHarness(server: {
         confirm: async () => server.confirm ?? true,
       },
       format: { path: (value: string) => value },
+      slot: (claim: { append?: string; render: (input: any) => JSX.Element }) => {
+        slots.push(claim)
+        return () => {}
+      },
     },
   } as unknown as Context
 
   setupInfiniteLoopTui(context)
-  return { context, layers, toasts, dialog, calls }
+  return { context, layers, toasts, dialog, calls, slots }
 }
 
 async function render(harness: Harness) {
@@ -381,6 +392,19 @@ test("help opens with f1 and escape closes help before the panel", async () => {
     command(harness, "Close infinite loop")
     await waitFor(app, () => !app.captureCharFrame().includes("Keyboard help"), "help did not close")
     expect(harness.dialog()).toBeDefined()
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("footer status chip shows the active loop and remaining time", async () => {
+  const harness = createHarness({ status: () => loop({ deadline: Date.now() + 90 * 60_000 }) })
+  expect(harness.slots).toHaveLength(1)
+  expect(harness.slots[0]?.append).toBe("prompt.footer.status")
+  const app = await testRender(() => harness.slots[0]!.render({ sessionID: "session-1", mode: "normal", showDetails: false }), { width: 80, height: 6 })
+  try {
+    await waitFor(app, () => app.captureCharFrame().includes("∞ LOOP"), "status chip missing")
+    await waitFor(app, () => app.captureCharFrame().includes("1h 30m"), "remaining time missing")
   } finally {
     app.renderer.destroy()
   }

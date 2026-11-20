@@ -77,6 +77,7 @@ test.serial("panel takes custom durations and cooldowns, keeps nudging, and stop
         "the slash start did not register a loop",
         15_000,
       )
+      await tui.waitFor("∞ LOOP", "the footer loop badge is missing", 15_000)
 
       // "/infinite-loop " submits with an empty argument and opens the panel.
       tui.type("/infinite-loop ")

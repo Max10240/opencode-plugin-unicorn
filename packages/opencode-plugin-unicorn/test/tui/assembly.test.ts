@@ -10,7 +10,7 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
       let slots = 0
       const context = {
         options: {
-          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false },
+          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false, infiniteLoop: false },
           showImg: { features: { showImg: nested } },
         },
         ui: { slot: () => { slots++; return () => { slots-- } } },
