@@ -70,7 +70,7 @@ tool never queries the session database while a turn is running.
 | `steer` (default) | Delivers immediately | Time-sensitive coordination |
 | `queue` | Waits until the target is fully idle; this can take a long time and the message may be stale | Non-urgent messages |
 
-Every send includes `need-reply`. Set it to `true` when the message needs an answer; the receiver then sees a reply
+Every send includes `need_reply`. Set it to `true` when the message needs an answer; the receiver then sees a reply
 request at the end of the message.
 
 ## Good to know

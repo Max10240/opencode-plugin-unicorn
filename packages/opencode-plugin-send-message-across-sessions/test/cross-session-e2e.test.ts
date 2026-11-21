@@ -397,7 +397,7 @@ async function startProxy() {
             {
               id: "call_send_steer",
               name: "send_message_across_sessions",
-              arguments: { target_session_id: targetID, message: steerMessage, "need-reply": false },
+              arguments: { target_session_id: targetID, message: steerMessage, need_reply: false },
             },
           ],
         },
@@ -410,7 +410,7 @@ async function startProxy() {
             {
               id: "call_send_queue",
               name: "send_message_across_sessions",
-              arguments: { target_session_id: targetID, message: queueMessage, "need-reply": false, delivery: "queue" },
+              arguments: { target_session_id: targetID, message: queueMessage, need_reply: false, delivery: "queue" },
             },
           ],
         },

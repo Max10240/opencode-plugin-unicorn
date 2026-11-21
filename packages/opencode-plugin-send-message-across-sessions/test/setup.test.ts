@@ -63,16 +63,17 @@ test("uses steer delivery by default and supports an explicit queue", async () =
     expect(schema.properties.delivery).toMatchObject({ type: "string", enum: ["steer", "queue"] })
     expect(schema.properties.delivery.description).toContain('"steer" (default)')
     expect(schema.properties.target_session_id.description).toContain("omit")
-    expect(schema.properties["need-reply"]).toMatchObject({ type: "boolean", description: "Whether the target session should reply." })
-    expect(schema.required).toEqual(["message", "need-reply"])
+    expect(schema.properties.need_reply).toMatchObject({ type: "boolean", description: "Whether the target session should reply." })
+    expect(Object.keys(schema.properties).sort()).toEqual(["delivery", "message", "need_reply", "target_session_id"])
+    expect(schema.required).toEqual(["message", "need_reply"])
     expect(schema.additionalProperties).toBe(false)
 
-    const defaultResult = await send(registered, { target_session_id: TARGET_ID, message: "default", "need-reply": false })
+    const defaultResult = await send(registered, { target_session_id: TARGET_ID, message: "default", need_reply: false })
     expect(prompts[0]).toMatchObject({ sessionID: TARGET_ID, delivery: "steer" })
     expect(prompts[0]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: default`)
     expect(defaultResult.metadata).toMatchObject({ sent: true, delivery: "steer" })
 
-    await send(registered, { target_session_id: TARGET_ID, message: "queued", "need-reply": true, delivery: "queue" })
+    await send(registered, { target_session_id: TARGET_ID, message: "queued", need_reply: true, delivery: "queue" })
     expect(prompts[1]).toMatchObject({ sessionID: TARGET_ID, delivery: "queue" })
     expect(prompts[1]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: queued\n---\nThe above session needs your reply.`)
   } finally {
@@ -85,7 +86,7 @@ test("reports a failed send without claiming the message was delivered", async (
     throw new Error("target offline")
   })
   try {
-    const result = await send(registered, { target_session_id: TARGET_ID, message: "hello", "need-reply": false })
+    const result = await send(registered, { target_session_id: TARGET_ID, message: "hello", need_reply: false })
     expect(result.content).toContain("Message delivery failed")
     expect(result.metadata).toMatchObject({ sent: false, error: "target offline" })
   } finally {
@@ -99,7 +100,7 @@ test("rejects sending to the current session", async () => {
     prompts.push(input)
   })
   try {
-    const result = await send(registered, { target_session_id: SENDER_ID, message: "hello", "need-reply": false })
+    const result = await send(registered, { target_session_id: SENDER_ID, message: "hello", need_reply: false })
     expect(result.metadata).toMatchObject({ sent: false })
     expect(prompts).toHaveLength(0)
   } finally {
