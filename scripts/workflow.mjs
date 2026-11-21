@@ -119,29 +119,50 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
 
   const test = (kind) => timed(kind, async () => {
     if (kind === "e2e") {
-      const single = new Set([
-        "test/warm-tui-e2e.test.ts",
-        "opencode-plugin-send-message-across-sessions/test/cross-session-e2e.test.ts",
-        "opencode-plugin-retry/test/tui-e2e.test.ts",
-        "opencode-plugin-delayed-queue/test/tui-e2e.test.ts",
-      ])
-      const isSingle = (file) => [...single].some((suffix) => file.endsWith(suffix))
+      // Warm TUI shares one server and one pair of tmux sessions across tests, so its tests must
+      // stay serial. It is scheduled first but only reserves one slot.
+      const shared = (file) => file.endsWith("test/warm-tui-e2e.test.ts")
       const selected = e2eFiles
       if (selected.length === 0) return
       const testLimit = (file) => {
-        if (isSingle(file)) return 1
-        if (/opencode-plugin-image-gen[/\\]test[/\\]preview-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_PREVIEW_TESTS ?? 5)
+        if (shared(file)) return 1
+        if (/opencode-plugin-delayed-queue[/\\]test[/\\](?:tui-)?e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_DELAYED_TESTS ?? 4)
+        if (/opencode-plugin-retry[/\\]test[/\\]tui-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_RETRY_TESTS ?? 4)
+        if (/opencode-plugin-infinite-loop[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_LOOP_TESTS ?? 4)
+        if (/opencode-plugin-infinite-loop[/\\]test[/\\]tui-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_LOOP_TUI_TESTS ?? 3)
+        if (/opencode-plugin-image-gen[/\\]test[/\\]preview-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_PREVIEW_TESTS ?? 3)
+        if (/opencode-plugin-image-gen[/\\]test[/\\]auth-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_AUTH_TESTS ?? 3)
         if (/test[/\\]version-lifecycle-e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_LIFECYCLE_TESTS ?? 3)
         if (/test[/\\]rules-sync\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_RULES_TESTS ?? 4)
-        if (/opencode-plugin-show-img[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_SHOW_TESTS ?? 3)
+        if (/opencode-plugin-show-img[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_SHOW_TESTS ?? 2)
         if (/opencode-plugin-recomended-opencode-config[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return Number(process.env.UNICORN_E2E_RECOMMENDED_TESTS ?? 4)
-        if (/(?:auth)-e2e/.test(file)) return Number(process.env.UNICORN_E2E_HEAVY_TESTS ?? 4)
+        if (/(?:auth)-e2e/.test(file)) return Number(process.env.UNICORN_E2E_HEAVY_TESTS ?? process.env.UNICORN_E2E_AUTH_TESTS ?? 3)
         return Number(process.env.UNICORN_E2E_WIDE_TESTS ?? 2)
       }
-      const budget = Math.max(1, Number(process.env.UNICORN_E2E_BUDGET ?? 10))
+      // Start the files with the longest sequential work first. Ordering by the recorded wall time
+      // is unstable because a loaded run inflates whichever files ran under contention; these
+      // relative ranks only decide which files enter the first budget window.
+      const priority = (file) => {
+        if (shared(file)) return 10_000
+        if (/opencode-plugin-delayed-queue[/\\]test[/\\]tui-e2e\.test\.ts$/.test(file)) return 900
+        if (/opencode-plugin-infinite-loop[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return 800
+        if (/opencode-plugin-retry[/\\]test[/\\]tui-e2e\.test\.ts$/.test(file)) return 700
+        if (/opencode-plugin-delayed-queue[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return 600
+        if (/opencode-plugin-image-gen[/\\]test[/\\]preview-e2e\.test\.ts$/.test(file)) return 500
+        if (/opencode-plugin-recomended-opencode-config[/\\]test[/\\]e2e\.test\.ts$/.test(file)) return 400
+        if (/test[/\\]rules-sync\.test\.ts$/.test(file)) return 300
+        if (/opencode-plugin-send-message-across-sessions[/\\]test[/\\]cross-session-e2e\.test\.ts$/.test(file)) return 200
+        if (/opencode-plugin-image-gen[/\\]test[/\\]auth-e2e\.test\.ts$/.test(file)) return 100
+        return 0
+      }
+      const budget = Math.max(1, Number(process.env.UNICORN_E2E_BUDGET ?? 20))
       const jobs = selected
-        .map((file) => ({ file, weight: Math.min(testLimit(file), budget), duration: timings[path.relative(root, file)] ?? 0 }))
-        .sort((left, right) => right.weight - left.weight || right.duration - left.duration)
+        .map((file) => {
+          const limit = testLimit(file)
+          const duration = timings[path.relative(root, file)] ?? 0
+          return { file, limit, weight: Math.min(limit, budget), priority: priority(file), duration }
+        })
+        .sort((left, right) => right.priority - left.priority || right.duration - left.duration)
       const schedule = async (queue, limit) => {
         const pending = [...queue]
         let used = 0
@@ -150,36 +171,21 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
         const active = new Set()
         await new Promise((resolve, reject) => {
           const pump = () => {
-            while (!failed && pending.length) {
-              const highest = Math.max(...pending.map((job) => job.weight))
-              const start = (weight) => {
-                let started = false
-                for (let index = 0; index < pending.length; ) {
-                  const job = pending[index]
-                  if (job.weight !== weight || used + job.weight > limit) { index++; continue }
-                  pending.splice(index, 1)
-                  used += job.weight
-                  started = true
-                  const running = e2e([job.file], 1, job.weight).then(() => {}, (error) => {
-                    failed = true
-                    failure ??= error
-                  })
-                  active.add(running)
-                  running.finally(() => {
-                    used -= job.weight
-                    active.delete(running)
-                    pump()
-                  })
-                }
-                return started
-              }
-              if (start(highest)) continue
-              const lower = [...new Set(pending.filter((job) => job.weight < highest).map((job) => job.weight))].sort((left, right) => right - left)
-              let started = false
-              for (const weight of lower) {
-                if (start(weight)) { started = true; break }
-              }
-              if (!started) break
+            while (!failed) {
+              const index = pending.findIndex((job) => used + job.weight <= limit)
+              if (index === -1) break
+              const [job] = pending.splice(index, 1)
+              used += job.weight
+              const running = e2e([job.file], 1, job.limit).then(() => {}, (error) => {
+                failed = true
+                failure ??= error
+              })
+              active.add(running)
+              running.finally(() => {
+                used -= job.weight
+                active.delete(running)
+                pump()
+              })
             }
             if (active.size === 0 && (failed || pending.length === 0)) {
               if (failure) reject(failure)

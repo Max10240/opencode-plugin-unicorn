@@ -65,7 +65,7 @@ async function userTexts(e2e: E2E, sessionID: string) {
     .flatMap((message) => typeof message.text === "string" ? [message.text] : [])
 }
 
-test.serial("F5 and /retry interrupt a running turn, then send Continue while idle", async () => {
+test("F5 and /retry interrupt a running turn, then send Continue while idle", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start()
   try {
@@ -106,7 +106,7 @@ test.serial("F5 and /retry interrupt a running turn, then send Continue while id
   }
 })
 
-test.serial("a settlement timeout queues Continue and still delivers it", async () => {
+test("a settlement timeout queues Continue and still delivers it", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start({ retry: { timeoutMs: 1 } })
   try {
@@ -132,7 +132,7 @@ test.serial("a settlement timeout queues Continue and still delivers it", async 
   }
 })
 
-test.serial("F5 is ignored while the command palette is open", async () => {
+test("F5 is ignored while the command palette is open", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start()
   try {
@@ -155,7 +155,7 @@ test.serial("F5 is ignored while the command palette is open", async () => {
   }
 })
 
-test.serial("F5 leaves the composer draft intact and sends Continue", async () => {
+test("F5 leaves the composer draft intact and sends Continue", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start()
   try {
@@ -178,7 +178,7 @@ test.serial("F5 leaves the composer draft intact and sends Continue", async () =
   }
 })
 
-test.serial("keybind false keeps slash only and uses the configured Continue text", async () => {
+test("keybind false keeps slash only and uses the configured Continue text", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start({ retry: { keybind: false, continueText: "Keep going" } })
   try {
@@ -201,7 +201,7 @@ test.serial("keybind false keeps slash only and uses the configured Continue tex
   }
 })
 
-test.serial("the feature switch leaves F5 unbound", async () => {
+test("the feature switch leaves F5 unbound", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start({ features: { retry: false } })
   try {

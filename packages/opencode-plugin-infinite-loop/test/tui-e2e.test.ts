@@ -37,7 +37,7 @@ async function rpcStart(e2e: E2E, sessionID: string, durationMs: number, cooldow
   throw new Error(`Infinite loop start RPC is unavailable for ${sessionID}`)
 }
 
-test.serial("panel takes custom durations and cooldowns, keeps nudging, and stops on request", async () => {
+test("panel takes custom durations and cooldowns, keeps nudging, and stops on request", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
@@ -141,7 +141,7 @@ test.serial("panel takes custom durations and cooldowns, keeps nudging, and stop
   }
 })
 
-test.serial("all-projects panel lists and stops loops from another directory", async () => {
+test("all-projects panel lists and stops loops from another directory", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
@@ -225,7 +225,7 @@ test.serial("all-projects panel lists and stops loops from another directory", a
   }
 })
 
-test.serial("manual interrupt pauses the panel and does not auto-recover", async () => {
+test("manual interrupt pauses the panel and does not auto-recover", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",

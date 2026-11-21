@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test"
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test"
 import { mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
@@ -10,8 +10,24 @@ setDefaultTimeout(180_000)
 
 const start = () => createOpenCodeE2E({ plugin: "show-img", pluginPackage: path.resolve(import.meta.dir, "../dist") })
 
+// The first three scenarios use unique generated messages and tool-call IDs, so one server and
+// mock provider can serve them with separate sessions. The restart scenario needs its own server.
+let shared: Awaited<ReturnType<typeof start>>
+
+beforeAll(async () => {
+  shared = await start()
+})
+
+afterAll(async () => {
+  await shared?.close()
+})
+
+function sharedLease() {
+  return { ...shared, close: async () => {} }
+}
+
 test("real tool rejects invalid files, exposes no preview IDs, and recovers on the next valid call", async () => {
-  const e2e = await start()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e)
     const text = path.join(e2e.root, "not-image.png")
@@ -39,7 +55,7 @@ test("real tool rejects invalid files, exposes no preview IDs, and recovers on t
 })
 
 test("one real tool call prepares multiple ordered previews", async () => {
-  const e2e = await start()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e)
     const files = rasterFixtures.slice(0, 2).map((fixture) => path.join(e2e.root, `multi-${fixture.kind}.png`))
@@ -60,7 +76,7 @@ test("one real tool call prepares multiple ordered previews", async () => {
 })
 
 test("real RPC transports all raster formats and rejects malformed input and arbitrary paths", async () => {
-  const e2e = await start()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e)
     const ids = new Set<string>()
