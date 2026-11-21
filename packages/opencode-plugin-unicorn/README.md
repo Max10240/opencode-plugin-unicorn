@@ -75,6 +75,7 @@ the same name:
 | Image preview | `features.showImg` | Shows images inline without adding image bytes to model context |
 | OpenCode Go usage | `features.opencodeGoUsage` | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account |
 | Infinite loop | `features.infiniteLoop` | Keeps an activated session working with idle nudges until its time window ends |
+| Retry | `features.retry` | Interrupts a running turn and sends a configurable Continue prompt, or sends it immediately when idle |
 | Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
@@ -101,6 +102,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
 | Infinite loop | `infiniteLoop` | `keybind` (default `ctrl+shift+i`), `overviewKeybind` (default `ctrl+shift+o`), `cooldownMs` (default `300000`), `delayMs`, `recheckMs`, `presets`, duration bounds |
+| Retry | `retry` | `keybind` (default `f5`), `continueText` (default `Continue`) |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled`, `defaultSort` (`updated` or `created`) |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
@@ -160,6 +162,7 @@ Each feature has its own README with usage examples and edge cases:
 - [Image generation](../opencode-plugin-image-gen/README.md)
 - [Image preview](../opencode-plugin-show-img/README.md)
 - [OpenCode Go usage](../opencode-plugin-opencode-go-usage/README.md)
+- [Retry](../opencode-plugin-retry/README.md)
 - [Notepad](../opencode-plugin-notepad/README.md)
 - [Sensitive encryption](../opencode-plugin-sensitive-encrypt/README.md)
 - [Sensitive protection](../opencode-plugin-sensitive-protection/README.md)

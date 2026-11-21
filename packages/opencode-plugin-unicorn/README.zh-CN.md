@@ -73,6 +73,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | 图片预览 | `features.showImg` | 在对话里显示图片，不把图片字节加入模型上下文 |
 | OpenCode Go 用量 | `features.opencodeGoUsage` | 展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量 |
 | 无限循环 | `features.infiniteLoop` | 让激活的会话在时间窗内持续工作：空闲时按冷却节奏发送提醒 |
+| Retry | `features.retry` | 打断正在运行的回合并发送可配置的 Continue；空闲时直接发送 |
 | 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
 | 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
@@ -98,6 +99,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
 | OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
 | 无限循环 | `infiniteLoop` | `keybind`（默认 `ctrl+shift+i`）、`overviewKeybind`（默认 `ctrl+shift+o`）、`cooldownMs`（默认 `300000`）、`delayMs`、`recheckMs`、预设档位、时长边界 |
+| Retry | `retry` | `keybind`（默认 `f5`）、`continueText`（默认 `Continue`） |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled`、`defaultSort`（`updated` 或 `created`） |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
@@ -155,6 +157,7 @@ Unicorn 不再读取顶层的 `model`、`baseURL`、`integrationID`、`keybind`�
 - [图片生成](../opencode-plugin-image-gen/README.zh-CN.md)
 - [图片预览](../opencode-plugin-show-img/README.zh-CN.md)
 - [OpenCode Go 用量](../opencode-plugin-opencode-go-usage/README.zh-CN.md)
+- [Retry](../opencode-plugin-retry/README.zh-CN.md)
 - [记事本](../opencode-plugin-notepad/README.zh-CN.md)
 - [敏感信息加密](../opencode-plugin-sensitive-encrypt/README.zh-CN.md)
 - [敏感信息保护](../opencode-plugin-sensitive-protection/README.zh-CN.md)

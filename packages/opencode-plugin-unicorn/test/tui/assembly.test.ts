@@ -10,7 +10,7 @@ test("TUI assembly honors both the Unicorn feature gate and show-img's own neste
       let slots = 0
       const context = {
         options: {
-          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false, infiniteLoop: false, delayedQueue: false },
+          features: { promptSearch: false, sessionSearch: false, showImg: feature, nonBlocking: false, infiniteLoop: false, delayedQueue: false, retry: false },
           showImg: { features: { showImg: nested } },
         },
         ui: { slot: () => { slots++; return () => { slots-- } } },
@@ -44,6 +44,7 @@ test("OpenCode Go usage is wired through Unicorn's independent TUI feature gate"
           nonBlocking: false,
           infiniteLoop: false,
           delayedQueue: false,
+          retry: false,
         },
       },
       keymap: { layer: () => { layers++ } },
@@ -77,6 +78,7 @@ test("dead loop is wired through Unicorn's independent TUI feature gate", async 
           nonBlocking: false,
           infiniteLoop: enabled,
           delayedQueue: false,
+          retry: false,
         },
       },
       keymap: { layer: () => { layers++ } },
@@ -105,6 +107,7 @@ test("non-blocking is wired through Unicorn's independent feature gate", async (
           nonBlocking: enabled,
           infiniteLoop: false,
           delayedQueue: false,
+          retry: false,
         },
       },
       data: {
@@ -141,6 +144,36 @@ test("scoped TUI contexts retain reactive host getters", () => {
   })
 })
 
+test("retry is wired through Unicorn's independent TUI feature gate", async () => {
+  for (const enabled of [false, true]) {
+    let layers = 0
+    const context = {
+      options: {
+        features: {
+          recommendedOpencodeConfig: false,
+          sendMessageAcrossSessions: false,
+          imageGen: false,
+          notepad: false,
+          showImg: false,
+          opencodeGoUsage: false,
+          promptSearch: false,
+          sensitiveEncrypt: false,
+          sensitiveProtection: false,
+          sessionSearch: false,
+          nonBlocking: false,
+          infiniteLoop: false,
+          delayedQueue: false,
+          retry: enabled,
+        },
+      },
+      keymap: { layer: () => { layers++ } },
+    } as unknown as Context
+    const cleanup = await unicorn.setup(context)
+    expect(layers).toBe(enabled ? 3 : 2)
+    if (cleanup) await cleanup()
+  }
+})
+
 test("delayed queue is wired through Unicorn's independent TUI feature gate", async () => {
   for (const enabled of [false, true]) {
     let layers = 0
@@ -161,6 +194,7 @@ test("delayed queue is wired through Unicorn's independent TUI feature gate", as
           nonBlocking: false,
           infiniteLoop: false,
           delayedQueue: enabled,
+          retry: false,
         },
       },
       keymap: { layer: () => { layers++ } },

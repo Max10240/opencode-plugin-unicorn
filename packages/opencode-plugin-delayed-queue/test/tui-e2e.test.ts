@@ -40,6 +40,17 @@ async function queueDelayed(tui: ReturnType<typeof createTui>, text: string, exp
   tui.type(text)
   await Bun.sleep(150)
   tui.send(["F9"])
+  // F9 reads the focused composer, but focus can move while a turn runs. If the composer was not
+  // read, the plugin opens its prompt dialog; fill that so the message is never silently dropped.
+  await tui.waitUntil(
+    () => tui.pane().includes("Queue delayed message") || tui.pane().includes(`${expected} delayed`),
+    "the queue action neither opened its prompt nor queued the message",
+  )
+  if (tui.pane().includes("Queue delayed message")) {
+    tui.type(text)
+    await tui.waitFor(text, "queue prompt did not receive the text")
+    tui.send(["Enter"])
+  }
   await tui.waitFor(`${expected} delayed`, "pending bar did not appear")
 }
 
@@ -62,6 +73,9 @@ async function readyTui(tui: ReturnType<typeof createTui>, title: string) {
     await tui.waitUntil(() => !tui.pane().includes("Connect an integration"), "integration dialog did not close", 5_000)
     await Bun.sleep(250)
   }
+  // The composer commits its selected agent and model on submit. Wait for the session's values
+  // to hydrate so a loaded machine cannot submit with the TUI fallback model.
+  await tui.waitFor("Compaction-E2e · GPT-5.6 Luna", "session agent and model did not settle", 30_000)
 }
 
 function fixture(e2e: Awaited<ReturnType<typeof start>>, userMessage: string | RegExp, content: string) {

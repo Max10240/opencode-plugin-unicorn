@@ -10,8 +10,9 @@ import { setupSensitiveProtectionTui } from "@max10240/opencode-plugin-sensitive
 import { setupRecommendedConfigTui } from "@max10240/opencode-plugin-recomended-opencode-config/tui"
 import { setupInfiniteLoopTui } from "@max10240/opencode-plugin-infinite-loop/tui"
 import { setupDelayedQueueTui } from "@max10240/opencode-plugin-delayed-queue/tui"
+import { setupRetryTui } from "@max10240/opencode-plugin-retry/tui"
 import { unicornStatusCommand } from "./status-dialog.js"
-import { childContext, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, infiniteLoopFeatureEnabled, delayedQueueFeatureEnabled } from "./options.js"
+import { childContext, nonBlockingFeatureEnabled, notepadFeatureEnabled, opencodeGoUsageFeatureEnabled, promptSearchFeatureEnabled, sensitiveEncryptFeatureEnabled, sensitiveProtectionFeatureEnabled, sessionSearchFeatureEnabled, showImgFeatureEnabled, infiniteLoopFeatureEnabled, delayedQueueFeatureEnabled, retryFeatureEnabled } from "./options.js"
 import { disposeAllSync } from "./cleanup.js"
 
 export default Plugin.define({
@@ -40,6 +41,10 @@ export default Plugin.define({
     }
     if (delayedQueueFeatureEnabled(context.options)) {
       const cleanup = setupDelayedQueueTui(childContext(context, "delayedQueue"))
+      if (cleanup) cleanups.push(cleanup)
+    }
+    if (retryFeatureEnabled(context.options)) {
+      const cleanup = setupRetryTui(childContext(context, "retry"))
       if (cleanup) cleanups.push(cleanup)
     }
     return () => disposeAllSync(cleanups)

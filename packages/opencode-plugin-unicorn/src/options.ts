@@ -13,6 +13,7 @@ export interface UnicornOptions {
   readonly opencodeGoUsage?: Readonly<Record<string, unknown>>
   readonly infiniteLoop?: Readonly<Record<string, unknown>>
   readonly delayedQueue?: Readonly<Record<string, unknown>>
+  readonly retry?: Readonly<Record<string, unknown>>
   readonly features?: {
     readonly recommendedOpencodeConfig?: boolean
     readonly god?: boolean
@@ -28,6 +29,7 @@ export interface UnicornOptions {
     readonly opencodeGoUsage?: boolean
     readonly infiniteLoop?: boolean
     readonly delayedQueue?: boolean
+    readonly retry?: boolean
   }
 }
 
@@ -113,6 +115,11 @@ export function infiniteLoopFeatureEnabled(options: Readonly<Record<string, unkn
 export function delayedQueueFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
   const features = options.features
   return !isRecord(features) || features.delayedQueue !== false
+}
+
+export function retryFeatureEnabled(options: Readonly<Record<string, unknown>>): boolean {
+  const features = options.features
+  return !isRecord(features) || features.retry !== false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

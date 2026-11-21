@@ -119,7 +119,12 @@ export async function executeWorkflow(mode, { root = repository, run = runComman
 
   const test = (kind) => timed(kind, async () => {
     if (kind === "e2e") {
-      const single = new Set(["test/warm-tui-e2e.test.ts", "opencode-plugin-send-message-across-sessions/test/cross-session-e2e.test.ts"])
+      const single = new Set([
+        "test/warm-tui-e2e.test.ts",
+        "opencode-plugin-send-message-across-sessions/test/cross-session-e2e.test.ts",
+        "opencode-plugin-retry/test/tui-e2e.test.ts",
+        "opencode-plugin-delayed-queue/test/tui-e2e.test.ts",
+      ])
       const isSingle = (file) => [...single].some((suffix) => file.endsWith(suffix))
       const selected = e2eFiles
       if (selected.length === 0) return

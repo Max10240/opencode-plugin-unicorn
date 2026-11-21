@@ -78,4 +78,5 @@ export {
   opencodeGoUsageFeatureEnabled,
   infiniteLoopFeatureEnabled,
   delayedQueueFeatureEnabled,
+  retryFeatureEnabled,
 } from "./options.js"
