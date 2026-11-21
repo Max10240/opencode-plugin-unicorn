@@ -126,14 +126,21 @@ test("registers the standard command and slash aliases", () => {
   expect(fx.slots[0].append).toBe("session.composer.top")
 })
 
-test("slash with text enqueues through RPC and reports success", async () => {
+test("slash with text enqueues through RPC without a success toast", async () => {
   const fx = harness()
   await fx.layer.commands[0].run("delayed text")
   await Bun.sleep(0)
   expect(fx.calls[0]).toContain('"text":"delayed text"')
   expect(fx.calls[0]).toContain('"jobs":[]')
-  expect(fx.toasts.at(-1)?.variant).toBe("success")
+  expect(fx.toasts).toEqual([])
   expect(fx.dialogs).toHaveLength(0)
+})
+
+test("enqueue warns when the queue is paused", async () => {
+  const fx = harness({ paused: true })
+  await fx.layer.commands[0].run("delayed text")
+  await Bun.sleep(0)
+  expect(fx.toasts).toEqual([{ message: "Delayed message queued · resume the queue to run it", variant: "warning" }])
 })
 
 test("slash without text opens the delayed prompt panel", async () => {

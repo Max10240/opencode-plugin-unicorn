@@ -60,7 +60,7 @@ export function setupDelayedQueueTui(context: Context) {
           }
           const text = input?.trim()
           if (text) {
-            void enqueue(context, route.sessionID, text, options)
+            void enqueue(context, route.sessionID, text)
             return
           }
           void openPanel(context, route.sessionID, options)
@@ -84,12 +84,12 @@ export function setupDelayedQueueTui(context: Context) {
             composer && typeof composer.plainText === "string" ? composer.plainText.trim() : ""
           if (text) {
             if (composer && typeof composer.setText === "function") composer.setText("")
-            void enqueue(context, route.sessionID, text, options)
+            void enqueue(context, route.sessionID, text)
             return
           }
           void context.ui.dialog.prompt({ title: "Queue delayed message", placeholder: "Message" }).then((value) => {
             const message = value?.trim()
-            if (message) void enqueue(context, route.sessionID, message, options)
+            if (message) void enqueue(context, route.sessionID, message)
           })
         },
       },
@@ -117,20 +117,17 @@ function locationFor(context: Context, sessionID: string): PluginLocation {
   return fallback ?? ({ directory: "/" } as PluginLocation)
 }
 
-export async function enqueue(context: Context, sessionID: string, text: string, options: DelayedQueueOptions) {
+export async function enqueue(context: Context, sessionID: string, text: string) {
   try {
     const state = (await context.client.rpc(DelayedQueueRpc).enqueue({
       sessionID,
       text,
       jobs: (await visibleJobs(context, sessionID)) as never,
     }, { location: locationFor(context, sessionID) })) as DelayedQueueStatusPayload
-    context.ui.toast.show({
-      message:
-        state.paused
-          ? `Delayed message queued · resume the queue to run it`
-          : `Delayed message queued${options.waitKinds.length > 0 ? " · waits for idle and background work" : ""}`,
-      variant: "success",
-    })
+    // A normal enqueue is visible in the pending bar, so do not add a success toast.
+    if (state.paused) {
+      context.ui.toast.show({ message: "Delayed message queued · resume the queue to run it", variant: "warning" })
+    }
   } catch (error) {
     context.ui.toast.show({ message: describe(error, "Could not queue the delayed message"), variant: "error" })
   }
@@ -225,9 +222,7 @@ async function deliver(context: Context, sessionID: string, id: string) {
     const state = (await context.client.rpc(DelayedQueueRpc).deliver({ sessionID, id }, { location: locationFor(context, sessionID) })) as DelayedQueueStatusPayload
     if (state.items.some((item) => item.id === id)) {
       context.ui.toast.show({ message: "Delayed prompt is still waiting", variant: "warning" })
-      return
     }
-    context.ui.toast.show({ message: "Delayed prompt sent", variant: "success" })
   } catch (error) {
     context.ui.toast.show({ message: describe(error, "Could not send the delayed prompt"), variant: "error" })
   }
