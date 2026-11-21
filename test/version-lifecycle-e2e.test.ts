@@ -8,7 +8,8 @@ import { buildFingerprint } from "../scripts/workspace.mjs"
 import { runCommand } from "../scripts/process.mjs"
 import { planVersionBump, publishAll, VERSION_COMMAND } from "../scripts/publish.mjs"
 
-setDefaultTimeout(60_000)
+// Real npm lifecycle runs are heavy and the check launches several at once.
+setDefaultTimeout(180_000)
 const repository = fileURLToPath(new URL("../", import.meta.url))
 
 for (const mode of ["release", "ignore-scripts", "ignore-scripts-config", "dry-run", "prepack"] as const) {

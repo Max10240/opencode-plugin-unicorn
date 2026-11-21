@@ -13,7 +13,7 @@ descendant is quiet.
 - `/delayed-queue <message>` or `/delay <message>` adds a message to the current session's delayed queue.
 - The pending bar appears above the composer, in the same place and style as the official queued-prompt bar.
 - Click the bar, or run `/delayed-queue` with no message, to open the management panel.
-- In the panel, press `enter` or `ctrl+s` to steer now, `ctrl+d` twice to delete, and `ctrl+p` to pause or resume the whole queue. Typing letters stays in the search field.
+- In the panel, press `enter` or `ctrl+s` to steer now, `ctrl+d` to delete the selected message, and `ctrl+p` to pause or resume the whole queue. Typing letters stays in the search field.
 
 A delayed message is delivered as a normal user prompt, so it appears in the transcript like an official queued
 message. The queue is stored per session and survives hot reloads and server restarts; a restarted process restores it

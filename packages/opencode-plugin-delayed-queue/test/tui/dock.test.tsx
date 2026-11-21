@@ -18,10 +18,15 @@ const options: DelayedQueueOptions = {
 }
 
 const theme = {
-  text: { base: "#ffffff", muted: "#aaaaaa" },
-  background: { raised: { base: "#222222" } },
+  text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" } },
+  background: {
+    base: "#111111",
+    raised: { base: "#222222", high: "#333333" },
+    formfield: { base: "#222222", focused: "#333333" },
+  },
   border: { base: "#444444" },
   decrease: (value: string) => value,
+  surface: () => theme,
 }
 
 const state = {
@@ -37,20 +42,13 @@ const state = {
   updatedAt: 2,
 }
 
-type SelectOptions = {
-  title: string
-  options: Array<{ title: string; value: string; footer?: string }>
-  actions: Array<{ bind: string; title: string | ((option: { value: string } | undefined) => string); selection: string; onTrigger: (value: string) => void }>
-  search: (query: string, options: Array<{ title: string; value: string }>) => Array<{ title: string; value: string }>
-  onSelect?: (value: string) => void
-}
-
-function harness(overrides: Partial<Record<string, unknown>> = {}) {
-  let layer: any
+function harness(overrides: Partial<Record<string, unknown>> = {}, behavior: { removeError?: boolean } = {}) {
+  const layers: any[] = []
   const slots: any[] = []
   const toasts: Array<{ message: string; variant?: string }> = []
   const calls: string[] = []
-  const dialogs: SelectOptions[] = []
+  const shows: Array<{ render: () => JSX.Element; close?: () => void }> = []
+  let clears = 0
   const current = { ...state, ...overrides }
   const context = {
     options: {},
@@ -59,7 +57,7 @@ function harness(overrides: Partial<Record<string, unknown>> = {}) {
     experimental: undefined,
     theme,
     renderer: { currentFocusedEditor: null },
-    keymap: { layer: (factory: () => unknown) => { layer = factory() } },
+    keymap: { layer: (factory: () => unknown) => { layers.push(factory()) } },
     ui: {
       router: { current: () => ({ type: "session" as const, sessionID: "s1" }) },
       toast: { show: (value: { message: string; variant?: string }) => { toasts.push(value) } },
@@ -68,14 +66,11 @@ function harness(overrides: Partial<Record<string, unknown>> = {}) {
         return () => {}
       },
       dialog: {
-        show: (_render: () => JSX.Element) => {},
+        show: (render: () => JSX.Element, close?: () => void) => { shows.push({ render, close }) },
         set() {},
-        clear() {},
+        clear() { clears++ },
         prompt: async () => undefined,
-        select: async (value: SelectOptions) => {
-          dialogs.push(value)
-          return undefined
-        },
+        select: async () => undefined,
       },
     },
     client: {
@@ -89,6 +84,7 @@ function harness(overrides: Partial<Record<string, unknown>> = {}) {
         },
         remove: async (input: { ids: string[] }) => {
           calls.push(`remove:${input.ids.join(",")}`)
+          if (behavior.removeError) throw new Error("remove failed")
           return { ...current, items: current.items.filter((item) => !input.ids.includes(item.id)) }
         },
         pause: async () => {
@@ -108,12 +104,29 @@ function harness(overrides: Partial<Record<string, unknown>> = {}) {
     },
   } as unknown as Context
   setupDelayedQueueTui(context)
-  return { context, layer, slots, toasts, calls, dialogs, current }
+  return { context, layers, slots, toasts, calls, shows, current, clears: () => clears }
+}
+
+function panelCommand(fx: ReturnType<typeof harness>, title: string) {
+  return fx.layers.flatMap((layer) => layer.commands ?? []).find((command) => command.title === title)
+}
+
+async function openPanel(fx: ReturnType<typeof harness>) {
+  await fx.layers[0].commands[0].run("")
+  await Bun.sleep(0)
+  expect(fx.shows).toHaveLength(1)
+}
+
+async function renderPanel(fx: ReturnType<typeof harness>) {
+  const app = await testRender(() => <box width="100%" height="100%">{fx.shows[0]!.render()}</box>, { width: 120, height: 30 })
+  await Bun.sleep(10)
+  await app.flush()
+  return app
 }
 
 test("registers the standard command and slash aliases", () => {
   const fx = harness()
-  const commands = fx.layer.commands
+  const commands = fx.layers[0].commands
   expect(commands).toHaveLength(2)
   expect(commands[0]).toMatchObject({
     id: "max10240.delayed-queue.open",
@@ -128,57 +141,104 @@ test("registers the standard command and slash aliases", () => {
 
 test("slash with text enqueues through RPC without a success toast", async () => {
   const fx = harness()
-  await fx.layer.commands[0].run("delayed text")
+  await fx.layers[0].commands[0].run("delayed text")
   await Bun.sleep(0)
   expect(fx.calls[0]).toContain('"text":"delayed text"')
   expect(fx.calls[0]).toContain('"jobs":[]')
   expect(fx.toasts).toEqual([])
-  expect(fx.dialogs).toHaveLength(0)
+  expect(fx.shows).toHaveLength(0)
 })
 
 test("enqueue warns when the queue is paused", async () => {
   const fx = harness({ paused: true })
-  await fx.layer.commands[0].run("delayed text")
+  await fx.layers[0].commands[0].run("delayed text")
   await Bun.sleep(0)
   expect(fx.toasts).toEqual([{ message: "Delayed message queued · resume the queue to run it", variant: "warning" }])
 })
 
 test("slash without text opens the delayed prompt panel", async () => {
   const fx = harness()
-  await fx.layer.commands[0].run("")
-  await Bun.sleep(0)
-  expect(fx.dialogs).toHaveLength(1)
-  const panel = fx.dialogs[0]!
-  expect(panel.title).toBe("Delayed prompts")
-  expect(panel.options.map((item) => item.title)).toEqual(["first delayed", "second delayed"])
-  expect(panel.search("second", panel.options).map((item) => item.value)).toEqual(["msg_2"])
-  expect(panel.actions.map((item) => item.bind)).toEqual(["ctrl+s", "ctrl+d", "ctrl+p"])
+  await openPanel(fx)
+  expect(fx.clears()).toBe(0)
+  const app = await renderPanel(fx)
+  try {
+    expect(app.captureCharFrame()).toContain("Delayed prompts")
+  } finally {
+    app.renderer.destroy()
+  }
 })
 
-test("panel delete action requires a second Ctrl+D", async () => {
+test("Ctrl+D deletes the selected prompt once and keeps the panel open", async () => {
   const fx = harness()
-  await fx.layer.commands[0].run("")
-  await Bun.sleep(0)
-  const action = fx.dialogs[0]!.actions.find((entry) => entry.title === "delete")!
-  action.onTrigger("msg_1")
-  await Bun.sleep(0)
-  expect(fx.calls).not.toContain("remove:msg_1")
-  expect(fx.toasts.at(-1)?.message).toBe("Press ctrl+d again to delete")
-  action.onTrigger("msg_1")
-  await Bun.sleep(0)
-  expect(fx.calls).toContain("remove:msg_1")
-  expect(fx.toasts.at(-1)?.message).toBe("Delayed prompt deleted")
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    expect(app.captureCharFrame()).toContain("▶ first delayed")
+    const remove = panelCommand(fx, "Delete selected delayed prompt")!
+    remove.run()
+    panelCommand(fx, "Pause delayed queue")!.run()
+    remove.run()
+    await Bun.sleep(10)
+    await app.flush()
+    const frame = app.captureCharFrame()
+    expect(fx.calls.filter((call) => call.startsWith("remove:"))).toEqual(["remove:msg_1"])
+    expect(fx.calls).not.toContain("pause")
+    expect(fx.toasts).toEqual([])
+    expect(frame).not.toContain("first delayed")
+    expect(frame).toContain("▶ second delayed")
+    expect(frame).toContain("1 of 1")
+    expect(fx.clears()).toBe(0)
+  } finally {
+    app.renderer.destroy()
+  }
 })
 
-test("panel pause action changes the session state", async () => {
+test("deleting the last prompt closes the panel", async () => {
+  const fx = harness({ items: [state.items[0]] })
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    panelCommand(fx, "Delete selected delayed prompt")!.run()
+    await Bun.sleep(10)
+    expect(fx.calls.filter((call) => call.startsWith("remove:"))).toEqual(["remove:msg_1"])
+    expect(fx.clears()).toBe(1)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("panel pause updates state without reopening", async () => {
   const fx = harness()
-  await fx.layer.commands[0].run("")
-  await Bun.sleep(0)
-  const action = fx.dialogs[0]!.actions.find((entry) => entry.title === "pause")!
-  action.onTrigger("")
-  await Bun.sleep(0)
-  expect(fx.calls).toContain("pause")
-  expect(fx.toasts.at(-1)?.message).toBe("Delayed queue paused")
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    panelCommand(fx, "Pause delayed queue")!.run()
+    await Bun.sleep(10)
+    await app.flush()
+    expect(fx.calls).toContain("pause")
+    expect(fx.shows).toHaveLength(1)
+    expect(fx.clears()).toBe(0)
+    expect(app.captureCharFrame()).toContain("paused")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("a failed delete keeps the panel and selection", async () => {
+  const fx = harness({}, { removeError: true })
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    panelCommand(fx, "Delete selected delayed prompt")!.run()
+    await Bun.sleep(10)
+    await app.flush()
+    expect(fx.toasts.at(-1)?.message).toBe("remove failed")
+    expect(fx.toasts.at(-1)?.variant).toBe("error")
+    expect(app.captureCharFrame()).toContain("▶ first delayed")
+    expect(fx.clears()).toBe(0)
+  } finally {
+    app.renderer.destroy()
+  }
 })
 
 test("the dock renders the official queue-style pending bar", async () => {

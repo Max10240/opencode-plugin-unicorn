@@ -139,21 +139,52 @@ test("opens the management panel and deletes one pending message", async () => {
 
     tui.send(["C-x", "d"])
     await tui.waitFor("Delayed prompts", "management panel did not open")
-    // Typing the old action letter filters the list instead of steering or deleting.
+    // Typing action letters filters the list instead of steering or deleting.
     tui.type("d")
     await Bun.sleep(300)
     expect(tui.pane()).toContain("Delayed prompts")
     expect(tui.pane()).not.toContain("Delayed prompt sent")
     tui.send(["BSpace"])
     tui.send(["C-d"])
-    await tui.waitFor("Press ctrl+d again", "the first Ctrl+D did not request confirmation")
-    tui.send(["C-d"])
-    await tui.waitFor("1 of 1", "panel did not update after delete")
+    await tui.waitFor("1 of 1", "panel did not update after one delete")
+    await tui.waitFor("▶ E2E_DQ_PANEL_KEEP", "selection did not move to the next prompt")
+    expect(tui.pane()).not.toContain("Press ctrl+d again")
+    expect(tui.pane()).not.toContain("Delayed prompt deleted")
     tui.send(["Escape"])
     await tui.waitFor("1 delayed", "deleted message was not removed from the dock")
 
     await tui.waitFor("PANEL_KEEP_OK", "remaining message was not delivered", 20_000)
     expect(tui.pane()).not.toContain("PANEL_DELETE_SHOULD_NOT_RUN")
+  } finally {
+    await tui.close()
+    await e2e.close()
+  }
+})
+
+test("deleting the last pending message closes the panel", async () => {
+  const e2e = await start()
+  const sessionID = await createSession(e2e, "Delayed-Queue-Delete-Last")
+  const tui = createTui(e2e, sessionID, "delayed-queue-delete-last", { width: 180, height: 48 })
+  try {
+    await readyTui(tui, "Delayed-Queue-Delete-Last")
+    e2e.proxy.mock.prependFixture({
+      match: { userMessage: "E2E_DQ_LAST_BEGIN", sequenceIndex: 0 },
+      response: { content: "LAST_BEGIN_OK" },
+      latency: 5_000,
+    })
+    tui.type("E2E_DQ_LAST_BEGIN")
+    tui.send(["Enter"])
+    await tui.waitFor("esc interrupt", "the holding turn did not start", 20_000)
+    await queueDelayed(tui, "E2E_DQ_LAST_DELETE", 1)
+
+    tui.send(["C-x", "d"])
+    await tui.waitFor("Delayed prompts", "management panel did not open")
+    tui.send(["C-d"])
+    await tui.waitUntil(() => !tui.pane().includes("Delayed prompts"), "panel did not close after deleting the last prompt", 5_000)
+    expect(tui.pane()).not.toContain("1 delayed")
+
+    await tui.waitFor("LAST_BEGIN_OK", "the holding turn did not finish", 20_000)
+    expect((await text(e2e, sessionID)).includes("E2E_DQ_LAST_DELETE")).toBe(false)
   } finally {
     await tui.close()
     await e2e.close()

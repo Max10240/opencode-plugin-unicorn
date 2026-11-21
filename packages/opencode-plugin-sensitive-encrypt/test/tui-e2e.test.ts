@@ -25,10 +25,13 @@ test.serial("typing stays in the textarea and Ctrl actions work", async () => {
     try {
       await tui.waitFor("Sensitive-Encrypt-TUI-E2E", "the TUI did not start")
       await Bun.sleep(1_000)
-
+      // The composer commits the session's agent/model and plugin layers register after the
+      // first render. Wait for both before relying on a slash command.
+      await tui.waitFor("Compaction-E2e · GPT-5.6 Luna", "session agent and model did not settle", 30_000)
       tui.type("/encrypt-sensitive")
+      await tui.waitFor("Encrypt in-memory text or a file", "the encryption command did not appear", 10_000)
       tui.send(["Enter"])
-      await tui.waitFor("Encrypt sensitive data", "the encryption panel did not open")
+      await tui.waitFor("Type any text to encrypt", "the encryption panel did not open", 10_000)
       await Bun.sleep(250)
       tui.type("SENSITIVE_TUI_TEXT")
       await tui.waitFor("Masked · 18 characters", "typing did not reach the textarea")

@@ -2,6 +2,7 @@ import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { parseDelayedQueueOptions, type DelayedQueueOptions } from "./options.js"
+import { DelayedQueuePanel } from "./panel.js"
 import { DelayedQueueRpc, type DelayedQueueStatusPayload } from "./rpc.js"
 
 export const COMMAND_ID = "max10240.delayed-queue.open"
@@ -63,7 +64,7 @@ export function setupDelayedQueueTui(context: Context) {
             void enqueue(context, route.sessionID, text)
             return
           }
-          void openPanel(context, route.sessionID, options)
+          void openPanel(context, route.sessionID)
         },
       },
       {
@@ -133,10 +134,11 @@ export async function enqueue(context: Context, sessionID: string, text: string)
   }
 }
 
-export async function openPanel(context: Context, sessionID: string, options: DelayedQueueOptions): Promise<void> {
+export async function openPanel(context: Context, sessionID: string): Promise<void> {
+  const location = locationFor(context, sessionID)
   let state: DelayedQueueStatusPayload
   try {
-    state = (await context.client.rpc(DelayedQueueRpc).status({ sessionID }, { location: locationFor(context, sessionID) })) as DelayedQueueStatusPayload
+    state = (await context.client.rpc(DelayedQueueRpc).status({ sessionID }, { location })) as DelayedQueueStatusPayload
   } catch (error) {
     context.ui.toast.show({ message: describe(error, "Delayed queue is unavailable"), variant: "error" })
     return
@@ -145,113 +147,9 @@ export async function openPanel(context: Context, sessionID: string, options: De
     context.ui.toast.show({ message: "No delayed prompts", variant: "info" })
     return
   }
-
-  const items = state.items
-  let pendingDelete: string | undefined
-  let deleteTimer: ReturnType<typeof setTimeout> | undefined
-  const clearPendingDelete = () => {
-    if (deleteTimer !== undefined) clearTimeout(deleteTimer)
-    deleteTimer = undefined
-    pendingDelete = undefined
-  }
-  const armPendingDelete = (id: string) => {
-    clearPendingDelete()
-    pendingDelete = id
-    deleteTimer = setTimeout(() => {
-      deleteTimer = undefined
-      pendingDelete = undefined
-    }, 3_000)
-  }
-  const result = await context.ui.dialog.select<string>({
-    title: "Delayed prompts",
-    placeholder: "Search",
-    options: items.map((item, index) => ({
-      title: item.text.replaceAll("\n", " "),
-      value: item.id,
-      footer: state.paused ? "paused" : `${index + 1} of ${items.length}`,
-    })),
-    search: (query, values) => {
-      const needle = query.trim().toLowerCase()
-      if (!needle) return values
-      return values.filter((value) => value.title.toLowerCase().includes(needle))
-    },
-    actions: [
-      {
-        bind: "ctrl+s",
-        title: "steer now",
-        selection: "required",
-        onTrigger: (value) => {
-          clearPendingDelete()
-          void deliver(context, sessionID, value)
-        },
-      },
-      {
-        bind: "ctrl+d",
-        title: "delete",
-        selection: "required",
-        onTrigger: (value) => {
-          if (pendingDelete !== value) {
-            armPendingDelete(value)
-            void context.ui.toast.show({ message: "Press ctrl+d again to delete", variant: "warning" })
-            return
-          }
-          clearPendingDelete()
-          void remove(context, sessionID, value, options)
-        },
-      },
-      {
-        bind: "ctrl+p",
-        title: state.paused ? "resume" : "pause",
-        selection: "none",
-        onTrigger: () => {
-          clearPendingDelete()
-          void togglePause(context, sessionID, options, state.paused)
-        },
-      },
-    ],
-  })
-  clearPendingDelete()
-
-  if (result === undefined) return
-  await deliver(context, sessionID, result)
-}
-
-async function deliver(context: Context, sessionID: string, id: string) {
-  try {
-    context.ui.dialog.clear()
-    const state = (await context.client.rpc(DelayedQueueRpc).deliver({ sessionID, id }, { location: locationFor(context, sessionID) })) as DelayedQueueStatusPayload
-    if (state.items.some((item) => item.id === id)) {
-      context.ui.toast.show({ message: "Delayed prompt is still waiting", variant: "warning" })
-    }
-  } catch (error) {
-    context.ui.toast.show({ message: describe(error, "Could not send the delayed prompt"), variant: "error" })
-  }
-}
-
-async function remove(context: Context, sessionID: string, id: string, options: DelayedQueueOptions) {
-  try {
-    const state = (await context.client.rpc(DelayedQueueRpc).remove({ sessionID, ids: [id] }, { location: locationFor(context, sessionID) })) as DelayedQueueStatusPayload
-    context.ui.dialog.clear()
-    context.ui.toast.show({
-      message: state.items.length === 0 ? "Delayed prompt deleted" : "Delayed prompt deleted",
-      variant: "info",
-    })
-    if (state.items.length > 0) setTimeout(() => void openPanel(context, sessionID, options), 0)
-  } catch (error) {
-    context.ui.toast.show({ message: describe(error, "Could not delete the delayed prompt"), variant: "error" })
-  }
-}
-
-async function togglePause(context: Context, sessionID: string, options: DelayedQueueOptions, paused: boolean) {
-  try {
-    if (paused) await context.client.rpc(DelayedQueueRpc).resume({ sessionID }, { location: locationFor(context, sessionID) })
-    else await context.client.rpc(DelayedQueueRpc).pause({ sessionID }, { location: locationFor(context, sessionID) })
-    context.ui.dialog.clear()
-    context.ui.toast.show({ message: paused ? "Delayed queue resumed" : "Delayed queue paused", variant: "info" })
-    setTimeout(() => void openPanel(context, sessionID, options), 0)
-  } catch (error) {
-    context.ui.toast.show({ message: describe(error, "Could not change the delayed queue"), variant: "error" })
-  }
+  context.ui.dialog.show(() => (
+    <DelayedQueuePanel context={context} sessionID={sessionID} initial={state} location={location} />
+  ))
 }
 
 export function DelayedQueueDock(props: { context: Context; sessionID: string; options: DelayedQueueOptions }) {
@@ -300,7 +198,7 @@ export function DelayedQueueDock(props: { context: Context; sessionID: string; o
         customBorderChars={SPLIT_BORDER}
         onMouseOver={() => setHover(true)}
         onMouseOut={() => setHover(false)}
-        onMouseUp={() => void openPanel(props.context, props.sessionID, props.options)}
+        onMouseUp={() => void openPanel(props.context, props.sessionID)}
       >
         <box
           width="100%"

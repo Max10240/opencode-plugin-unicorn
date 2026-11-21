@@ -160,12 +160,23 @@ async function pressUntil(current: Tui, key: string, text: string, message: stri
 }
 
 async function closeNotepad(current: Tui) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (!current.pane().includes("esc close")) return
+  // Always send Escape. The previous version returned when a stale capture lacked the footer,
+  // leaving the panel open and breaking every later slash command in the shared TUI.
+  for (let attempt = 0; attempt < 5; attempt++) {
     current.send(["Escape"])
-    await Bun.sleep(100)
+    try {
+      await current.waitUntil(
+        () => !current.pane().includes("Notepad") && !current.pane().includes("esc close"),
+        "notepad did not close",
+        1_000,
+      )
+      return
+    } catch {}
   }
-  await current.waitUntil(() => !current.pane().includes("esc close"), "notepad did not close")
+  await current.waitUntil(
+    () => !current.pane().includes("Notepad") && !current.pane().includes("esc close"),
+    "notepad did not close",
+  )
 }
 
 test("searches previous prompts and inserts the selected draft", async () => {
