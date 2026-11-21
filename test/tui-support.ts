@@ -1,13 +1,25 @@
+import { rmSync } from "node:fs"
 import path from "node:path"
-import type { OpenCodeE2E } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
+import { onProcessCleanup, removeProcessCleanup, type OpenCodeE2E } from "../packages/opencode-plugin-unicorn/test/e2e-utils.js"
 import { createTmux } from "./tmux.js"
 
 const PASSWORD = "opencode-plugin-unicorn-e2e"
 
+function tmuxSocketPath(socket: string) {
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0
+  return path.join(process.env.TMUX_TMPDIR || "/tmp", `tmux-${uid}`, socket)
+}
+
 export type Tui = ReturnType<typeof createTui>
 
 export function createTui(e2e: OpenCodeE2E, sessionID: string, name: string, options: { width?: number; height?: number; environment?: Record<string, string> } = {}) {
-  const tmux = createTmux()
+  const socket = `unicorn-test-${process.pid}-${crypto.randomUUID()}`
+  const tmux = createTmux(undefined, socket)
+  const stopTmux = () => {
+    tmux(["kill-server"], false)
+    try { rmSync(tmuxSocketPath(socket), { force: true }) } catch {}
+  }
+  onProcessCleanup(stopTmux)
   const target = name
   const environment = {
     PATH: process.env.PATH ?? "/usr/bin:/bin:/opt/homebrew/bin",
@@ -54,7 +66,8 @@ export function createTui(e2e: OpenCodeE2E, sessionID: string, name: string, opt
       }
     },
     async close() {
-      tmux(["kill-server"], false)
+      stopTmux()
+      removeProcessCleanup(stopTmux)
     },
   }
   return handle

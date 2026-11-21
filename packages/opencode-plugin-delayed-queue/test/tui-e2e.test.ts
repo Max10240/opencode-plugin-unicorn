@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test"
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
@@ -8,9 +8,10 @@ import { createTui } from "../../../test/tui-support.js"
 setDefaultTimeout(180_000)
 
 const PACKAGE_ROOT = path.resolve(import.meta.dir, "..")
+let e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>
 
-async function start() {
-  const e2e = await createOpenCodeE2E({
+beforeAll(async () => {
+  e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
     pluginOptions: { recheckMs: 1_000 },
@@ -20,10 +21,13 @@ async function start() {
     plugins: [{ package: PACKAGE_ROOT, options: { recheckMs: 1_000 } }],
     keybinds: { "command.palette.show": "f10" },
   }, null, 2)}\n`)
-  return e2e
-}
+})
 
-async function text(e2e: Awaited<ReturnType<typeof start>>, sessionID: string) {
+afterAll(async () => {
+  await e2e?.close()
+})
+
+async function text(e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>, sessionID: string) {
   const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(e2e, `/api/experimental/session/${sessionID}/export`)
   return exported.data.messages
     .filter((message) => message.type === "user")
@@ -78,17 +82,16 @@ async function readyTui(tui: ReturnType<typeof createTui>, title: string) {
   await tui.waitFor("Compaction-E2e · GPT-5.6 Luna", "session agent and model did not settle", 30_000)
 }
 
-function fixture(e2e: Awaited<ReturnType<typeof start>>, userMessage: string | RegExp, content: string) {
+function fixture(e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>, userMessage: string | RegExp, content: string) {
   e2e.proxy.mock.prependFixture({ match: { userMessage }, response: { content } })
 }
 
-async function delayedStatus(e2e: Awaited<ReturnType<typeof start>>, sessionID: string) {
+async function delayedStatus(e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>, sessionID: string) {
   const query = `?location[directory]=${encodeURIComponent(e2e.workspace)}`
   return (await api<{ output?: Record<string, unknown> }>(e2e, `/api/rpc/max10240.delayed-queue/status${query}`, { input: { sessionID } })).output
 }
 
 test("shows the pending bar and delivers the delayed message after the turn", async () => {
-  const e2e = await start()
   const sessionID = await createSession(e2e, "Delayed-Queue-TUI")
   const tui = createTui(e2e, sessionID, "delayed-queue", { width: 180, height: 48 })
   try {
@@ -102,7 +105,7 @@ test("shows the pending bar and delivers the delayed message after the turn", as
 
     tui.type("E2E_DQ_TUI_BEGIN")
     tui.send(["Enter"])
-    await Bun.sleep(400)
+    await tui.waitFor("esc interrupt", "the holding turn did not start", 20_000)
     await queueDelayed(tui, "E2E_DQ_TUI_DELAYED", 1)
     await tui.waitFor("BEGIN_TUI_OK", "first turn did not finish", 15_000)
     await tui.waitFor("E2E_DQ_TUI_DELAYED", "pending text did not appear")
@@ -114,12 +117,10 @@ test("shows the pending bar and delivers the delayed message after the turn", as
     expect((await text(e2e, sessionID)).includes("E2E_DQ_TUI_DELAYED")).toBe(true)
   } finally {
     await tui.close()
-    await e2e.close()
   }
 })
 
 test("opens the management panel and deletes one pending message", async () => {
-  const e2e = await start()
   const sessionID = await createSession(e2e, "Delayed-Queue-Panel")
   const tui = createTui(e2e, sessionID, "delayed-queue-panel", { width: 180, height: 48 })
   try {
@@ -133,7 +134,7 @@ test("opens the management panel and deletes one pending message", async () => {
 
     tui.type("E2E_DQ_PANEL_BEGIN")
     tui.send(["Enter"])
-    await Bun.sleep(400)
+    await tui.waitFor("esc interrupt", "the holding turn did not start", 20_000)
     await queueDelayed(tui, "E2E_DQ_PANEL_DELETE", 1)
     await queueDelayed(tui, "E2E_DQ_PANEL_KEEP", 2)
 
@@ -157,12 +158,10 @@ test("opens the management panel and deletes one pending message", async () => {
     expect(tui.pane()).not.toContain("PANEL_DELETE_SHOULD_NOT_RUN")
   } finally {
     await tui.close()
-    await e2e.close()
   }
 })
 
 test("deleting the last pending message closes the panel", async () => {
-  const e2e = await start()
   const sessionID = await createSession(e2e, "Delayed-Queue-Delete-Last")
   const tui = createTui(e2e, sessionID, "delayed-queue-delete-last", { width: 180, height: 48 })
   try {
@@ -187,12 +186,10 @@ test("deleting the last pending message closes the panel", async () => {
     expect((await text(e2e, sessionID)).includes("E2E_DQ_LAST_DELETE")).toBe(false)
   } finally {
     await tui.close()
-    await e2e.close()
   }
 })
 
 test("waits for a background shell before delivering in the TUI", async () => {
-  const e2e = await start()
   const sessionID = await createSession(e2e, "Delayed-Queue-Background-TUI")
   const tui = createTui(e2e, sessionID, "delayed-queue-background", { width: 180, height: 48 })
   try {
@@ -221,12 +218,10 @@ test("waits for a background shell before delivering in the TUI", async () => {
     await tui.waitFor("TUI_BG_DELIVERED", "delayed message did not wait for the shell", 20_000)
   } finally {
     await tui.close()
-    await e2e.close()
   }
 })
 
 test("pauses after manual interrupt and resumes after the next prompt", async () => {
-  const e2e = await start()
   const sessionID = await createSession(e2e, "Delayed-Queue-Interrupt-TUI")
   const tui = createTui(e2e, sessionID, "delayed-queue-interrupt", { width: 180, height: 48 })
   try {
@@ -241,7 +236,7 @@ test("pauses after manual interrupt and resumes after the next prompt", async ()
 
     tui.type("E2E_DQ_TUI_INTERRUPT")
     tui.send(["Enter"])
-    await Bun.sleep(400)
+    await tui.waitFor("esc interrupt", "the holding turn did not start", 20_000)
     await queueDelayed(tui, "E2E_DQ_TUI_INTERRUPT_DELIVERED", 1)
     tui.send(["Escape"])
     await Bun.sleep(150)
@@ -256,6 +251,5 @@ test("pauses after manual interrupt and resumes after the next prompt", async ()
     await tui.waitFor("INTERRUPT_TUI_DELIVERED", "delayed message did not resume", 20_000)
   } finally {
     await tui.close()
-    await e2e.close()
   }
 })

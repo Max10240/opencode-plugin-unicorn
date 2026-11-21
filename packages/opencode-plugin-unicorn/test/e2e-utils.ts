@@ -57,6 +57,37 @@ let fixtureKeyPairs: Promise<{
   readonly decrypt: { publicKey: string; privateKey: string }
 }> | undefined
 
+type ServerProcess = ReturnType<typeof Bun.spawn>
+const cleanups = new Set<() => void>()
+let cleanupInstalled = false
+
+export function onProcessCleanup(cleanup: () => void) {
+  cleanups.add(cleanup)
+  if (cleanupInstalled) return
+  cleanupInstalled = true
+  const run = () => {
+    for (const item of cleanups) {
+      try { item() } catch {}
+    }
+    cleanups.clear()
+  }
+  process.once("exit", run)
+  process.once("SIGINT", () => { run(); process.exit(130) })
+  process.once("SIGTERM", () => { run(); process.exit(143) })
+}
+
+export function removeProcessCleanup(cleanup: () => void) {
+  cleanups.delete(cleanup)
+}
+
+// Tests normally close their server, but a cancelled run (SIGINT/SIGTERM) can otherwise leave
+// detached OpenCode servers and their tmux sessions behind.
+function trackServer(server: ServerProcess) {
+  const kill = () => { try { server.kill() } catch {} }
+  onProcessCleanup(kill)
+  server.exited.finally(() => removeProcessCleanup(kill)).catch(() => {})
+}
+
 function keyPairs() {
   fixtureKeyPairs ??= Promise.resolve().then(() => {
     const generate = () => generateKeyPairSync("rsa", {
@@ -203,12 +234,16 @@ export async function createOpenCodeE2E(
   const password = "opencode-plugin-unicorn-e2e"
   const environment = e2eEnvironment({ root, configDirectory, password, isMaxSelf: options.isMaxSelf })
   const binary = process.env.OPENCODE_BIN ?? "opencode"
-  const startServer = () => Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-    cwd: workspace,
-    env: environment,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  const startServer = () => {
+    const child = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+      cwd: workspace,
+      env: environment,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    trackServer(child)
+    return child
+  }
   let server = startServer()
   let stdout = new Response(server.stdout).text()
   let stderr = new Response(server.stderr).text()

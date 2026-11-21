@@ -129,12 +129,12 @@ async function runLoopScenario(mode: "standalone" | "unicorn") {
 }
 
 for (const mode of ["standalone", "unicorn"] as const) {
-  test.serial(`infinite loop nudges an idle session and stops on request (${mode})`, async () => {
+  test(`infinite loop nudges an idle session and stops on request (${mode})`, async () => {
     await runLoopScenario(mode)
   })
 }
 
-test.serial("cooldown waits from the last nudge and keeps the exact remaining time", async () => {
+test("cooldown waits from the last nudge and keeps the exact remaining time", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
@@ -177,7 +177,7 @@ test.serial("cooldown waits from the last nudge and keeps the exact remaining ti
   }
 })
 
-test.serial("a running background shell holds the nudge until it exits", async () => {
+test("a running background shell holds the nudge until it exits", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
@@ -226,7 +226,7 @@ test.serial("a running background shell holds the nudge until it exits", async (
   }
 })
 
-test.serial("a busy child session holds the nudge until it is idle", async () => {
+test("a busy child session holds the nudge until it is idle", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
@@ -285,7 +285,7 @@ test.serial("a busy child session holds the nudge until it is idle", async () =>
   }
 })
 
-test.serial("a failed nudge turn recovers and keeps the loop going", async () => {
+test("a failed nudge turn recovers and keeps the loop going", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
@@ -314,7 +314,7 @@ test.serial("a failed nudge turn recovers and keeps the loop going", async () =>
   }
 })
 
-test.serial("a manual user interruption pauses until the next normal turn", async () => {
+test("a manual user interruption pauses until the next normal turn", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,
@@ -369,7 +369,7 @@ test.serial("a manual user interruption pauses until the next normal turn", asyn
   }
 })
 
-test.serial("infinite loop expires at the configured deadline", async () => {
+test("infinite loop expires at the configured deadline", async () => {
   const e2e = await createOpenCodeE2E({
     plugin: "unicorn",
     pluginPackage: PACKAGE_ROOT,

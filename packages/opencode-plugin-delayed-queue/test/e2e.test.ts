@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test"
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
 import { api, createSession, prompt, waitFor } from "../../opencode-plugin-show-img/test/e2e-utils.js"
@@ -7,6 +7,22 @@ setDefaultTimeout(180_000)
 
 const RPC = "max10240.delayed-queue"
 const PACKAGE_ROOT = path.resolve(import.meta.dir, "..")
+
+// These scenarios use the same plugin options and unique fixture messages, so one server and
+// mock provider can serve them with per-test sessions instead of paying startup for each test.
+let shared: Awaited<ReturnType<typeof createOpenCodeE2E>>
+
+beforeAll(async () => {
+  shared = await createE2E()
+})
+
+afterAll(async () => {
+  await shared?.close()
+})
+
+function sharedLease() {
+  return { ...shared, close: async () => {} }
+}
 
 
 async function createE2E(configure?: (config: Record<string, any>) => void) {
@@ -59,7 +75,7 @@ async function userTexts(e2e: Awaited<ReturnType<typeof createE2E>>, sessionID: 
 }
 
 test("delivers a queued message when the session is idle", async () => {
-  const e2e = await createE2E()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e, "Delayed-Queue-E2E")
     e2e.proxy.mock.prependFixture({
@@ -86,7 +102,7 @@ test("delivers a queued message when the session is idle", async () => {
 })
 
 test("waits for a background shell before delivering", async () => {
-  const e2e = await createE2E()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e, "Delayed-Queue-Background")
     e2e.proxy.mock.prependFixture({
@@ -126,7 +142,7 @@ test("waits for a background shell before delivering", async () => {
 })
 
 test("pauses on a user interrupt and resumes after the next prompt", async () => {
-  const e2e = await createE2E()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e, "Delayed-Queue-Interrupt")
     e2e.proxy.mock.prependFixture({
@@ -162,7 +178,7 @@ test("pauses on a user interrupt and resumes after the next prompt", async () =>
 })
 
 test("pauses after an execution failure and resumes after the next prompt", async () => {
-  const e2e = await createE2E()
+  const e2e = sharedLease()
   try {
     const sessionID = await createSession(e2e, "Delayed-Queue-Failure")
     e2e.proxy.mock.prependFixture({
