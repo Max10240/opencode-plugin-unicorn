@@ -49,6 +49,14 @@ Before consulting OpenCode source, update the checkout at `/Users/max/daily/open
 - All plugin packages in this repository share one version and are released together.
 - New plugins must adopt the current shared version rather than starting at `1.0.0`.
 
+## New Packages and Trusted Publishing
+
+- npm trusted publishing (OIDC) can only publish packages that already exist on the registry.
+- A release containing a new package must bootstrap its first version with local npm auth (or an `NPM_TOKEN`) before
+  CI can publish later versions.
+- `release-execute` preflights trusted publishing and fails with the new package names and bootstrap instructions; do
+  not treat npm's generic `ENEEDAUTH` as a missing token without checking for new packages.
+
 ## Publishing
 
 - The only entry point is `npm run release -- --release-type=<type> [--version=<spec>]`.

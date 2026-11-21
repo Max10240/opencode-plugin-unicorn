@@ -247,6 +247,9 @@ test("pauses after manual interrupt and resumes after the next prompt", async ()
     await Bun.sleep(150)
     tui.send(["Escape"])
     await tui.waitFor("paused", "queue did not pause after the interrupt", 10_000)
+    // "paused" is emitted when the interrupt is accepted; wait for cleanup to settle before
+    // submitting the resume prompt so it cannot race the stopping turn.
+    await api(e2e, `/api/experimental/session/${sessionID}/wait`, {})
 
     tui.type("E2E_DQ_TUI_RESUME")
     await submitPrompt(tui, "RESUME_TUI_OK")

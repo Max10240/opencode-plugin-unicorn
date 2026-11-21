@@ -326,6 +326,22 @@ async function commitPackageVersions({ root = repository, target, run = runComma
   return { commit, message }
 }
 
+async function assertTrustedPublishingPackages({ packages, registry, fetchImpl, log }) {
+  const missing = []
+  for (const item of packages) {
+    const latest = await fetchRegistryLatest(registry, item.manifest.name, { fetchImpl, cacheBust: true })
+    if (!latest) missing.push(item.manifest.name)
+  }
+  if (missing.length) {
+    throw new Error(
+      `Cannot publish new package(s) with npm trusted publishing: ${missing.join(", ")}. ` +
+      `Trusted publishing only authenticates packages that already exist on ${registry}. ` +
+      `Bootstrap the first version with local npm authentication or an NPM_TOKEN, then rerun the release workflow.`,
+    )
+  }
+  log(`[release] trusted publishing preflight: ${packages.length} packages already exist`)
+}
+
 export async function releasePackages({
   root = repository,
   registry = DEFAULT_REGISTRY,
@@ -340,8 +356,12 @@ export async function releasePackages({
   pack,
   verify = true,
   allowCurrent = false,
+  trustedPublishing = false,
 } = {}) {
-  await assertReleaseVersion({ root, registry, fetchImpl, allowCurrent })
+  const release = await assertReleaseVersion({ root, registry, fetchImpl, allowCurrent })
+  if (trustedPublishing) {
+    await assertTrustedPublishingPackages({ packages: release.packages, registry, fetchImpl, log })
+  }
 
   if (build) {
     log("[release] building")
@@ -427,6 +447,8 @@ export async function release({
   if (ci) {
     const branch = (await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, capture: true })).trim()
     if (branch !== "main") throw new Error(`ci release requires main, current branch is ${branch}`)
+    const packages = (await workspacePackages(root)).filter((item) => item.manifest.private !== true)
+    await assertTrustedPublishingPackages({ packages, registry: options.registry, fetchImpl, log })
   }
 
   const resolved = await resolveTargetVersion({ root, registry: options.registry, spec: options.version, fetchImpl })

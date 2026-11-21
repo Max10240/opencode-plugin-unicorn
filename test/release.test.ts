@@ -244,6 +244,42 @@ test("an idempotent CI rerun skips packages already present at the current versi
   } finally { await fx.cleanup() }
 })
 
+test("trusted publishing rejects packages that have never been published", async () => {
+  const fx = await fixture({ latest: "1.0.10", version: "1.0.11" })
+  try {
+    fx.latestVersions.delete(CHILD)
+    await expect(releasePackages({
+      root: fx.root,
+      build: false,
+      verify: false,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      run: fx.run,
+      log: () => {},
+      allowCurrent: true,
+      trustedPublishing: true,
+    })).rejects.toThrow(`Cannot publish new package(s) with npm trusted publishing: ${CHILD}`)
+    expect(fx.calls.some((args) => args[0] === "npm" && args[1] === "publish")).toBe(false)
+  } finally { await fx.cleanup() }
+})
+
+test("trusted publishing allows a new version of an existing package", async () => {
+  const fx = await fixture({ latest: "1.0.10", version: "1.0.11" })
+  try {
+    const result = await releasePackages({
+      root: fx.root,
+      dryRun: true,
+      build: false,
+      fetchImpl: fx.fetchImpl,
+      pack: fx.pack,
+      run: fx.run,
+      log: () => {},
+      trustedPublishing: true,
+    })
+    expect(result).toMatchObject({ dryRun: true, version: "1.0.11" })
+  } finally { await fx.cleanup() }
+})
+
 test("local publish verifies dependency levels and commits package versions", async () => {
   const fx = await fixture()
   try {
@@ -272,6 +308,30 @@ test("local publish verifies dependency levels and commits package versions", as
     expect(commit).toBeGreaterThan(publish)
     expect(calls[commit]).toEqual(["git", "commit", "-m", "release: v1.0.12 [local-publish]"])
     expect(calls.some((args) => args[0] === "npm" && args[1] === "publish" && args[2] === "--workspace")).toBe(true)
+  } finally { await fx.cleanup() }
+})
+
+test("ci release refuses new packages before checking or pushing", async () => {
+  const fx = await fixture()
+  try {
+    fx.latestVersions.delete(CHILD)
+    const calls: string[][] = []
+    const run = async (args: string[]) => {
+      calls.push([...args])
+      const command = args.join(" ")
+      if (command === "git rev-parse --abbrev-ref HEAD") return "main\n"
+      if (command === "git status --porcelain") return ""
+      return ""
+    }
+    await expect(release({
+      root: fx.root,
+      args: ["--release-type=ci-publish"],
+      run,
+      fetchImpl: fx.fetchImpl,
+      log: () => {},
+    })).rejects.toThrow(`Cannot publish new package(s) with npm trusted publishing: ${CHILD}`)
+    expect(calls.some((args) => args.join(" ") === "npm run check:release")).toBe(false)
+    expect(calls.some((args) => args[0] === "git" && args[1] === "push")).toBe(false)
   } finally { await fx.cleanup() }
 })
 
