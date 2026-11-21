@@ -12,7 +12,7 @@ const MAX_DIRECTORY_LENGTH = 120
 
 export const MESSAGE_PREFIX = "Message from"
 export const SEND_TOOL_DESCRIPTION =
-  "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents."
+  "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents. When a message ends with a reply request, reply with this tool instead of your normal output."
 
 type SendMessageInput = {
   readonly target_session_id?: string
@@ -21,7 +21,8 @@ type SendMessageInput = {
   readonly delivery?: "steer" | "queue"
 }
 
-export const REPLY_REQUEST = "\n---\nThe above session needs your reply."
+export const REPLY_REQUEST =
+  "\n\n---\nThe above session needs your reply. (Use the `send_message_across_sessions` tool with `target_session_id` set to the sender session ID from the `Message from` line. Put the reply in the tool call, not your normal output. Set `need_reply` to `false` unless you need another reply.)"
 
 type PluginContext = Pick<Context, "event" | "session" | "storage" | "tool">
 type SessionPromptInput = Parameters<Context["session"]["prompt"]>[0]

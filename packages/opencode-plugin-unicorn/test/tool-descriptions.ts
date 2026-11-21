@@ -3,7 +3,7 @@ export const toolDescriptions = {
   show_img:
     "Show one or more server-side images to the user without adding them to model context. Supports PNG, JPEG, GIF and WebP up to 20 MiB each.",
   send_message_across_sessions:
-    "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents.",
+    "Send a user message to another online OpenCode session. Use only for cross-session messaging; never between a main agent and its subagents. When a message ends with a reply request, reply with this tool instead of your normal output.",
   decrypt_sensitive:
     "Decrypt a single ocsec1 file under $TMPDIR into a new file with the configured private key only when the user explicitly requests it. Never output plaintext or key material; always write the result to out and report only its path. Keep out under $TMPDIR.",
   sensitive_key_info: "Show the configured public key and fingerprint without exposing private key material.",

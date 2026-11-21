@@ -71,7 +71,7 @@ tool never queries the session database while a turn is running.
 | `queue` | Waits until the target is fully idle; this can take a long time and the message may be stale | Non-urgent messages |
 
 Every send includes `need_reply`. Set it to `true` when the message needs an answer; the receiver then sees a reply
-request at the end of the message.
+request at the end of the message that names the tool and arguments needed to reply.
 
 ## Good to know
 

@@ -25,8 +25,10 @@ test.serial("typing letters filters notes while Ctrl actions manage them", async
     try {
       await tui.waitFor("Notepad-TUI-E2E", "the TUI did not start")
       await Bun.sleep(1_000)
+      await tui.waitFor("Compaction-E2e · GPT-5.6 Luna", "session agent and model did not settle", 30_000)
 
       tui.type("/notepad")
+      await tui.waitFor("Capture and manage notes", "the notepad command did not appear", 10_000)
       tui.send(["Enter"])
       await tui.waitFor("No notes yet", "the notepad panel did not open")
 

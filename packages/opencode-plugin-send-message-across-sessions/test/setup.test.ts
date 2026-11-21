@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test"
 import type { Context } from "@opencode/plugin/promise/plugin"
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool"
-import { MESSAGE_PREFIX, SEND_TOOL_DESCRIPTION, setupSendMessageAcrossSessions } from "../src/setup.js"
+import { MESSAGE_PREFIX, REPLY_REQUEST, SEND_TOOL_DESCRIPTION, setupSendMessageAcrossSessions } from "../src/setup.js"
 import { listOnlineSessionsAcrossContexts, resetSessionDirectoryForTests } from "../src/session-directory.js"
 
 beforeEach(() => resetSessionDirectoryForTests())
@@ -58,6 +58,7 @@ test("uses steer delivery by default and supports an explicit queue", async () =
     expect(sendTool.description).toBe(SEND_TOOL_DESCRIPTION)
     expect(sendTool.description).toContain("cross-session")
     expect(sendTool.description).toContain("subagents")
+    expect(sendTool.description).toContain("reply request")
 
     const schema = sendTool.input as any
     expect(schema.properties.delivery).toMatchObject({ type: "string", enum: ["steer", "queue"] })
@@ -75,7 +76,11 @@ test("uses steer delivery by default and supports an explicit queue", async () =
 
     await send(registered, { target_session_id: TARGET_ID, message: "queued", need_reply: true, delivery: "queue" })
     expect(prompts[1]).toMatchObject({ sessionID: TARGET_ID, delivery: "queue" })
-    expect(prompts[1]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: queued\n---\nThe above session needs your reply.`)
+    expect(prompts[1]?.text).toBe(`${MESSAGE_PREFIX} <${SENDER_ID}>: queued${REPLY_REQUEST}`)
+    expect(prompts[1]?.text).toContain("\n\n---\n")
+    expect(prompts[1]?.text).toContain("send_message_across_sessions")
+    expect(prompts[1]?.text).toContain("target_session_id")
+    expect(prompts[1]?.text).toContain("need_reply")
   } finally {
     await cleanup()
   }
