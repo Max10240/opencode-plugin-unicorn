@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-infinite-loop",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "description": "Keep a session working: nudge it whenever it idles, until a configured time window ends",
   "type": "module",
   "exports": {

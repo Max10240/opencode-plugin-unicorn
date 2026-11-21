@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-non-blocking",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "description": "Move long-running blocking OpenCode tools to the background",
   "type": "module",
   "exports": {
