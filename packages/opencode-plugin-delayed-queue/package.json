@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-delayed-queue",
-  "version": "1.0.36",
+  "version": "1.0.37",
   "description": "Queue messages that run only when a session is idle and its background work has finished",
   "type": "module",
   "exports": {
