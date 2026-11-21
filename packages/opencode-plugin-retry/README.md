@@ -12,7 +12,8 @@ no command-palette entry.
 - If the current session is idle, it immediately sends `Continue`.
 - If the current session is running, it interrupts the turn, waits for the interrupt to settle, then sends
   `Continue`.
-- If the interrupt does not settle within 1 second, it does not send anything and shows a top-right error toast.
+- If the interrupt does not settle within `timeoutMs` (default 1 second), it queues `Continue` for the next idle
+  boundary and shows a top-right warning toast. `Continue` is not dropped.
 - It never opens a panel.
 
 The busy check is the current session execution status (`running` vs `idle`). A background shell or subagent that is
@@ -63,6 +64,7 @@ With Unicorn:
 | --- | --- | --- |
 | `keybind` | `f5` | Shortcut for the retry command. Set to `false` to keep only `/retry`. |
 | `continueText` | `Continue` | Message sent after the idle check or interrupt. |
+| `timeoutMs` | `1000` | How long to wait for the interrupted turn to settle before queueing `Continue`. |
 
 `features.retry: false` disables the plugin entirely in Unicorn.
 
@@ -78,12 +80,14 @@ question prompts. On macOS keyboards that require `Fn` for function keys, use `F
 ## Behavior details
 
 - The interrupt is requested with `session.interrupt`; the plugin then waits with `experimental.session.wait` so
-  `Continue` starts a fresh turn instead of being steered into the turn that is still stopping.
+  a fast settlement sends `Continue` as a steer prompt into a fresh turn.
 - If `interrupt` returns `interrupted: false`, the plugin re-checks the session. An idle session sends `Continue`
   directly; a turn that is still stopping waits for settlement before sending.
+- If settlement exceeds `timeoutMs`, `Continue` is queued instead of steering it into the stopping turn. It runs at
+  the next idle boundary without clearing messages already queued.
 - Repeated presses while a retry is in progress are ignored.
 - A composer draft is left untouched.
-- Queued prompts are not cleared. `Continue` is sent as a steer prompt.
+- Queued prompts are not cleared.
 - If the source turn, permission prompt, or session disappears during the operation, the error is shown and no
   `Continue` is sent.
 - If the feature is disabled or the configuration is invalid, no keybind or slash command is registered.

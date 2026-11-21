@@ -25,14 +25,21 @@ export function setupRetryTui(context: Context) {
 
   const controller = new RetryController({
     continueText: options.continueText,
+    timeoutMs: options.timeoutMs,
     status: (sessionID) => context.data.session.status(sessionID),
     interrupt: (sessionID) => context.client.session.interrupt({ sessionID }),
     waitIdle: (sessionID, signal) => context.client.experimental.session.wait({ sessionID }, { signal }),
     send: async (sessionID, text) => {
       await context.client.session.prompt({ sessionID, text, delivery: "steer" })
     },
+    enqueue: async (sessionID, text) => {
+      await context.client.session.prompt({ sessionID, text, delivery: "queue" })
+    },
     onError: (message) => {
       void context.ui.toast.show({ message, variant: "error" })
+    },
+    onQueued: () => {
+      void context.ui.toast.show({ message: "Retry: prompt queued until the current turn stops", variant: "warning" })
     },
   })
 

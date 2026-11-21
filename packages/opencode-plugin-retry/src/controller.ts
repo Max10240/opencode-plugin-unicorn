@@ -2,10 +2,11 @@ import { DEFAULT_INTERRUPT_TIMEOUT_MS } from "./options.js"
 
 export type RetrySessionStatus = "idle" | "running"
 export type RetryInterruptResult = { readonly interrupted: boolean }
-export type RetryFailure = "status" | "interrupt" | "timeout" | "wait" | "send"
+export type RetryFailure = "status" | "interrupt" | "wait" | "send" | "queue"
 export type RetryOutcome =
   | { readonly status: "ignored" }
   | { readonly status: "sent"; readonly interrupted: boolean }
+  | { readonly status: "queued"; readonly interrupted: boolean }
   | { readonly status: "failed"; readonly reason: RetryFailure }
 
 export type RetryControllerOptions = {
@@ -15,8 +16,10 @@ export type RetryControllerOptions = {
   readonly interrupt: (sessionID: string) => Promise<RetryInterruptResult>
   readonly waitIdle: (sessionID: string, signal: AbortSignal) => Promise<void>
   readonly send: (sessionID: string, text: string) => Promise<void>
+  readonly enqueue: (sessionID: string, text: string) => Promise<void>
   readonly onError: (message: string) => void
   readonly onSent?: (interrupted: boolean) => void
+  readonly onQueued?: (interrupted: boolean) => void
   readonly createTimeoutSignal?: (timeoutMs: number) => AbortSignal
 }
 
@@ -42,10 +45,7 @@ export class RetryController {
         return this.fail("status", "Retry failed: could not read the session state")
       }
 
-      if (!running) {
-        const sent = await this.send(sessionID, false)
-        return sent
-      }
+      if (!running) return await this.send(sessionID, false)
 
       let interrupted: boolean
       try {
@@ -70,18 +70,27 @@ export class RetryController {
         try {
           await this.options.waitIdle(sessionID, signal)
         } catch {
-          const seconds = Math.ceil(this.timeoutMs / 1_000)
-          return this.fail(
-            signal.aborted ? "timeout" : "wait",
-            signal.aborted
-              ? `Retry failed: the current turn did not stop within ${seconds} ${seconds === 1 ? "second" : "seconds"}`
-              : "Retry failed: could not finish interrupting the current turn",
-          )
+          if (!signal.aborted) {
+            return this.fail("wait", "Retry failed: could not finish interrupting the current turn")
+          }
+          // A slow interrupt cleanup must not drop Continue. Re-check once: if the turn settled
+          // just as the timeout fired, steer now; otherwise queue Continue for the next idle
+          // boundary instead of reporting a failure.
+          let stillRunning: boolean
+          try {
+            stillRunning = this.options.status(sessionID) === "running"
+          } catch {
+            return this.fail("status", "Retry failed: could not read the session state")
+          }
+          if (stillRunning) {
+            if (this.disposed) return { status: "ignored" }
+            return await this.enqueue(sessionID, interrupted)
+          }
         }
       }
 
       if (this.disposed) return { status: "ignored" }
-      return this.send(sessionID, interrupted)
+      return await this.send(sessionID, interrupted)
     } finally {
       this.inFlight.delete(sessionID)
     }
@@ -99,6 +108,17 @@ export class RetryController {
       return { status: "sent", interrupted }
     } catch {
       return this.fail("send", "Retry failed: could not send Continue")
+    }
+  }
+
+  private async enqueue(sessionID: string, interrupted: boolean): Promise<RetryOutcome> {
+    if (this.disposed) return { status: "ignored" }
+    try {
+      await this.options.enqueue(sessionID, this.options.continueText)
+      this.options.onQueued?.(interrupted)
+      return { status: "queued", interrupted }
+    } catch {
+      return this.fail("queue", "Retry failed: could not queue Continue")
     }
   }
 

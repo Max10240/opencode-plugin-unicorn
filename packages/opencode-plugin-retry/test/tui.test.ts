@@ -9,6 +9,7 @@ function harness(input: {
   route?: Route
   status?: "idle" | "running"
   interrupted?: boolean
+  hangWait?: boolean
 } = {}) {
   let layer: any
   const status = input.status ?? "idle"
@@ -40,8 +41,14 @@ function harness(input: {
       },
       experimental: {
         session: {
-          wait: async () => {
+          wait: async (_value: unknown, options?: { signal?: AbortSignal }) => {
             calls.push("wait")
+            if (!input.hangWait) return
+            const signal = options?.signal
+            if (signal?.aborted) throw new Error("aborted")
+            await new Promise<void>((_, reject) => {
+              signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
+            })
           },
         },
       },
@@ -89,6 +96,16 @@ test("an interrupt that finds the turn still stopping waits before sending", asy
   fx.layer.commands[0].run()
   await Bun.sleep(0)
   expect(fx.calls).toEqual(["interrupt", "wait", "send"])
+  fx.cleanup?.()
+})
+
+test("a slow settlement queues Continue instead of failing", async () => {
+  const fx = harness({ status: "running", hangWait: true, options: { timeoutMs: 20 } })
+  fx.layer.commands[0].run()
+  for (let attempt = 0; attempt < 100 && fx.sent.length === 0; attempt++) await Bun.sleep(5)
+  expect(fx.calls).toEqual(["interrupt", "wait", "send"])
+  expect(fx.sent).toEqual([{ sessionID: "session", text: "Continue", delivery: "queue" }])
+  expect(fx.toasts).toEqual([{ message: "Retry: prompt queued until the current turn stops", variant: "warning" }])
   fx.cleanup?.()
 })
 

@@ -6,6 +6,7 @@ export type RetryOptions = {
   readonly enabled: boolean
   readonly keybind: string | false
   readonly continueText: string
+  readonly timeoutMs: number
 }
 
 export function retryEnabled(raw: Readonly<Record<string, unknown>> = {}): boolean {
@@ -19,6 +20,7 @@ export function parseRetryOptions(raw: Readonly<Record<string, unknown>> = {}): 
     enabled: retryEnabled(raw),
     keybind: readKeybind(raw.keybind),
     continueText: readContinueText(raw.continueText),
+    timeoutMs: readTimeoutMs(raw.timeoutMs),
   }
 }
 
@@ -35,6 +37,14 @@ function readContinueText(value: unknown): string {
   const text = value.trim()
   if (!text) throw new Error("continueText must be a non-empty string")
   return text
+}
+
+function readTimeoutMs(value: unknown): number {
+  if (value === undefined) return DEFAULT_INTERRUPT_TIMEOUT_MS
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
+    throw new Error("timeoutMs must be a positive integer")
+  }
+  return value
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -10,7 +10,8 @@
 
 - 当前会话空闲：直接发送 `Continue`。
 - 当前会话正在运行：先打断，等待打断真正结束，再发送 `Continue`。
-- 打断后 1 秒仍未结束：不发送任何消息，并在右上角弹出 Retry 失败提示。
+- 打断后超过 `timeoutMs`（默认 1 秒）仍未结束：把 `Continue` 排到下一次空闲边界，并在右上角弹出警告提示，
+  不会丢弃消息。
 - 不会打开任何面板。
 
 阻塞判断只看当前会话的执行状态（`running` / `idle`）。主回合已经 idle、但后台 shell 或 subagent 还在跑时，
@@ -61,6 +62,7 @@
 | --- | --- | --- |
 | `keybind` | `f5` | Retry 快捷键；设为 `false` 后只保留 `/retry` |
 | `continueText` | `Continue` | 空闲或打断完成后发送的消息 |
+| `timeoutMs` | `1000` | 等待旧回合结束的时间；超过后改为排队发送 `Continue` |
 
 Unicorn 中用 `features.retry: false` 可完全关闭该插件。
 
@@ -74,11 +76,13 @@ OpenCode TUI 默认没有使用 `F5`。
 
 ## 行为细节
 
-- 先调用 `session.interrupt`，再用 `experimental.session.wait` 等待旧回合真正结束，避免 `Continue` 被送进
-  正在停止的旧回合。
+- 先调用 `session.interrupt`，再用 `experimental.session.wait` 等待旧回合真正结束；及时结束时 `Continue`
+  以 steer 方式进入新回合。
 - `interrupt` 返回 `interrupted: false` 时会再次检查会话：真正 idle 才直接发送；如果旧回合仍在停止，则等待清理完成后再发送。
+- 等待超过 `timeoutMs` 时不再报错，而是把 `Continue` 排到下一次空闲边界，避免送进正在停止的旧回合；不会清空
+  已有排队消息。
 - Retry 流程进行中时，重复按键会被忽略。
 - 不覆盖输入框里的草稿。
-- 不清空已有队列；`Continue` 以 steer 方式发送。
-- 打断失败、等待超时、发送失败、session 消失等错误都会在右上角提示，并且不发送 `Continue`。
+- 不清空已有队列。
+- 打断失败、等待失败、发送或排队失败、session 消失等错误都会在右上角提示；等待超时本身不再算失败，而是改为排队发送。
 - 功能关闭或配置无效时，不注册快捷键和 slash Command。

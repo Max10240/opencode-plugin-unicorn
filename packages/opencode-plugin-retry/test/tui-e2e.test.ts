@@ -106,6 +106,32 @@ test.serial("F5 and /retry interrupt a running turn, then send Continue while id
   }
 })
 
+test.serial("a settlement timeout queues Continue and still delivers it", async () => {
+  if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
+  const e2e = await start({ retry: { timeoutMs: 1 } })
+  try {
+    e2e.proxy.mock.prependFixture({
+      match: { userMessage: "E2E_RETRY_QUEUED", sequenceIndex: 0 },
+      response: { content: "QUEUED_LATE" },
+      latency: 15_000,
+    })
+    e2e.proxy.mock.prependFixture({ match: { userMessage: "Continue", sequenceIndex: 0 }, response: { content: "QUEUED_CONTINUE_OK" } })
+    const { sessionID, tui } = await open(e2e, "Retry-Queued-E2E", "retry-queued")
+    try {
+      tui.type("E2E_RETRY_QUEUED")
+      tui.send(["Enter"])
+      await tui.waitFor("esc interrupt", "the slow turn did not start", 20_000)
+      tui.send(["F5"])
+      await tui.waitFor("QUEUED_CONTINUE_OK", "queued Continue did not run", 30_000)
+      expect((await userTexts(e2e, sessionID)).filter((text) => text === "Continue")).toHaveLength(1)
+    } finally {
+      tui.close()
+    }
+  } finally {
+    await e2e.close()
+  }
+})
+
 test.serial("F5 is ignored while the command palette is open", async () => {
   if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
   const e2e = await start()

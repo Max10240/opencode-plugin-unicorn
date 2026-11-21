@@ -99,7 +99,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 | 图片预览 | `showImg` | 用 `features.showImg` 开关；无需额外参数 |
 | OpenCode Go 用量 | `opencodeGoUsage` | `keybind`（默认不绑定） |
 | 无限循环 | `infiniteLoop` | `keybind`（默认 `ctrl+shift+i`）、`overviewKeybind`（默认 `ctrl+shift+o`）、`cooldownMs`（默认 `300000`）、`delayMs`、`recheckMs`、预设档位、时长边界 |
-| Retry | `retry` | `keybind`（默认 `f5`）、`continueText`（默认 `Continue`） |
+| Retry | `retry` | `keybind`（默认 `f5`）、`continueText`（默认 `Continue`）、`timeoutMs`（默认 `1000`） |
 | 记事本 | `notepad` | `keybind`（默认 `ctrl+shift+n`）、`enabled`、`defaultSort`（`updated` 或 `created`） |
 | 敏感信息加密 | `sensitiveEncrypt` | `publicKeyFileForEncrypt`、`privateKeyFileForDecrypt`、`maxBytes` |
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |

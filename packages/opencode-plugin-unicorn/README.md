@@ -102,7 +102,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 | Image preview | `showImg` | Toggle with `features.showImg`; no required options |
 | OpenCode Go usage | `opencodeGoUsage` | `keybind` (no default binding) |
 | Infinite loop | `infiniteLoop` | `keybind` (default `ctrl+shift+i`), `overviewKeybind` (default `ctrl+shift+o`), `cooldownMs` (default `300000`), `delayMs`, `recheckMs`, `presets`, duration bounds |
-| Retry | `retry` | `keybind` (default `f5`), `continueText` (default `Continue`) |
+| Retry | `retry` | `keybind` (default `f5`), `continueText` (default `Continue`), `timeoutMs` (default `1000`) |
 | Notepad | `notepad` | `keybind` (default `ctrl+shift+n`), `enabled`, `defaultSort` (`updated` or `created`) |
 | Sensitive encryption | `sensitiveEncrypt` | `publicKeyFileForEncrypt`, `privateKeyFileForDecrypt`, `maxBytes` |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |

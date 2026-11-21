@@ -5,6 +5,7 @@ function fixture(overrides: Partial<RetryControllerOptions> = {}) {
   const calls: string[] = []
   const errors: string[] = []
   const sent: boolean[] = []
+  const queued: boolean[] = []
   const controller = new RetryController({
     continueText: "Continue",
     timeoutMs: 1_000,
@@ -19,11 +20,15 @@ function fixture(overrides: Partial<RetryControllerOptions> = {}) {
     send: async (_sessionID, text) => {
       calls.push(`send:${text}`)
     },
+    enqueue: async (_sessionID, text) => {
+      calls.push(`enqueue:${text}`)
+    },
     onError: (message) => errors.push(message),
     onSent: (interrupted) => sent.push(interrupted),
+    onQueued: (interrupted) => queued.push(interrupted),
     ...overrides,
   })
-  return { controller, calls, errors, sent }
+  return { controller, calls, errors, sent, queued }
 }
 
 test("idle sends Continue without interrupting", async () => {
@@ -87,7 +92,7 @@ test("settlement failures do not send Continue", async () => {
   expect(fx.errors).toEqual(["Retry failed: could not finish interrupting the current turn"])
 })
 
-test("settlement timeouts do not send Continue and report the timeout", async () => {
+test("settlement timeouts queue Continue instead of dropping it", async () => {
   const fx = fixture({
     status: () => "running",
     createTimeoutSignal: () => AbortSignal.abort(),
@@ -95,9 +100,41 @@ test("settlement timeouts do not send Continue and report the timeout", async ()
       throw new Error("aborted")
     },
   })
-  expect(await fx.controller.run("session")).toEqual({ status: "failed", reason: "timeout" })
+  expect(await fx.controller.run("session")).toEqual({ status: "queued", interrupted: true })
+  expect(fx.calls).toEqual(["interrupt", "enqueue:Continue"])
+  expect(fx.queued).toEqual([true])
+  expect(fx.errors).toEqual([])
+})
+
+test("a timeout that races with settlement still steers Continue", async () => {
+  let status: "idle" | "running" = "running"
+  const fx = fixture({
+    status: () => status,
+    createTimeoutSignal: () => AbortSignal.abort(),
+    waitIdle: async () => {
+      status = "idle"
+      throw new Error("aborted")
+    },
+  })
+  expect(await fx.controller.run("session")).toEqual({ status: "sent", interrupted: true })
+  expect(fx.calls).toEqual(["interrupt", "send:Continue"])
+  expect(fx.queued).toEqual([])
+})
+
+test("queue failures are reported without a second send", async () => {
+  const fx = fixture({
+    status: () => "running",
+    createTimeoutSignal: () => AbortSignal.abort(),
+    waitIdle: async () => {
+      throw new Error("aborted")
+    },
+    enqueue: async () => {
+      throw new Error("queue failed")
+    },
+  })
+  expect(await fx.controller.run("session")).toEqual({ status: "failed", reason: "queue" })
   expect(fx.calls).toEqual(["interrupt"])
-  expect(fx.errors[0]).toContain("did not stop within 1 second")
+  expect(fx.errors).toEqual(["Retry failed: could not queue Continue"])
 })
 
 test("send failures are reported without a second send", async () => {
