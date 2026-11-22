@@ -35,6 +35,6 @@
     "source": "markdown"
   },
   "answer-directly": {
-    "template": "$ARGUMENTS\n\n---\n\n正面回答我所有问题。"
+    "template": "$ARGUMENTS\n\n---\n\n正面回答我所有问题"
   }
 }
