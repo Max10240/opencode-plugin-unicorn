@@ -200,7 +200,7 @@ test("defaults to the current session and creates from the quick create box", as
     await waitFor(app, () => app.captureCharFrame().includes("No notes in Current Session yet"), "notepad did not open")
     expect(app.captureCharFrame()).toContain("Search in Current Session")
     expect(app.captureCharFrame()).toContain("New note in Current Session")
-    expect(app.captureCharFrame()).toContain("ctrl+a Current Session")
+    expect(app.captureCharFrame()).toContain("Show notes in Current Directory")
     expect(app.captureCharFrame()).not.toContain("New note panel")
 
     const draft = findTextarea(app.renderer.root)!
@@ -263,14 +263,14 @@ test("Ctrl+A switches scope without resetting typed state and scopes creation", 
     await app.flush()
 
     command(harness, "Switch note scope")
-    await waitFor(app, () => app.captureCharFrame().includes("ctrl+a Current Directory"), "scope did not switch to the directory")
+    await waitFor(app, () => app.captureCharFrame().includes("Show notes in Global"), "scope did not switch to the directory")
     expect(search.placeholder).toBe("Search in Current Directory")
     expect(draft.placeholder).toBe("New note in Current Directory")
     expect(search.value).toBe("note")
     expect(draft.plainText).toBe("unfinished draft")
 
     command(harness, "Switch note scope")
-    await waitFor(app, () => app.captureCharFrame().includes("ctrl+a Global"), "scope did not switch to global")
+    await waitFor(app, () => app.captureCharFrame().includes("Show notes in Current Session"), "scope did not switch to global")
     expect(search.placeholder).toBe("Search in Global")
     expect(draft.placeholder).toBe("New note in Global")
     expect(search.value).toBe("note")
@@ -283,7 +283,7 @@ test("Ctrl+A switches scope without resetting typed state and scopes creation", 
     expect(harness.notes()[0]).toMatchObject({ text: "Global note", scope: "global" })
 
     command(harness, "Switch note scope")
-    await waitFor(app, () => app.captureCharFrame().includes("ctrl+a Current Session"), "scope did not return to the session")
+    await waitFor(app, () => app.captureCharFrame().includes("Show notes in Current Directory"), "scope did not return to the session")
     expect(app.captureCharFrame()).not.toContain("Global note")
 
     draft.setText("Session note")
@@ -291,7 +291,7 @@ test("Ctrl+A switches scope without resetting typed state and scopes creation", 
     command(harness, "Create note")
     await waitFor(app, () => app.captureCharFrame().includes("Session note"), "session note was not created")
     command(harness, "Switch note scope")
-    await waitFor(app, () => app.captureCharFrame().includes("ctrl+a Current Directory"), "scope did not switch back to the directory")
+    await waitFor(app, () => app.captureCharFrame().includes("Show notes in Global"), "scope did not switch back to the directory")
     expect(app.captureCharFrame()).not.toContain("Session note")
   } finally {
     app.renderer.destroy()
@@ -422,7 +422,7 @@ test("Ctrl+T sets a goal and the shortcut is disabled in Global", async () => {
 
     command(harness, "Switch note scope")
     command(harness, "Switch note scope")
-    await waitFor(app, () => app.captureCharFrame().includes("ctrl+a Global"), "scope did not reach global")
+    await waitFor(app, () => app.captureCharFrame().includes("Show notes in Current Session"), "scope did not reach global")
     const goalCommand = commands(harness, "Toggle note goal").at(-1)
     expect(typeof goalCommand?.enabled === "function" ? goalCommand.enabled() : goalCommand?.enabled).toBe(false)
     expect(app.captureCharFrame()).toContain("🎯 Goal me")

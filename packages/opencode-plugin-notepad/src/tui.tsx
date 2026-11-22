@@ -135,6 +135,8 @@ function NotepadList(props: {
   const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
   const accent = theme.text?.action?.primary?.focused ?? theme.text.base
   const disabled = theme.text?.action?.primary?.disabled ?? theme.text.muted
+  const border = theme.border
+  const borderMuted = (border && typeof border === "object" && "base" in border ? border.base : border) ?? theme.text.muted
   const defaultSort: NoteSort = props.context.options.defaultSort === "created" ? "created" : "updated"
   const storage = (() => {
     try {
@@ -184,6 +186,12 @@ function NotepadList(props: {
   const goalEnabled = () =>
     props.target.sessionID !== undefined && scope() !== "global" && selectedNote() !== undefined
   const scopeText = () => scopeLabel(scope())
+  const nextScope = () => {
+    const values = scopes()
+    const index = values.indexOf(scope())
+    return values[(index + 1) % values.length] ?? values[0] ?? "folder"
+  }
+  const nextScopeText = () => scopeLabel(nextScope())
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
   let deleteTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -452,7 +460,6 @@ function NotepadList(props: {
     mode: "modal",
     priority: 20,
     commands: [
-      { bind: "ctrl+n", title: "Focus new note", run: focusCreate },
       { bind: "ctrl+e", title: "Edit note", run: () => void edit() },
       { bind: "ctrl+d", title: "Delete note", run: () => void remove() },
       { bind: "ctrl+z", title: "Undo delete", run: () => void undoDelete(), enabled: () => deletedNotes.has(undoKey) },
@@ -497,54 +504,64 @@ function NotepadList(props: {
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <box flexDirection="row" gap={1}>
-          <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
-          <text fg={theme.text.muted}>ctrl+a</text>
-          <text fg={accent} attributes={TextAttributes.BOLD}>{scopeText()}</text>
+      <box flexDirection="column" gap={0}>
+        <box flexDirection="row" justifyContent="space-between">
+          <box flexDirection="row" gap={1}>
+            <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
+            <text fg={theme.text.muted}>{scopeText()}</text>
+          </box>
+          <text fg={theme.text.muted}>f1 help · esc close</text>
         </box>
-        <text fg={theme.text.muted}>f1 help · esc close</text>
+        <box flexDirection="row" gap={1}>
+          <text fg={theme.text.muted}>ctrl+a</text>
+          <text fg={theme.text.muted}>Show notes in</text>
+          <text fg={accent} attributes={TextAttributes.BOLD}>{nextScopeText()}</text>
+        </box>
       </box>
       <text fg={theme.text.muted}>{props.context.ui.format.path(props.target.directory)}</text>
       <Show when={help()}>
         <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
           <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
-          <text fg={theme.text.muted}>ctrl+a switch scope · ctrl+n focus create · tab switches search and create</text>
+          <text fg={theme.text.muted}>ctrl+a shows the next scope · tab switches search and create</text>
           <text fg={theme.text.muted}>enter creates from the create box · shift+enter adds a line</text>
           <text fg={theme.text.muted}>ctrl+t set or clear goal · ctrl+e edit · ctrl+p pin</text>
           <text fg={theme.text.muted}>ctrl+d delete (goal note protected) · ctrl+y copy · ctrl+s sort</text>
           <text fg={theme.text.muted}>↑/↓ select · f1 help · esc close</text>
         </box>
       </Show>
-      <input
-        ref={(value: InputRenderable) => setSearchTarget(value)}
-        value={props.state.query ?? ""}
-        onInput={setQuery}
-        placeholder={`Search in ${scopeText()}`}
-        placeholderColor={theme.text.muted}
-        backgroundColor={formBackground}
-        focusedBackgroundColor={formFocusedBackground}
-        textColor={theme.text.formfield.base}
-        focusedTextColor={formFocusedText}
-        cursorColor={theme.text.formfield.base}
-      />
-      <textarea
-        ref={(value: TextareaRenderable) => setCreateTarget(value)}
-        initialValue={props.state.draft ?? ""}
-        height={3}
-        wrapMode="word"
-        onContentChange={() => {
-          const input = createTarget()
-          if (input && !input.isDestroyed) setDraft(input.plainText)
-        }}
-        placeholder={`New note in ${scopeText()}`}
-        placeholderColor={theme.text.muted}
-        backgroundColor={formBackground}
-        focusedBackgroundColor={formFocusedBackground}
-        textColor={theme.text.formfield.base}
-        focusedTextColor={formFocusedText}
-        cursorColor={theme.text.formfield.base}
-      />
+      <box border={["bottom"]} borderColor={focus() === "search" ? accent : borderMuted}>
+        <input
+          ref={(value: InputRenderable) => setSearchTarget(value)}
+          value={props.state.query ?? ""}
+          onInput={setQuery}
+          placeholder={`Search in ${scopeText()}`}
+          placeholderColor={theme.text.muted}
+          backgroundColor={formBackground}
+          focusedBackgroundColor={formFocusedBackground}
+          textColor={theme.text.formfield.base}
+          focusedTextColor={formFocusedText}
+          cursorColor={theme.text.formfield.base}
+        />
+      </box>
+      <box border={["bottom"]} borderColor={focus() === "create" ? accent : borderMuted}>
+        <textarea
+          ref={(value: TextareaRenderable) => setCreateTarget(value)}
+          initialValue={props.state.draft ?? ""}
+          height={3}
+          wrapMode="word"
+          onContentChange={() => {
+            const input = createTarget()
+            if (input && !input.isDestroyed) setDraft(input.plainText)
+          }}
+          placeholder={`New note in ${scopeText()}`}
+          placeholderColor={theme.text.muted}
+          backgroundColor={formBackground}
+          focusedBackgroundColor={formFocusedBackground}
+          textColor={theme.text.formfield.base}
+          focusedTextColor={formFocusedText}
+          cursorColor={theme.text.formfield.base}
+        />
+      </box>
       <scrollbox ref={(value: ScrollBoxRenderable) => setListTarget(value)} maxHeight={18}>
         <Show
           when={entries().length > 0}
@@ -568,9 +585,7 @@ function NotepadList(props: {
         </Show>
       </scrollbox>
       <text fg={theme.text.muted} wrapMode="word">
-        {`ctrl+a `}
-        <span style={{ fg: accent, attributes: TextAttributes.BOLD }}>{scopeText()}</span>
-        {` · ctrl+n create · ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · `}
+        {`ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · `}
         <span style={{ fg: goalEnabled() ? theme.text.muted : disabled }}>ctrl+t goal</span>
         {` · ctrl+s sort: ${sort()} · ctrl+y copy${deletedNotes.has(undoKey) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/create · f1 help`}
       </text>

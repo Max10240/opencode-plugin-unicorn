@@ -66,7 +66,7 @@ test.serial("quick create, scope switching, placeholders, and list navigation", 
   try {
     expect(tui.pane()).toContain("Search in Current Session")
     expect(tui.pane()).toContain("New note in Current Session")
-    expect(tui.pane()).toContain("ctrl+a Current Session")
+    expect(tui.pane()).toContain("Show notes in Current Directory")
 
     // Search Enter is intentionally unbound and must not open the editor.
     tui.send(["Enter"])
@@ -98,7 +98,7 @@ test.serial("quick create, scope switching, placeholders, and list navigation", 
     await Bun.sleep(100)
     tui.type("DIRECTORY_NOTE_BETA")
     tui.send(["C-a"])
-    await tui.waitFor("ctrl+a Current Directory", "ctrl+a did not switch to the current directory")
+    await tui.waitFor("Show notes in Global", "ctrl+a did not switch to the current directory")
     expect(tui.pane()).toContain("DIRECTORY_NOTE_BETA")
     tui.type("!")
     await tui.waitFor("DIRECTORY_NOTE_BETA!", "ctrl+a replaced the create text instead of switching scope")
@@ -113,7 +113,7 @@ test.serial("quick create, scope switching, placeholders, and list navigation", 
     expect(tui.pane()).toContain("New note in Current Directory")
 
     tui.send(["C-a"])
-    await tui.waitFor("ctrl+a Global", "ctrl+a did not switch to global")
+    await tui.waitFor("Show notes in Current Session", "ctrl+a did not switch to global")
     await tui.waitFor("Search in Global", "the search placeholder did not switch to global")
     expect(tui.pane()).toContain("New note in Global")
     expect(tui.pane()).not.toContain("SESSION_NOTE_ALPHA SECOND_LINE")
@@ -127,7 +127,7 @@ test.serial("quick create, scope switching, placeholders, and list navigation", 
 
     // Back to the session scope; only the session note is visible.
     tui.send(["C-a"])
-    await tui.waitFor("ctrl+a Current Session", "ctrl+a did not return to the session scope")
+    await tui.waitFor("Show notes in Current Directory", "ctrl+a did not return to the session scope")
     await tui.waitFor("SESSION_NOTE_ALPHA SECOND_LINE", "the session note did not return")
     await Bun.sleep(200)
     expect(tui.pane()).not.toContain("GLOBAL_NOTE_GAMMA")
@@ -206,12 +206,12 @@ test.serial("goal note is first, protected, and injected into session context", 
     // The goal shortcut is disabled in Global, so Ctrl+T leaves the goal intact.
     tui.send(["C-a"])
     tui.send(["C-a"])
-    await tui.waitFor("ctrl+a Global", "scope did not reach global")
+    await tui.waitFor("Show notes in Current Session", "scope did not reach global")
     tui.send(["C-t"])
     await Bun.sleep(300)
     expect(tui.pane()).toContain("🎯 OTHER_CONTEXT_BETA")
     tui.send(["C-a"])
-    await tui.waitFor("ctrl+a Current Session", "scope did not return to the session")
+    await tui.waitFor("Show notes in Current Directory", "scope did not return to the session")
 
     tui.send(["Escape"])
     await Bun.sleep(300)

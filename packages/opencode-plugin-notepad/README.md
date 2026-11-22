@@ -76,7 +76,8 @@ With Unicorn, the notepad is enabled by default:
 ## Using it
 
 ```text
-Notepad ctrl+a Current Session                              f1 help · esc close
+Notepad Current Session                                      f1 help · esc close
+ctrl+a Show notes in Current Directory
 /path/to/current/folder
 
 Search in Current Session
@@ -87,7 +88,7 @@ New note in Current Session
 📌 Remember to check release notes
   pinned · session · 3m ago
 
-ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help
+ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help
 ```
 
 | Key | Action |
@@ -95,7 +96,6 @@ ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+
 | `Enter` (create box) | Create the note in the current scope |
 | `Shift+Enter` (create box) | Insert a new line in the note being written |
 | `Ctrl+A` | Cycle the scope: Current Session → Current Directory → Global |
-| `Ctrl+N` | Focus the quick create box |
 | `Ctrl+T` | Set the selected note as the session goal, or clear it when it is already the goal |
 | `Ctrl+E` | Edit the selected note; `f2` or `ctrl+s` saves, `esc` cancels |
 | `Ctrl+D` | Delete the selected note; press again to confirm. A goal note is protected |
@@ -109,7 +109,8 @@ ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+
 | `Esc` | Close help or close the notepad |
 
 The search and create placeholders always name the current scope. Switching scope keeps the text already typed in both
-boxes.
+boxes. The header shows the current scope and the next scope `Ctrl+A` will display, and highlights that next scope; the
+focused input has a highlighted bottom rule.
 
 Notes keep the scope they were created in; there is no command to move a note between scopes.
 

@@ -72,7 +72,8 @@
 ## 使用
 
 ```text
-Notepad ctrl+a Current Session                              f1 help · esc close
+Notepad Current Session                                      f1 help · esc close
+ctrl+a Show notes in Current Directory
 /path/to/current/folder
 
 Search in Current Session
@@ -83,7 +84,7 @@ New note in Current Session
 📌 Remember to check release notes
   pinned · session · 3m ago
 
-ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help
+ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help
 ```
 
 | 按键 | 操作 |
@@ -91,7 +92,6 @@ ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+
 | `Enter`（创建框） | 按当前作用域创建笔记 |
 | `Shift+Enter`（创建框） | 在正在写的笔记里换行 |
 | `Ctrl+A` | 切换作用域：Current Session → Current Directory → Global |
-| `Ctrl+N` | 聚焦快捷创建框 |
 | `Ctrl+T` | 把选中的笔记设为当前 session 的目标；已是目标时清除目标 |
 | `Ctrl+E` | 编辑选中的笔记；`f2` 或 `ctrl+s` 保存，`esc` 取消 |
 | `Ctrl+D` | 删除选中的笔记；连按两次确认。目标笔记受保护 |
@@ -104,7 +104,7 @@ ctrl+a Current Session · ctrl+n create · ctrl+e edit · ctrl+d delete · ctrl+
 | `F1` | 显示或关闭快捷键帮助 |
 | `Esc` | 关闭帮助或关闭记事本 |
 
-搜索框和创建框的占位文字始终显示当前作用域。切换作用域时，两个输入框里已经写好的内容不会丢失。
+搜索框和创建框的占位文字始终显示当前作用域。切换作用域时，两个输入框里已经写好的内容不会丢失。header 会同时显示当前作用域和 `Ctrl+A` 将切换到的下一个作用域，并高亮下一个作用域；当前聚焦输入框的下边线也会高亮。
 
 笔记创建后不能修改作用域。
 
