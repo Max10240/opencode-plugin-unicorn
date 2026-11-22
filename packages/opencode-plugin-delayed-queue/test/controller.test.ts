@@ -153,17 +153,45 @@ test("waits for descendant background work until the descendant re-idles", async
   expect(fx.delivered.map((item) => item.text)).toEqual(["later"])
 })
 
-test("pauses on a user interrupt and resumes only after a fresh user prompt", async () => {
+test("pauses on a user interrupt and resumes only after a fresh prompt starts", async () => {
   const fx = fixture()
   fx.busy.add("s1")
   await fx.controller.enqueue("s1", "later", [])
   await fx.controller.onExecutionInterrupted("s1", "user")
   expect(fx.controller.status("s1").paused).toBe(true)
   await fx.controller.onPrompt("s1", false)
+  expect(fx.controller.status("s1").paused).toBe(true)
+  await fx.controller.onExecutionStarted("s1")
   expect(fx.controller.status("s1").paused).toBe(false)
   expect(fx.delivered).toEqual([])
   await fx.controller.onIdle("s1", [])
   expect(fx.delivered.map((item) => item.text)).toEqual(["later"])
+})
+
+test("a prompt steered into a running turn releases the pause at the idle boundary", async () => {
+  const fx = fixture()
+  fx.busy.add("s1")
+  await fx.controller.enqueue("s1", "later", [])
+  await fx.controller.onExecutionInterrupted("s1", "user")
+  await fx.controller.onPrompt("s1", false)
+  // The steer joins the turn that is already running, so no new start event follows.
+  fx.busy.delete("s1")
+  await fx.controller.onIdle("s1", [])
+  expect(fx.controller.status("s1").paused).toBe(false)
+  expect(fx.delivered.map((item) => item.text)).toEqual(["later"])
+})
+
+test("a prompt does not release a manual pause", async () => {
+  const fx = fixture()
+  fx.busy.add("s1")
+  await fx.controller.enqueue("s1", "later", [])
+  await fx.controller.pause("s1", "manual")
+  fx.busy.delete("s1")
+  await fx.controller.onPrompt("s1", false)
+  await fx.controller.onExecutionStarted("s1")
+  await fx.controller.onIdle("s1", [])
+  expect(fx.controller.status("s1")).toMatchObject({ paused: true, pauseReason: "manual", items: [{ text: "later" }] })
+  expect(fx.delivered).toEqual([])
 })
 
 test("does not pause when no message is waiting", async () => {

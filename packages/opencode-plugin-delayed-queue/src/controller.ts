@@ -90,6 +90,7 @@ type State = {
   delivering: boolean
   failures: number
   lastError?: string
+  resumePending: boolean
 }
 
 const MAX_DELIVERY_FAILURES = 3
@@ -133,6 +134,7 @@ export class DelayedQueueController {
       observed: false,
       delivering: false,
       failures: 0,
+      resumePending: false,
     })
   }
 
@@ -207,6 +209,7 @@ export class DelayedQueueController {
       const state = this.state(sessionID)
       state.paused = true
       state.pauseReason = reason
+      state.resumePending = false
       state.updatedAt = this.now()
       this.cancelRecheck(sessionID)
       await this.changed(state)
@@ -221,6 +224,7 @@ export class DelayedQueueController {
       state.pauseReason = undefined
       state.failures = 0
       state.lastError = undefined
+      state.resumePending = false
       state.observed = true
       state.updatedAt = this.now()
       await this.changed(state)
@@ -248,6 +252,7 @@ export class DelayedQueueController {
       state.background = background.map((work) => ({ ...work }))
       state.updatedAt = this.now()
       this.cancelRecheck(sessionID)
+      this.releasePromptPause(state)
       for (const other of this.states.values()) {
         if (other.sessionID === sessionID || other.items.length === 0 || other.paused) continue
         this.scheduleRecheck(other.sessionID)
@@ -274,18 +279,19 @@ export class DelayedQueueController {
     })
   }
 
-  /** A non-plugin prompt is a fresh user turn and releases an interrupt/failure pause. */
+  /**
+   * A non-plugin prompt releases an interrupt/failure pause once its execution actually starts,
+   * or at the next idle boundary for a prompt steered into a running turn. Releasing on prompt
+   * admission would let a recheck deliver ahead of a turn that has not started yet, merging the
+   * delayed message into the user's turn.
+   */
   async onPrompt(sessionID: string, own: boolean): Promise<void> {
     if (own) return
     await this.withLock(sessionID, async () => {
       const state = this.states.get(sessionID)
       if (!state || !state.paused) return
-      state.paused = false
-      state.pauseReason = undefined
-      state.failures = 0
-      state.lastError = undefined
-      state.updatedAt = this.now()
-      await this.changed(state)
+      if (state.pauseReason !== "interrupted" && state.pauseReason !== "failed") return
+      state.resumePending = true
     })
   }
 
@@ -307,8 +313,31 @@ export class DelayedQueueController {
     await this.pause(sessionID, reason)
   }
 
-  onExecutionStarted(sessionID: string): void {
-    this.cancelRecheck(sessionID)
+  async onExecutionStarted(sessionID: string): Promise<void> {
+    await this.withLock(sessionID, async () => {
+      this.cancelRecheck(sessionID)
+      const state = this.states.get(sessionID)
+      if (!state?.resumePending) return
+      state.resumePending = false
+      if (!state.paused) return
+      state.paused = false
+      state.pauseReason = undefined
+      state.failures = 0
+      state.lastError = undefined
+      state.updatedAt = this.now()
+      await this.changed(state)
+    })
+  }
+
+  private releasePromptPause(state: State): void {
+    if (!state.resumePending) return
+    state.resumePending = false
+    if (!state.paused) return
+    state.paused = false
+    state.pauseReason = undefined
+    state.failures = 0
+    state.lastError = undefined
+    state.updatedAt = this.now()
   }
 
   onJob(info: DelayedQueueJob): void {
@@ -379,6 +408,7 @@ export class DelayedQueueController {
       observed: false,
       delivering: false,
       failures: 0,
+      resumePending: false,
     }
     this.states.set(sessionID, created)
     return created

@@ -247,7 +247,7 @@ async function watchEvents(
       }
       if (!sessionID) continue
       if (type === "session.execution.started") {
-        controller.onExecutionStarted(sessionID)
+        void controller.onExecutionStarted(sessionID)
         continue
       }
       if (type === "session.execution.failed") {
