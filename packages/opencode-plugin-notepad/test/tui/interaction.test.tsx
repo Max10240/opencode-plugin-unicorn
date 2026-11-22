@@ -242,7 +242,7 @@ test("tab only switches the two inputs and search enter is intentionally unbound
 
     command(harness, "Edit note")
     await waitFor(app, () => app.captureCharFrame().includes("Edit note"), "ctrl+e did not open the editor")
-    command(harness, "Cancel note")
+    command(harness, "Back to notes")
     await waitFor(app, () => app.captureCharFrame().includes("Search in Current Session"), "cancel did not return to the list")
   } finally {
     app.renderer.destroy()
@@ -456,7 +456,10 @@ test("editing a goal note updates it or clears the goal when it exceeds 8 KiB", 
     await Bun.sleep(60)
     findTextarea(app.renderer.root)!.setText("Updated goal")
     command(harness, "Save note")
+    // A quick Esc after saving must not close the panel during the async refresh.
+    command(harness, "Back to notes")
     await waitFor(app, () => app.captureCharFrame().includes("Updated goal"), "updated goal was not listed")
+    expect(app.captureCharFrame()).toContain("Notepad Current Session")
     expect(harness.goal()?.text).toBe("Updated goal")
     expect(find(app.renderer.root, InputRenderable)!.value).toBe("note")
     expect(findTextarea(app.renderer.root)!.plainText).toBe("draft kept")
@@ -466,6 +469,7 @@ test("editing a goal note updates it or clears the goal when it exceeds 8 KiB", 
     await Bun.sleep(60)
     findTextarea(app.renderer.root)!.setText("x".repeat(MAX_GOAL_BYTES + 1))
     command(harness, "Save note")
+    command(harness, "Back to notes")
     await waitFor(app, () => harness.goal() === undefined, "oversized edit did not clear the goal")
     expect(harness.toasts).toContain("Goal cleared: note exceeds 8 KiB")
   } finally {

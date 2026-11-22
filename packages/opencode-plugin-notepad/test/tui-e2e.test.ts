@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
 import { createSession } from "../../opencode-plugin-show-img/test/e2e-utils.js"
-import { createTui } from "../../../test/tui-support.js"
+import { createTui, type Tui } from "../../../test/tui-support.js"
 
 setDefaultTimeout(180_000)
 
@@ -45,6 +45,17 @@ function promptRequest(e2e: Awaited<ReturnType<typeof startNotepad>>["e2e"], tex
   return e2e.proxy.requests.findLast((request) => JSON.stringify(request.messages).includes(text))
 }
 
+function ansiPane(tui: Tui) {
+  return tui.tmux(["capture-pane", "-p", "-e", "-t", tui.target], false).stdout.toString()
+}
+
+function underlineLines(pane: string) {
+  return pane.split("\n").flatMap((line, index) => {
+    const rule = line.trim()
+    return rule.length > 0 && /^─+$/.test(rule) ? [{ index, length: rule.length }] : []
+  })
+}
+
 async function sendPrompt(
   e2e: Awaited<ReturnType<typeof startNotepad>>["e2e"],
   tui: Awaited<ReturnType<typeof startNotepad>>["tui"],
@@ -67,6 +78,26 @@ test.serial("quick create, scope switching, placeholders, and list navigation", 
     expect(tui.pane()).toContain("Search in Current Session")
     expect(tui.pane()).toContain("New note in Current Session")
     expect(tui.pane()).toContain("Show notes in Current Directory")
+
+    const header = tui.pane().split("\n").find((line) => line.includes("Notepad") && line.includes("Current Session"))
+    expect(header).toBeDefined()
+    expect(header).not.toContain("ctrl+a")
+    expect(header).not.toContain("f1 help")
+    expect(header).not.toContain("esc close")
+    expect(tui.pane()).toContain("ctrl+a Show notes in Current Directory")
+    expect(tui.pane()).toContain("f1 help · esc close")
+    const ansiHeader = ansiPane(tui).split("\n").find((line) => line.includes("Notepad") && line.includes("Current Session"))
+    expect(ansiHeader).toMatch(/\x1b\[[0-9;]*4[0-9;]*m/)
+
+    const rules = underlineLines(tui.pane())
+    expect(rules).toHaveLength(2)
+    expect(rules[0]?.length).toBeGreaterThan(60)
+    expect(rules[1]?.length).toBe(rules[0]?.length)
+    tui.send(["Tab"])
+    await Bun.sleep(150)
+    expect(underlineLines(tui.pane())).toEqual(rules)
+    tui.send(["Tab"])
+    await Bun.sleep(150)
 
     // Search Enter is intentionally unbound and must not open the editor.
     tui.send(["Enter"])
