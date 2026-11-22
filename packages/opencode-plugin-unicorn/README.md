@@ -92,7 +92,7 @@ renames fields or mixes objects together. Missing objects are passed as `{}`, so
 
 | Feature | Nested object | Useful options |
 | --- | --- | --- |
-| God agent | `god` | `models`, `cache`, `cacheTtlMs`, `timeoutMs` |
+| God agent | `god` | `models`, `sourceBaseUrl`, `cache`, `cacheTtlMs`, `timeoutMs` |
 | Delayed queue | `delayedQueue` | `keybind` (default `<leader>d`), `queueKeybind` (default `f9`), `recheckMs` (default `5000`), `waitKinds`, `waitDescendants`, `pauseOnInterrupt`, `pauseOnFailure` |
 | Auto-background | `nonBlocking` | `thresholdMs` (default `10000`) |
 | Prompt search | `promptSearch` | `keybind` (default `ctrl+shift+r`), `maxPrompts` (default `2000`), `defaultScope` (`all` or `project`) |

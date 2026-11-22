@@ -1,16 +1,23 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  // Zero configuration: installing the plugin is enough. The built-in table
+  // maps known model IDs to published prompts, and every other model uses a
+  // shared fallback prompt.
+  //
+  // Add "options" only to override a source. A "models" entry for one model
+  // keeps the built-in entries for the rest; "models": { "*": "..." } applies
+  // to every model and therefore replaces the built-in table.
   "plugins": [
     {
       "package": "@max10240/opencode-plugin-god",
       "options": {
         "models": {
-          "*": "~/.config/opencode/god/default.md",
           "deepseek-v4.1-flash": "~/.config/opencode/god/deepseek-v4.1-flash.md",
-          "claude-sonnet-4-5": "https://example.com/god/claude-sonnet-4-5.md"
+          "claude-sonnet-5-5": "https://example.com/god/claude-sonnet-5-5.md"
         },
+        "sourceBaseUrl": "https://raw.githubusercontent.com/togg53192-cmd/jailbreaks/main/",
         "cache": true,
-        "cacheTtlMs": 60000,
+        "cacheTtlMs": 86400000,
         "timeoutMs": 10000
       }
     }

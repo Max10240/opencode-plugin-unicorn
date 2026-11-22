@@ -89,7 +89,7 @@ Unicorn 会把每个同名嵌套对象原样传给对应插件。默认值由插
 
 | 功能 | 嵌套对象 | 常用参数 |
 | --- | --- | --- |
-| God agent | `god` | `models`、`cache`、`cacheTtlMs`、`timeoutMs` |
+| God agent | `god` | `models`、`sourceBaseUrl`、`cache`、`cacheTtlMs`、`timeoutMs` |
 | 延迟队列 | `delayedQueue` | `keybind`（默认 `<leader>d`）、`queueKeybind`（默认 `f9`）、`recheckMs`（默认 `5000`）、`waitKinds`、`waitDescendants`、`pauseOnInterrupt`、`pauseOnFailure` |
 | 自动后台 | `nonBlocking` | `thresholdMs`（默认 `10000`） |
 | Prompt 检索 | `promptSearch` | `keybind`（默认 `ctrl+shift+r`）、`maxPrompts`（默认 `2000`）、`defaultScope`（`all` 或 `project`） |
