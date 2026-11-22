@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
+import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { Context } from "@opencode/plugin/tui/context"
 import type { JSX } from "solid-js"
@@ -18,7 +19,12 @@ const options: DelayedQueueOptions = {
 }
 
 const theme = {
-  text: { base: "#ffffff", muted: "#aaaaaa", formfield: { base: "#ffffff" } },
+  text: {
+    base: "#ffffff",
+    muted: "#aaaaaa",
+    formfield: { base: "#ffffff" },
+    feedback: { warning: { base: "#ffaa00" } },
+  },
   background: {
     base: "#111111",
     raised: { base: "#222222", high: "#333333" },
@@ -89,11 +95,11 @@ function harness(overrides: Partial<Record<string, unknown>> = {}, behavior: { r
         },
         pause: async () => {
           calls.push("pause")
-          return { ...current, paused: true }
+          return { ...current, paused: true, pauseReason: "manual" }
         },
         resume: async () => {
           calls.push("resume")
-          return { ...current, paused: false }
+          return { ...current, paused: false, pauseReason: undefined }
         },
         deliver: async (input: { id: string }) => {
           calls.push(`deliver:${input.id}`)
@@ -207,7 +213,7 @@ test("deleting the last prompt closes the panel", async () => {
   }
 })
 
-test("panel pause updates state without reopening", async () => {
+test("panel pause updates the whole queue and explains why it is paused", async () => {
   const fx = harness()
   await openPanel(fx)
   const app = await renderPanel(fx)
@@ -215,10 +221,64 @@ test("panel pause updates state without reopening", async () => {
     panelCommand(fx, "Pause delayed queue")!.run()
     await Bun.sleep(10)
     await app.flush()
-    expect(fx.calls).toContain("pause")
+    expect(fx.calls).toEqual(["pause"])
     expect(fx.shows).toHaveLength(1)
     expect(fx.clears()).toBe(0)
-    expect(app.captureCharFrame()).toContain("paused")
+    expect(fx.toasts).toEqual([{ message: "Paused the whole delayed queue · messages stay queued", variant: "info" }])
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Whole queue paused")
+    expect(frame).toContain("manually")
+    expect(frame).toContain("2 messages stay queued · automatic delivery is off · ctrl+s still sends one now")
+    expect(frame).toContain("ctrl+p resume queue")
+    expect(frame).toContain("2 queued · paused")
+    expect(frame).toContain("▶ first delayed")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("clicking the pause footer pauses the whole queue", async () => {
+  const fx = harness()
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    const lines = app.captureCharFrame().split("\n")
+    const row = lines.findIndex((line) => line.includes("ctrl+p pause queue"))
+    expect(row).toBeGreaterThanOrEqual(0)
+    await app.mockMouse.click(lines[row]!.indexOf("ctrl+p pause queue") + 2, row)
+    await Bun.sleep(20)
+    await app.flush()
+    expect(fx.calls).toEqual(["pause"])
+    expect(app.captureCharFrame()).toContain("Whole queue paused")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("an automatic pause shows its reason", async () => {
+  const fx = harness({ paused: true, pauseReason: "interrupted" })
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Whole queue paused")
+    expect(frame).toContain("after an interrupt")
+    expect(frame).toContain("2 messages stay queued · automatic delivery is off · ctrl+s still sends one now")
+    expect(frame).toContain("ctrl+p resume queue")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("a paused queue without a recorded reason says so", async () => {
+  const fx = harness({ paused: true })
+  await openPanel(fx)
+  const app = await renderPanel(fx)
+  try {
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Whole queue paused")
+    expect(frame).toContain("no reason recorded")
+    expect(frame).not.toContain("manually")
   } finally {
     app.renderer.destroy()
   }
@@ -254,6 +314,44 @@ test("the dock renders the official queue-style pending bar", async () => {
     const frame = app.captureCharFrame()
     expect(frame).toContain("2 delayed")
     expect(frame).toContain("first delayed")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the dock keeps the paused indicator visible before a long message", async () => {
+  const fx = harness({ paused: true, items: [{ id: "msg_1", text: "x".repeat(300), createdAt: 1 }] })
+  const app = await testRender(() => (
+    <box width="100%" height="100%">
+      <DelayedQueueDock context={fx.context} sessionID="s1" options={options} />
+    </box>
+  ), { width: 60, height: 20 })
+  try {
+    await Bun.sleep(10)
+    await app.flush()
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("⏸ 1 delayed · paused")
+    expect(frame).not.toContain("paused after")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the dock shows why the queue paused", async () => {
+  const fx = harness({ paused: true, pauseReason: "interrupted" })
+  const app = await testRender(() => (
+    <box width="100%" height="100%">
+      <DelayedQueueDock context={fx.context} sessionID="s1" options={options} />
+    </box>
+  ), { width: 80, height: 20 })
+  try {
+    await Bun.sleep(10)
+    await app.flush()
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("⏸ 2 delayed · paused after interrupt")
+    expect(frame).toContain("first delayed")
+    const border = app.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes("┃"))
+    expect(border?.fg.toInts()).toEqual(RGBA.fromHex("#ffaa00").toInts())
   } finally {
     app.renderer.destroy()
   }
