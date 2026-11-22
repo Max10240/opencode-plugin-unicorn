@@ -76,7 +76,7 @@ the same name:
 | OpenCode Go usage | `features.opencodeGoUsage` | Shows 5-hour, weekly, and monthly usage for every signed-in OpenCode Go account |
 | Infinite loop | `features.infiniteLoop` | Keeps an activated session working with idle nudges until its time window ends |
 | Retry | `features.retry` | Interrupts a running turn and sends a configurable Continue prompt, or sends it immediately when idle |
-| Notepad | `features.notepad` | Folder-scoped and global notes that never interrupt the conversation |
+| Notepad | `features.notepad` | Session goals and session, folder, and global notes that never interrupt the conversation |
 | Sensitive encryption | `features.sensitiveEncrypt` | Encrypts secrets with a public key and decrypts only to a file |
 | Sensitive protection | `sensitiveProtection` | `files`, `maxContentBytes`, `notifications`, `historyLimit`, `historyKeybind` |
 | Recommended config | `features.recommendedOpencodeConfig` | Adds curated global rules and commands, and sets OpenAI `store:false` |

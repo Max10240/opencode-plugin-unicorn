@@ -74,7 +74,7 @@ TUI 连接远程 server 时，两端都要安装 Unicorn：server 配置控制 s
 | OpenCode Go 用量 | `features.opencodeGoUsage` | 展示所有已登录账号的 OpenCode Go 5 小时、每周和每月用量 |
 | 无限循环 | `features.infiniteLoop` | 让激活的会话在时间窗内持续工作：空闲时按冷却节奏发送提醒 |
 | Retry | `features.retry` | 打断正在运行的回合并发送可配置的 Continue；空闲时直接发送 |
-| 记事本 | `features.notepad` | 按文件夹或全局保存笔记，不打断对话 |
+| 记事本 | `features.notepad` | 支持 session 目标，以及按 session、文件夹或全局保存笔记，不打断对话 |
 | 敏感信息加密 | `features.sensitiveEncrypt` | 用公钥加密敏感内容，只解密到文件 |
 | 敏感信息保护 | `sensitiveProtection` | `files`、`maxContentBytes`、`notifications`、`historyLimit`、`historyKeybind` |
 | 推荐配置 | `features.recommendedOpencodeConfig` | 补充精选全局规则和命令，并设置 OpenAI `store:false` |

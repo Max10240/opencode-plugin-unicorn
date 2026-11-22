@@ -12,12 +12,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isScope(value: unknown): value is NoteScope {
-  return value === "folder" || value === "global"
+  return value === "session" || value === "folder" || value === "global"
 }
 
 export function normalizeDirectory(value: string) {
   if (typeof value !== "string" || !value.trim()) throw new NotepadError("A folder is required")
   return path.resolve(value)
+}
+
+export function normalizeSession(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) throw new NotepadError("A session is required")
+  return value.trim()
 }
 
 export function normalizeText(value: unknown) {
@@ -34,7 +39,8 @@ function storedNote(value: unknown): Note | undefined {
   if (typeof value.text !== "string" || !value.text.trim()) return
   if (!isScope(value.scope)) return
   if (value.scope === "folder" && (typeof value.folder !== "string" || !value.folder)) return
-  if (value.scope === "global" && value.folder !== undefined) return
+  if (value.scope === "session" && (typeof value.session !== "string" || !value.session)) return
+  if (value.scope === "global" && (value.folder !== undefined || value.session !== undefined)) return
   if (typeof value.createdAt !== "number" || typeof value.updatedAt !== "number") return
   if (Buffer.byteLength(value.text, "utf8") > MAX_NOTE_BYTES) return
   return {
@@ -42,6 +48,7 @@ function storedNote(value: unknown): Note | undefined {
     text: value.text,
     scope: value.scope,
     ...(value.scope === "folder" ? { folder: value.folder as string } : {}),
+    ...(value.scope === "session" ? { session: value.session as string } : {}),
     ...(value.pinned === true ? { pinned: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -59,10 +66,14 @@ function parse(value: unknown): Note[] {
   })
 }
 
-export function visibleNotes(notes: readonly Note[], directory: string) {
+export function visibleNotes(notes: readonly Note[], directory: string, session?: string) {
   const folder = normalizeDirectory(directory)
   return notes
-    .filter((note) => note.scope === "global" || note.folder === folder)
+    .filter((note) =>
+      note.scope === "global" ||
+      (note.scope === "folder" && note.folder === folder) ||
+      (note.scope === "session" && session !== undefined && note.session === session)
+    )
     .slice()
     .sort((left, right) => Number(right.pinned === true) - Number(left.pinned === true) || right.updatedAt - left.updatedAt)
 }
@@ -88,15 +99,18 @@ export class NoteStore {
     await this.save({ version: STORED_VERSION, notes })
   }
 
-  list(directory: string) {
-    return this.run((notes) => visibleNotes(notes, directory))
+  list(directory: string, session?: string) {
+    return this.run((notes) => visibleNotes(notes, directory, session))
   }
 
-  add(input: { text: unknown; scope: unknown; directory?: unknown; pinned?: unknown }) {
+  add(input: { text: unknown; scope: unknown; directory?: unknown; session?: unknown; pinned?: unknown }) {
     return this.run(async (notes) => {
       const text = normalizeText(input.text)
-      const scope = isScope(input.scope) ? input.scope : "folder"
+      const scope = isScope(input.scope)
+        ? input.scope
+        : input.session === undefined ? "folder" : "session"
       const folder = scope === "folder" ? normalizeDirectory(String(input.directory ?? "")) : undefined
+      const session = scope === "session" ? normalizeSession(input.session) : undefined
       if (notes.length >= MAX_NOTES) throw new NotepadError(`Notepad cannot exceed ${MAX_NOTES} notes`)
       const now = Date.now()
       const note: Note = {
@@ -104,6 +118,7 @@ export class NoteStore {
         text,
         scope,
         ...(folder === undefined ? {} : { folder }),
+        ...(session === undefined ? {} : { session }),
         ...(input.pinned === true ? { pinned: true } : {}),
         createdAt: now,
         updatedAt: now,
@@ -146,28 +161,6 @@ export class NoteStore {
       const next: Note = {
         ...rest,
         ...(pinned ? { pinned: true } : {}),
-        updatedAt: Date.now(),
-      }
-      notes[notes.indexOf(note)] = next
-      await this.persist(notes)
-      return next
-    })
-  }
-
-  setScope(id: unknown, scope: unknown, directory: unknown) {
-    return this.run(async (notes) => {
-      if (typeof id !== "string" || !id) throw new NotepadError("A note id is required")
-      if (!isScope(scope)) throw new NotepadError("Invalid note scope")
-      const note = notes.find((item) => item.id === id)
-      if (!note) throw new NotepadError("Note not found")
-      const folder = scope === "folder" ? normalizeDirectory(String(directory ?? "")) : undefined
-      const next: Note = {
-        id: note.id,
-        text: note.text,
-        scope,
-        ...(folder === undefined ? {} : { folder }),
-        ...(note.pinned === true ? { pinned: true } : {}),
-        createdAt: note.createdAt,
         updatedAt: Date.now(),
       }
       notes[notes.indexOf(note)] = next

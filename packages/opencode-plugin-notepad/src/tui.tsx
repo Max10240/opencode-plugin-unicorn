@@ -3,15 +3,25 @@ import type { Context } from "@opencode/plugin/tui/context"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { NotepadRpc } from "./rpc.js"
-import type { Note, NoteScope } from "./types.js"
+import { MAX_GOAL_BYTES, type Goal, type Note, type NoteScope } from "./types.js"
 
 export const DEFAULT_KEYBIND = "ctrl+shift+n"
 export const COMMAND_ID = "max10240.notepad.open"
 
-type NoteResult = { notes: Note[] }
+type NoteResult = { notes: Note[]; goal?: Goal }
 type NoteSort = "updated" | "created"
+type Focus = "search" | "create"
+type PanelState = {
+  readonly selected?: string
+  readonly query?: string
+  readonly draft?: string
+  readonly scope?: NoteScope
+  readonly focus?: Focus
+}
 
-// One recoverable deletion per folder, kept until the next delete or undo.
+const SCOPES: readonly NoteScope[] = ["session", "folder", "global"]
+
+// One recoverable deletion per folder and session, kept until the next delete or undo.
 const deletedNotes = new Map<string, Note>()
 
 export default Plugin.define({
@@ -28,7 +38,7 @@ export function setupNotepadTui(context: Context) {
     commands: [{
       id: COMMAND_ID,
       title: "Open notepad",
-      description: "Capture and manage notes for this folder or globally",
+      description: "Capture and manage session, folder, and global notes",
       group: "Notes",
       bind: keybind,
       palette: true,
@@ -43,56 +53,88 @@ export function resolveKeybind(value: unknown): string | false {
   return typeof value === "string" && value.trim() ? value.trim() : DEFAULT_KEYBIND
 }
 
+export function scopeLabel(scope: NoteScope) {
+  if (scope === "session") return "Current Session"
+  if (scope === "folder") return "Current Directory"
+  return "Global"
+}
+
+function scopeShort(scope: NoteScope) {
+  if (scope === "session") return "session"
+  if (scope === "folder") return "directory"
+  return "global"
+}
+
 async function openNotepad(context: Context) {
-  const directory = await currentDirectory(context)
-  if (!directory) {
+  const target = await currentTarget(context)
+  if (!target) {
     void context.ui.toast.show({ message: "Open a project folder first", variant: "warning" })
     return
   }
-  await openList(context, directory)
+  await openList(context, target)
 }
 
-async function currentDirectory(context: Context) {
+async function currentTarget(context: Context): Promise<{ directory: string; sessionID?: string } | undefined> {
   const route = context.ui.router.current()
   if (route.type === "session") {
     try {
       const session = await context.client.session.get({ sessionID: route.sessionID })
       const directory = session?.location?.directory
-      if (typeof directory === "string" && directory) return directory
+      if (typeof directory === "string" && directory) return { directory, sessionID: route.sessionID }
     } catch {}
+    if (context.location?.directory) return { directory: context.location.directory, sessionID: route.sessionID }
   }
-  return context.location?.directory
+  return context.location?.directory ? { directory: context.location.directory } : undefined
 }
 
-async function fetchNotes(context: Context, directory: string) {
-  const result = await context.client.rpc(NotepadRpc).list({ directory }, { location: context.location }) as NoteResult
-  return result.notes
+async function fetchList(context: Context, target: { directory: string; sessionID?: string }) {
+  return await context.client.rpc(NotepadRpc).list(
+    { directory: target.directory, ...(target.sessionID === undefined ? {} : { session: target.sessionID }) },
+    { location: context.location },
+  ) as NoteResult
 }
 
-async function openList(context: Context, directory: string, selected?: string) {
-  let notes: Note[]
+async function openList(
+  context: Context,
+  target: { directory: string; sessionID?: string },
+  state: PanelState = {},
+) {
+  let result: NoteResult
   try {
-    notes = await fetchNotes(context, directory)
+    result = await fetchList(context, target)
   } catch (error) {
     await context.ui.dialog.alert({ title: "Notepad", message: message(error) })
     return
   }
-  context.ui.dialog.show(() => <NotepadList context={context} directory={directory} initial={notes} selected={selected} />)
+  context.ui.dialog.show(() => (
+    <NotepadList context={context} target={target} initial={result.notes} initialGoal={result.goal} state={state} />
+  ))
 }
 
-function NotepadList(props: { context: Context; directory: string; initial: Note[]; selected?: string }) {
+function NotepadList(props: {
+  context: Context
+  target: { directory: string; sessionID?: string }
+  initial: Note[]
+  initialGoal?: Goal
+  state: PanelState
+}) {
   const [notes, setNotes] = createSignal(props.initial)
-  const [query, setQuery] = createSignal("")
-  const [selected, setSelected] = createSignal<string | undefined>(props.selected ?? props.initial[0]?.id)
+  const [goal, setGoal] = createSignal<Goal | undefined>(props.initialGoal)
+  const [query, setQuery] = createSignal(props.state.query ?? "")
+  const [draft, setDraft] = createSignal(props.state.draft ?? "")
+  const [selected, setSelected] = createSignal<string | undefined>(props.state.selected)
   const [listTarget, setListTarget] = createSignal<ScrollBoxRenderable>()
   const [searchTarget, setSearchTarget] = createSignal<InputRenderable>()
-  const [dialogOpen, setDialogOpen] = createSignal(false)
+  const [createTarget, setCreateTarget] = createSignal<TextareaRenderable>()
   const [help, setHelp] = createSignal(false)
   const [pendingDelete, setPendingDelete] = createSignal<string>()
+  const [focus, setFocus] = createSignal<Focus>(props.state.focus ?? "search")
   const theme = props.context.theme.surface("dialog")
   const formBackground = theme.background?.formfield?.base ?? theme.background?.base
   const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
   const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
+  const accent = theme.text?.action?.primary?.focused ?? theme.text.base
+  const disabled = theme.text?.action?.primary?.disabled ?? theme.text.muted
   const defaultSort: NoteSort = props.context.options.defaultSort === "created" ? "created" : "updated"
   const storage = (() => {
     try {
@@ -103,21 +145,45 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   })()
   const [stored, updateStored] = storage ?? [{ sort: defaultSort }, () => {}]
   const [sort, setSort] = createSignal<NoteSort>(stored.sort === "created" || stored.sort === "updated" ? stored.sort : defaultSort)
+  const scopes = createMemo<readonly NoteScope[]>(() =>
+    props.target.sessionID === undefined ? SCOPES.filter((value) => value !== "session") : SCOPES
+  )
+  const [scope, setScope] = createSignal<NoteScope>(
+    props.state.scope && scopes().includes(props.state.scope) ? props.state.scope : scopes()[0] ?? "folder",
+  )
+  const undoKey = `${props.target.directory}\u0000${props.target.sessionID ?? ""}`
   const ordered = (values: readonly Note[]) => values.slice().sort((left, right) =>
     Number(right.pinned === true) - Number(left.pinned === true) ||
     (sort() === "created" ? right.createdAt - left.createdAt : right.updatedAt - left.updatedAt)
   )
-  const folder = createMemo(() => notes().filter((note) => note.scope === "folder"))
-  const global = createMemo(() => notes().filter((note) => note.scope === "global"))
-  const matches = (note: Note) => {
+  const goalNote = createMemo<Note | undefined>(() => {
+    const current = goal()
+    if (!current) return
+    return notes().find((note) => note.id === current.noteID) ?? {
+      id: current.noteID,
+      text: current.text,
+      scope: current.scope,
+      ...(current.folder === undefined ? {} : { folder: current.folder }),
+      ...(current.session === undefined ? {} : { session: current.session }),
+      createdAt: current.updatedAt,
+      updatedAt: current.updatedAt,
+    }
+  })
+  const scoped = createMemo(() => notes().filter((note) => note.scope === scope()))
+  const entries = createMemo(() => {
     const value = query().trim().toLowerCase()
-    return !value || note.text.toLowerCase().includes(value)
-  }
-  const pinnedMatches = createMemo(() => ordered(notes().filter((note) => note.pinned === true).filter(matches)))
-  const folderMatches = createMemo(() => ordered(folder().filter((note) => note.pinned !== true).filter(matches)))
-  const globalMatches = createMemo(() => ordered(global().filter((note) => note.pinned !== true).filter(matches)))
-  const entries = createMemo(() => [...pinnedMatches(), ...folderMatches(), ...globalMatches()])
+    const first = goalNote()
+    const rest = ordered(
+      scoped()
+        .filter((note) => note.id !== first?.id)
+        .filter((note) => !value || note.text.toLowerCase().includes(value)),
+    )
+    return first ? [first, ...rest] : rest
+  })
   const selectedNote = createMemo(() => entries().find((note) => note.id === selected()) ?? entries()[0])
+  const goalEnabled = () =>
+    props.target.sessionID !== undefined && scope() !== "global" && selectedNote() !== undefined
+  const scopeText = () => scopeLabel(scope())
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
   let deleteTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -161,17 +227,26 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
     setTimeout(() => {
+      if (focus() === "create") {
+        const target = createTarget()
+        if (target && !target.isDestroyed) target.focus()
+        return
+      }
       const target = searchTarget()
       if (target && !target.isDestroyed) target.focus()
     }, 50)
   })
 
-  const focusSearch = () => {
-    setSearchTargetFocus(searchTarget, true)
+  const focusInput = (next: Focus) => {
+    setFocus(next)
+    const target = next === "search" ? searchTarget() : createTarget()
+    if (target && !target.isDestroyed) target.focus()
   }
-  const focusList = () => {
-    setSearchTargetFocus(searchTarget, false)
-    listTarget()?.focus()
+  const focusSearch = () => focusInput("search")
+  const focusCreate = () => focusInput("create")
+
+  const notifyError = (error: unknown) => {
+    void props.context.ui.toast.show({ message: message(error), variant: "error" })
   }
 
   const copy = (note: Note | undefined) => {
@@ -183,69 +258,123 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     void props.context.ui.toast.show({ message: "Copied note", variant: "success" })
   }
 
-  const reload = async (select?: string) => {
-    try {
-      const next = await fetchNotes(props.context, props.directory)
-      setNotes(next)
-      if (select && next.some((note) => note.id === select)) setSelected(select)
-    } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-    }
+  const cycleScope = () => {
+    const values = scopes()
+    const index = values.indexOf(scope())
+    setScope(values[(index + 1) % values.length] ?? values[0] ?? "folder")
+    clearPendingDelete()
   }
 
-  const withDialog = async <T,>(task: () => Promise<T>) => {
-    setDialogOpen(true)
-    try {
-      return await task()
-    } finally {
-      setDialogOpen(false)
-    }
-  }
-
-  const add = async () => {
-    const result = await withDialog(() => editDialog(props.context, { scope: "folder" }))
-    if (!result) {
-      await openList(props.context, props.directory, selected())
+  const createNote = async () => {
+    const input = createTarget()
+    const text = input?.plainText.trim() ?? ""
+    if (!text) {
+      void props.context.ui.toast.show({ message: "Note cannot be empty", variant: "warning" })
       return
     }
     try {
-      const note = await props.context.client.rpc(NotepadRpc).add(
-        { text: result.text, scope: result.scope, directory: props.directory },
+      const result = await props.context.client.rpc(NotepadRpc).add(
+        {
+          text,
+          scope: scope(),
+          directory: props.target.directory,
+          ...(props.target.sessionID === undefined ? {} : { session: props.target.sessionID }),
+        },
         { location: props.context.location },
       ) as { note: Note }
-      await openList(props.context, props.directory, note.note.id)
+      setNotes((values) => [...values, result.note])
+      input?.setText("")
+      setDraft("")
+      setSelected(result.note.id)
+      focusCreate()
     } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-      await openList(props.context, props.directory, selected())
+      notifyError(error)
     }
   }
+
+  const insertNewline = () => {
+    const input = createTarget()
+    if (!input) return
+    input.newLine()
+    setDraft(input.plainText)
+  }
+
+  const toggleGoal = async () => {
+    clearPendingDelete()
+    const note = selectedNote()
+    if (!note || props.target.sessionID === undefined || scope() === "global") return
+    if (goal()?.noteID === note.id) {
+      try {
+        await props.context.client.rpc(NotepadRpc).clearGoal(
+          { sessionID: props.target.sessionID },
+          { location: props.context.location },
+        )
+        setGoal(undefined)
+        void props.context.ui.toast.show({ message: "Goal cleared", variant: "success" })
+      } catch (error) {
+        notifyError(error)
+      }
+      return
+    }
+    try {
+      const result = await props.context.client.rpc(NotepadRpc).setGoal(
+        { sessionID: props.target.sessionID, noteID: note.id, directory: props.target.directory },
+        { location: props.context.location },
+      ) as { goal: Goal }
+      setGoal(result.goal)
+      void props.context.ui.toast.show({ message: "Goal set", variant: "success" })
+    } catch (error) {
+      notifyError(error)
+    }
+  }
+
+  const snapshot = (): PanelState => ({
+    query: query(),
+    draft: draft(),
+    scope: scope(),
+    focus: focus(),
+    selected: selectedNote()?.id,
+  })
 
   const edit = async () => {
     const note = selectedNote()
     if (!note) return
-    const result = await withDialog(() => editDialog(props.context, { text: note.text, scope: note.scope }))
-    if (!result) {
-      await openList(props.context, props.directory, note.id)
-      return
-    }
-    try {
-      await props.context.client.rpc(NotepadRpc).update({ id: note.id, text: result.text }, { location: props.context.location })
-      if (result.scope !== note.scope) {
-        await props.context.client.rpc(NotepadRpc).setScope(
-          { id: note.id, scope: result.scope, directory: props.directory },
+    const state = snapshot()
+    const result = await editDialog(props.context, { text: note.text })
+    let goalCleared = false
+    if (result) {
+      try {
+        const updated = await props.context.client.rpc(NotepadRpc).update(
+          { id: note.id, text: result.text },
           { location: props.context.location },
-        )
+        ) as { note: Note; goalCleared?: boolean }
+        goalCleared = updated.goalCleared === true
+      } catch (error) {
+        notifyError(error)
       }
-      await openList(props.context, props.directory, note.id)
-    } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-      await openList(props.context, props.directory, note.id)
     }
+    if (goalCleared) {
+      setGoal(undefined)
+      const tooLarge = result !== undefined && new TextEncoder().encode(result.text).byteLength > MAX_GOAL_BYTES
+      void props.context.ui.toast.show({
+        message: tooLarge ? "Goal cleared: note exceeds 8 KiB" : "Goal cleared",
+        variant: "warning",
+      })
+    }
+    await openList(props.context, props.target, { ...state, selected: note.id })
   }
 
   const remove = async () => {
     const note = selectedNote()
     if (!note) return
+    if (goal()?.noteID === note.id) {
+      clearPendingDelete()
+      void props.context.ui.toast.show({
+        message: "Goal note cannot be deleted. Press ctrl+t to clear the goal first.",
+        variant: "warning",
+      })
+      return
+    }
     if (pendingDelete() !== note.id) {
       clearPendingDelete()
       setPendingDelete(note.id)
@@ -258,30 +387,36 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     clearPendingDelete()
     try {
       await props.context.client.rpc(NotepadRpc).remove({ id: note.id }, { location: props.context.location })
-      deletedNotes.set(props.directory, note)
+      deletedNotes.set(undoKey, note)
+      setNotes((values) => values.filter((item) => item.id !== note.id))
+      setSelected(undefined)
     } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-      await openList(props.context, props.directory, note.id)
-      return
+      notifyError(error)
     }
-    await openList(props.context, props.directory)
   }
 
   const undoDelete = async () => {
-    const note = deletedNotes.get(props.directory)
+    const note = deletedNotes.get(undoKey)
     if (!note) return
-    deletedNotes.delete(props.directory)
+    deletedNotes.delete(undoKey)
     try {
       const restored = await props.context.client.rpc(NotepadRpc).add(
-        { text: note.text, scope: note.scope, directory: props.directory, pinned: note.pinned === true },
+        {
+          text: note.text,
+          scope: note.scope,
+          directory: note.folder ?? props.target.directory,
+          ...(note.session === undefined ? {} : { session: note.session }),
+          pinned: note.pinned === true,
+        },
         { location: props.context.location },
       ) as { note: Note }
+      setNotes((values) => [...values, restored.note])
+      if (scopes().includes(restored.note.scope)) setScope(restored.note.scope)
+      setSelected(restored.note.id)
       void props.context.ui.toast.show({ message: "Note restored", variant: "success" })
-      await openList(props.context, props.directory, restored.note.id)
     } catch (error) {
-      deletedNotes.set(props.directory, note)
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-      await openList(props.context, props.directory)
+      deletedNotes.set(undoKey, note)
+      notifyError(error)
     }
   }
 
@@ -290,17 +425,17 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     if (!note) return
     const pinned = note.pinned !== true
     try {
-      await props.context.client.rpc(NotepadRpc).setPinned(
+      const result = await props.context.client.rpc(NotepadRpc).setPinned(
         { id: note.id, pinned },
         { location: props.context.location },
-      )
-      await reload(note.id)
+      ) as { note: Note }
+      setNotes((values) => values.map((item) => item.id === note.id ? result.note : item))
       void props.context.ui.toast.show({
         message: pinned ? "Note pinned" : "Note unpinned",
         variant: "success",
       })
     } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
+      notifyError(error)
     }
   }
 
@@ -312,39 +447,20 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
     })).catch(() => {})
   }
 
-  const toggleScope = async () => {
-    const note = selectedNote()
-    if (!note) return
-    const scope: NoteScope = note.scope === "folder" ? "global" : "folder"
-    try {
-      await props.context.client.rpc(NotepadRpc).setScope(
-        { id: note.id, scope, directory: props.directory },
-        { location: props.context.location },
-      )
-      await reload(note.id)
-      void props.context.ui.toast.show({
-        message: scope === "global" ? "Moved to Global" : "Moved to This folder",
-        variant: "success",
-      })
-    } catch (error) {
-      await props.context.ui.dialog.alert({ title: "Notepad", message: message(error) })
-    }
-  }
-
-  // The panel has a text input, so actions are Ctrl combos that work in either focus.
+  // The panel has text inputs, so actions are Ctrl combos that work in either focus.
   props.context.keymap.layer(() => ({
     mode: "modal",
     priority: 20,
-    enabled: () => !dialogOpen(),
     commands: [
-      { bind: "ctrl+n", title: "Add note", run: () => void add() },
+      { bind: "ctrl+n", title: "Focus new note", run: focusCreate },
       { bind: "ctrl+e", title: "Edit note", run: () => void edit() },
       { bind: "ctrl+d", title: "Delete note", run: () => void remove() },
-      { bind: "ctrl+z", title: "Undo delete", run: () => void undoDelete(), enabled: () => deletedNotes.has(props.directory) },
+      { bind: "ctrl+z", title: "Undo delete", run: () => void undoDelete(), enabled: () => deletedNotes.has(undoKey) },
       { bind: "ctrl+y", title: "Copy note", run: () => copy(selectedNote()) },
       { bind: "ctrl+p", title: "Toggle note pin", run: () => void togglePin() },
       { bind: "ctrl+s", title: "Change note sort", run: cycleSort },
-      { bind: "ctrl+g", title: "Toggle note scope", run: () => void toggleScope() },
+      { bind: "ctrl+a", title: "Switch note scope", run: cycleScope },
+      { bind: "ctrl+t", title: "Toggle note goal", enabled: goalEnabled, run: () => void toggleGoal() },
       { bind: "f1", title: "Toggle notepad help", run: () => setHelp((value) => !value) },
       { bind: "escape", title: "Close notepad", run: () => {
         if (help()) setHelp(false)
@@ -355,55 +471,56 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
 
   props.context.keymap.layer(() => ({
     mode: "modal",
-    target: listTarget,
+    target: searchTarget,
     priority: 20,
-    enabled: () => !dialogOpen(),
     commands: [
       { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
       { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },
-      { bind: "tab", title: "Search notes", run: focusSearch },
-      { bind: "shift+tab", title: "Search notes", run: focusSearch },
+      { bind: "tab", title: "Focus new note", run: focusCreate },
+      { bind: "shift+tab", title: "Focus new note", run: focusCreate },
     ],
   }))
 
   props.context.keymap.layer(() => ({
     mode: "modal",
-    target: searchTarget,
+    target: createTarget,
     priority: 20,
-    enabled: () => !dialogOpen(),
     commands: [
       { bind: "up", title: "Previous note", run: () => moveSelection(entries(), selected(), setSelected, -1) },
       { bind: "down", title: "Next note", run: () => moveSelection(entries(), selected(), setSelected, 1) },
-      { bind: "escape", title: "Back to notes", run: () => {
-        if (help()) setHelp(false)
-        else focusList()
-      } },
-      { bind: "return", title: "Back to notes", run: focusList },
-      { bind: "tab", title: "Back to notes", run: focusList },
-      { bind: "shift+tab", title: "Back to notes", run: focusList },
+      { bind: "return", title: "Create note", run: () => void createNote() },
+      { bind: "shift+return", title: "Insert new line", run: insertNewline },
+      { bind: "tab", title: "Focus search", run: focusSearch },
+      { bind: "shift+tab", title: "Focus search", run: focusSearch },
     ],
   }))
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
+        <box flexDirection="row" gap={1}>
+          <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
+          <text fg={theme.text.muted}>ctrl+a</text>
+          <text fg={accent} attributes={TextAttributes.BOLD}>{scopeText()}</text>
+        </box>
         <text fg={theme.text.muted}>f1 help · esc close</text>
       </box>
-      <text fg={theme.text.muted}>{props.context.ui.format.path(props.directory)}</text>
+      <text fg={theme.text.muted}>{props.context.ui.format.path(props.target.directory)}</text>
       <Show when={help()}>
         <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
           <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Keyboard help</text>
-          <text fg={theme.text.muted}>ctrl+n add · ctrl+e edit · ctrl+d delete (press twice) · ctrl+p pin</text>
-          <text fg={theme.text.muted}>ctrl+y copy · ctrl+z undo delete · ctrl+s sort · ctrl+g scope</text>
-          <text fg={theme.text.muted}>↑/↓ select · tab search / notes · f1 help · esc close</text>
+          <text fg={theme.text.muted}>ctrl+a switch scope · ctrl+n focus create · tab switches search and create</text>
+          <text fg={theme.text.muted}>enter creates from the create box · shift+enter adds a line</text>
+          <text fg={theme.text.muted}>ctrl+t set or clear goal · ctrl+e edit · ctrl+p pin</text>
+          <text fg={theme.text.muted}>ctrl+d delete (goal note protected) · ctrl+y copy · ctrl+s sort</text>
+          <text fg={theme.text.muted}>↑/↓ select · f1 help · esc close</text>
         </box>
       </Show>
       <input
         ref={(value: InputRenderable) => setSearchTarget(value)}
+        value={props.state.query ?? ""}
         onInput={setQuery}
-        onSubmit={focusList}
-        placeholder={query() ? "" : "Type to filter notes · Tab for list"}
+        placeholder={`Search in ${scopeText()}`}
         placeholderColor={theme.text.muted}
         backgroundColor={formBackground}
         focusedBackgroundColor={formFocusedBackground}
@@ -411,46 +528,68 @@ function NotepadList(props: { context: Context; directory: string; initial: Note
         focusedTextColor={formFocusedText}
         cursorColor={theme.text.formfield.base}
       />
-      <scrollbox ref={(value: ScrollBoxRenderable) => setListTarget(value)} focusable maxHeight={18}>
-        <Show when={entries().length > 0} fallback={<text fg={theme.text.muted}>No notes yet. Press ctrl+n to add one.</text>}>
-          <Show when={pinnedMatches().length > 0}>
-            <text fg={theme.text.muted}>Pinned</text>
-            <For each={pinnedMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
-            </For>
-          </Show>
-          <Show when={folderMatches().length > 0}>
-            <text fg={theme.text.muted}>This folder</text>
-            <For each={folderMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
-            </For>
-          </Show>
-          <Show when={globalMatches().length > 0}>
-            <text fg={theme.text.muted}>Global</text>
-            <For each={globalMatches()}>
-              {(note) => <NoteRow note={note} selected={note.id === selectedNote()?.id} pending={note.id === pendingDelete()} theme={theme} />}
-            </For>
-          </Show>
+      <textarea
+        ref={(value: TextareaRenderable) => setCreateTarget(value)}
+        initialValue={props.state.draft ?? ""}
+        height={3}
+        wrapMode="word"
+        onContentChange={() => {
+          const input = createTarget()
+          if (input && !input.isDestroyed) setDraft(input.plainText)
+        }}
+        placeholder={`New note in ${scopeText()}`}
+        placeholderColor={theme.text.muted}
+        backgroundColor={formBackground}
+        focusedBackgroundColor={formFocusedBackground}
+        textColor={theme.text.formfield.base}
+        focusedTextColor={formFocusedText}
+        cursorColor={theme.text.formfield.base}
+      />
+      <scrollbox ref={(value: ScrollBoxRenderable) => setListTarget(value)} maxHeight={18}>
+        <Show
+          when={entries().length > 0}
+          fallback={
+            <text fg={theme.text.muted}>
+              {query().trim() ? `No notes match in ${scopeText()}` : `No notes in ${scopeText()} yet`}
+            </text>
+          }
+        >
+          <For each={entries()}>
+            {(note) => (
+              <NoteRow
+                note={note}
+                selected={note.id === selectedNote()?.id}
+                pending={note.id === pendingDelete()}
+                goal={note.id === goal()?.noteID}
+                theme={theme}
+              />
+            )}
+          </For>
         </Show>
       </scrollbox>
       <text fg={theme.text.muted} wrapMode="word">
-        {`ctrl+n add · ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · ctrl+s sort: ${sort()} · ctrl+y copy · ctrl+g scope${deletedNotes.has(props.directory) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/notes · f1 help`}
+        {`ctrl+a `}
+        <span style={{ fg: accent, attributes: TextAttributes.BOLD }}>{scopeText()}</span>
+        {` · ctrl+n create · ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · `}
+        <span style={{ fg: goalEnabled() ? theme.text.muted : disabled }}>ctrl+t goal</span>
+        {` · ctrl+s sort: ${sort()} · ctrl+y copy${deletedNotes.has(undoKey) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/create · f1 help`}
       </text>
     </box>
   )
 }
 
-function NoteRow(props: { note: Note; selected: boolean; pending: boolean; theme: any }) {
+function NoteRow(props: { note: Note; selected: boolean; pending: boolean; goal: boolean; theme: any }) {
   const first = () => props.note.text.replace(/\s+/g, " ").slice(0, 140)
+  const marker = () => `${props.goal ? "🎯 " : ""}${props.note.pinned === true ? "📌 " : ""}`
   return (
     <box id={props.note.id} flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={props.selected ? props.theme.background.raised.high : undefined}>
       <text fg={props.selected ? props.theme.text.base : props.theme.text.muted} wrapMode="word">
-        {`${props.note.pinned === true ? "★ " : ""}${first()}`}
+        {`${marker()}${first()}`}
       </text>
       <text fg={props.pending ? (props.theme.text.feedback?.warning?.base ?? props.theme.text.base) : props.theme.text.muted}>
         {props.pending
           ? "Press ctrl+d again to delete."
-          : `${props.note.pinned === true ? "pinned · " : ""}${props.note.scope === "global" ? "global" : "folder"} · ${age(props.note.updatedAt)}`}
+          : `${props.goal ? "goal · " : ""}${props.note.pinned === true ? "pinned · " : ""}${scopeShort(props.note.scope)} · ${age(props.note.updatedAt)}`}
       </text>
     </box>
   )
@@ -462,14 +601,8 @@ function moveSelection(entries: readonly Note[], selected: string | undefined, s
   setSelected(entries[Math.min(entries.length - 1, Math.max(0, index + delta))]?.id)
 }
 
-function setSearchTargetFocus(target: () => InputRenderable | undefined, focus: boolean) {
-  const input = target()
-  if (!input || input.isDestroyed) return
-  if (focus) input.focus()
-}
-
-type EditorInput = { text?: string; scope: NoteScope }
-type EditorResult = { text: string; scope: NoteScope }
+type EditorInput = { text: string }
+type EditorResult = { text: string }
 
 function editDialog(context: Context, initial: EditorInput) {
   return new Promise<EditorResult | undefined>((resolve) => {
@@ -485,7 +618,6 @@ function editDialog(context: Context, initial: EditorInput) {
 }
 
 function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: (value: EditorResult | undefined) => void }) {
-  const [scope, setScope] = createSignal<NoteScope>(props.initial.scope)
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
   const theme = props.context.theme.surface("dialog")
   const formBackground = theme.background?.formfield?.base ?? theme.background?.base
@@ -497,9 +629,9 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
     props.context.ui.dialog.set({ size: "large", centered: true })
     setTimeout(() => {
       const target = textareaTarget()
-      if (!target) return
+      if (!target || target.isDestroyed) return
       target.focus()
-      target.gotoLineEnd()
+      if (!target.isDestroyed) target.gotoLineEnd()
     }, 50)
   })
 
@@ -509,7 +641,7 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
       void props.context.ui.toast.show({ message: "Note cannot be empty", variant: "error" })
       return
     }
-    props.onDone({ text, scope: scope() })
+    props.onDone({ text })
   }
 
   props.context.keymap.layer(() => ({
@@ -519,8 +651,6 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
     commands: [
       { bind: "f2", title: "Save note", run: save },
       { bind: "ctrl+s", title: "Save note", run: save },
-      { bind: "ctrl+g", title: "Toggle note scope", run: () => setScope((value) => value === "folder" ? "global" : "folder") },
-      { bind: "ctrl+p", title: "Toggle note scope", run: () => setScope((value) => value === "folder" ? "global" : "folder") },
       { bind: "escape", title: "Cancel note", run: () => props.onDone(undefined) },
     ],
   }))
@@ -528,12 +658,12 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>{props.initial.text === undefined ? "New note" : "Edit note"}</text>
+        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Edit note</text>
         <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel</text>
       </box>
       <textarea
         ref={(value: TextareaRenderable) => { textarea = value; setTextareaTarget(value) }}
-        initialValue={props.initial.text ?? ""}
+        initialValue={props.initial.text}
         height={8}
         wrapMode="word"
         placeholder="Write a note…"
@@ -544,7 +674,7 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
         focusedTextColor={formFocusedText}
         cursorColor={theme.text.base}
       />
-      <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel · ctrl+g / ctrl+p target: {scope() === "global" ? "Global" : "This folder"}</text>
+      <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel</text>
     </box>
   )
 }

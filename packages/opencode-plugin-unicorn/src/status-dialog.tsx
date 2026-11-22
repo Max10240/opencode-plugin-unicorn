@@ -52,7 +52,7 @@ function UnicornStatusDialog(props: { context: Context }) {
   const features = () => [
     feature("Prompt search", !isFalse(options.features, "promptSearch"), "all prompts across sessions", "features.promptSearch=false"),
     feature("Session search", !isFalse(options.features, "sessionSearch"), "current session transcript", "features.sessionSearch=false"),
-    feature("Notepad", !isFalse(options.features, "notepad"), "folder and global notes", "features.notepad=false"),
+    feature("Notepad", !isFalse(options.features, "notepad"), "session goals and scoped notes", "features.notepad=false"),
     feature("Image previews", !isFalse(options.features, "showImg"), "inline tool image previews", "features.showImg=false"),
     feature("Sensitive protection", !isFalse(options.features, "sensitiveProtection"), "redacts protected files", "features.sensitiveProtection=false"),
     feature("Sensitive encrypt", !isFalse(options.features, "sensitiveEncrypt"), "encrypt text or files", "features.sensitiveEncrypt=false"),

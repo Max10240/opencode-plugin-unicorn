@@ -31,6 +31,22 @@ test("folder notes stay in their folder and global notes are visible everywhere"
   expect(global.folder).toBeUndefined()
 })
 
+test("session notes stay in their session", async () => {
+  const { store } = createStore()
+  const directory = folder("session")
+  const mine = await store.add({ text: "mine", scope: "session", directory, session: "session-a" })
+  await Bun.sleep(2)
+  const other = await store.add({ text: "other", scope: "session", directory, session: "session-b" })
+
+  expect((await store.list(directory, "session-a")).map((note) => note.id)).toEqual([mine.id])
+  expect((await store.list(directory, "session-b")).map((note) => note.id)).toEqual([other.id])
+  expect(await store.list(directory)).toEqual([])
+  expect(mine.session).toBe("session-a")
+
+  await expect(store.add({ text: "missing session", scope: "session", directory })).rejects.toThrow("session")
+  await expect(store.add({ text: "missing folder", scope: "folder" })).rejects.toThrow("folder")
+})
+
 test("pinned notes are created pinned and sorted first", async () => {
   const { store } = createStore()
   const a = folder("a")
@@ -41,10 +57,9 @@ test("pinned notes are created pinned and sorted first", async () => {
   expect((await store.list(a)).map((note) => note.id)).toEqual([pinned.id, normal.id])
 })
 
-test("updates, scope changes, deletion, and ordering are durable", async () => {
+test("updates, deletion, and ordering are durable", async () => {
   const { store, data } = createStore()
   const a = folder("a")
-  const b = folder("b")
   const first = await store.add({ text: "first", scope: "folder", directory: a })
   await Bun.sleep(2)
   const second = await store.add({ text: "second", scope: "folder", directory: a })
@@ -53,18 +68,11 @@ test("updates, scope changes, deletion, and ordering are durable", async () => {
   const updated = await store.update(first.id, "first edited")
   expect(updated.text).toBe("first edited")
   expect(updated.createdAt).toBe(first.createdAt)
-
-  const moved = await store.setScope(first.id, "global", a)
-  expect(moved.scope).toBe("global")
-  expect(moved.folder).toBeUndefined()
-  expect((await store.list(b)).map((note) => note.id)).toContain(first.id)
-
-  const movedBack = await store.setScope(first.id, "folder", b)
-  expect(movedBack.folder).toBe(b)
-  expect((await store.list(a)).map((note) => note.id)).not.toContain(first.id)
+  expect(updated.scope).toBe("folder")
+  expect(updated.folder).toBe(a)
 
   await store.remove(second.id)
-  expect((await store.list(a)).map((note) => note.id)).toEqual([])
+  expect((await store.list(a)).map((note) => note.id)).toEqual([first.id])
   expect(JSON.stringify(data())).not.toContain("second")
 })
 
@@ -74,7 +82,6 @@ test("invalid input and corrupt storage fail without dropping valid notes", asyn
   await expect(store.add({ text: "x".repeat(MAX_NOTE_BYTES + 1), scope: "global" })).rejects.toThrow("exceeds")
   await expect(store.update("missing", "text")).rejects.toThrow("not found")
   await expect(store.remove("missing")).rejects.toThrow("not found")
-  await expect(store.setScope("missing", "global", folder("a"))).rejects.toThrow("not found")
 
   const corrupt = new NoteStore(async () => ({ version: 1, notes: [{ bad: true }] }), async () => {})
   expect(await corrupt.list(folder("a"))).toEqual([])
