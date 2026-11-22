@@ -76,8 +76,7 @@ With Unicorn, the notepad is enabled by default:
 ## Using it
 
 ```text
-Notepad Current Session                                      f1 help · esc close
-ctrl+a Show notes in Current Directory
+Notepad Current Session
 /path/to/current/folder
 
 Search in Current Session
@@ -88,7 +87,7 @@ New note in Current Session
 📌 Remember to check release notes
   pinned · session · 3m ago
 
-ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help
+ctrl+a Show notes in Current Directory · ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: updated · ctrl+y copy · ↑/↓ select · tab search/create · f1 help · esc close
 ```
 
 | Key | Action |
@@ -97,7 +96,7 @@ ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: update
 | `Shift+Enter` (create box) | Insert a new line in the note being written |
 | `Ctrl+A` | Cycle the scope: Current Session → Current Directory → Global |
 | `Ctrl+T` | Set the selected note as the session goal, or clear it when it is already the goal |
-| `Ctrl+E` | Edit the selected note; `f2` or `ctrl+s` saves, `esc` cancels |
+| `Ctrl+E` | Edit the selected note; `f2` or `ctrl+s` saves without closing, `esc` returns to the refreshed list |
 | `Ctrl+D` | Delete the selected note; press again to confirm. A goal note is protected |
 | `Ctrl+Z` | Restore the last deleted note |
 | `Ctrl+P` | Pin or unpin the selected note; pinned notes stay above unpinned notes |
@@ -109,8 +108,9 @@ ctrl+e edit · ctrl+d delete · ctrl+p pin · ctrl+t goal · ctrl+s sort: update
 | `Esc` | Close help or close the notepad |
 
 The search and create placeholders always name the current scope. Switching scope keeps the text already typed in both
-boxes. The header shows the current scope and the next scope `Ctrl+A` will display, and highlights that next scope; the
-focused input has a highlighted bottom rule.
+boxes. The current scope is highlighted in the header, and all shortcut hints, including the next scope `Ctrl+A` will
+display, are collected in the footer. Both inputs have a fixed full-width bottom rule; focus is shown by the input
+background and cursor.
 
 Notes keep the scope they were created in; there is no command to move a note between scopes.
 

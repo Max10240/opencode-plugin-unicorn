@@ -256,7 +256,10 @@ test("edits, cancels and deletes a persisted note", async () => {
   await Bun.sleep(100)
   tui.type(" EDITED")
   await tui.waitFor(" EDITED", "edited text did not appear")
-  tui.send(["F2"])
+  tui.send(["C-s"])
+  // A quick Esc after saving must not close the notepad while the list refreshes.
+  tui.send(["Escape"])
+  await tui.waitFor("Notepad Current Session", "notepad did not return after saving")
   await tui.waitFor("EDITED", "note edit was not saved")
   await Bun.sleep(75)
   await pressUntil(tui, "C-e", "f2 / ctrl+s save", "note editor did not reopen for cancel")

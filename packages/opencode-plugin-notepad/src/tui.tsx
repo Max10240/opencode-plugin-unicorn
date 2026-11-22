@@ -348,27 +348,7 @@ function NotepadList(props: {
     const note = selectedNote()
     if (!note) return
     const state = snapshot()
-    const result = await editDialog(props.context, { text: note.text })
-    let goalCleared = false
-    if (result) {
-      try {
-        const updated = await props.context.client.rpc(NotepadRpc).update(
-          { id: note.id, text: result.text },
-          { location: props.context.location },
-        ) as { note: Note; goalCleared?: boolean }
-        goalCleared = updated.goalCleared === true
-      } catch (error) {
-        notifyError(error)
-      }
-    }
-    if (goalCleared) {
-      setGoal(undefined)
-      const tooLarge = result !== undefined && new TextEncoder().encode(result.text).byteLength > MAX_GOAL_BYTES
-      void props.context.ui.toast.show({
-        message: tooLarge ? "Goal cleared: note exceeds 8 KiB" : "Goal cleared",
-        variant: "warning",
-      })
-    }
+    await editDialog(props.context, { id: note.id, text: note.text })
     await openList(props.context, props.target, { ...state, selected: note.id })
   }
 
@@ -504,19 +484,9 @@ function NotepadList(props: {
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="column" gap={0}>
-        <box flexDirection="row" justifyContent="space-between">
-          <box flexDirection="row" gap={1}>
-            <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
-            <text fg={theme.text.muted}>{scopeText()}</text>
-          </box>
-          <text fg={theme.text.muted}>f1 help · esc close</text>
-        </box>
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.text.muted}>ctrl+a</text>
-          <text fg={theme.text.muted}>Show notes in</text>
-          <text fg={accent} attributes={TextAttributes.BOLD}>{nextScopeText()}</text>
-        </box>
+      <box flexDirection="row" gap={1}>
+        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Notepad</text>
+        <text fg={accent} attributes={TextAttributes.BOLD | TextAttributes.UNDERLINE}>{scopeText()}</text>
       </box>
       <text fg={theme.text.muted}>{props.context.ui.format.path(props.target.directory)}</text>
       <Show when={help()}>
@@ -529,9 +499,10 @@ function NotepadList(props: {
           <text fg={theme.text.muted}>↑/↓ select · f1 help · esc close</text>
         </box>
       </Show>
-      <box border={["bottom"]} borderColor={focus() === "search" ? accent : borderMuted}>
+      <box width="100%" border={["bottom"]} borderColor={borderMuted}>
         <input
           ref={(value: InputRenderable) => setSearchTarget(value)}
+          width="100%"
           value={props.state.query ?? ""}
           onInput={setQuery}
           placeholder={`Search in ${scopeText()}`}
@@ -543,9 +514,10 @@ function NotepadList(props: {
           cursorColor={theme.text.formfield.base}
         />
       </box>
-      <box border={["bottom"]} borderColor={focus() === "create" ? accent : borderMuted}>
+      <box width="100%" border={["bottom"]} borderColor={borderMuted}>
         <textarea
           ref={(value: TextareaRenderable) => setCreateTarget(value)}
+          width="100%"
           initialValue={props.state.draft ?? ""}
           height={3}
           wrapMode="word"
@@ -585,9 +557,12 @@ function NotepadList(props: {
         </Show>
       </scrollbox>
       <text fg={theme.text.muted} wrapMode="word">
-        {`ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · `}
+        {`ctrl+a `}
+        <span style={{ fg: theme.text.muted }}>Show notes in </span>
+        <span style={{ fg: accent, attributes: TextAttributes.BOLD }}>{nextScopeText()}</span>
+        {` · ctrl+e edit · ctrl+d ${pendingDelete() ? "again to delete" : "delete"} · ctrl+p pin · `}
         <span style={{ fg: goalEnabled() ? theme.text.muted : disabled }}>ctrl+t goal</span>
-        {` · ctrl+s sort: ${sort()} · ctrl+y copy${deletedNotes.has(undoKey) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/create · f1 help`}
+        {` · ctrl+s sort: ${sort()} · ctrl+y copy${deletedNotes.has(undoKey) ? " · ctrl+z undo" : ""} · ↑/↓ select · tab search/create · f1 help · esc close`}
       </text>
     </box>
   )
@@ -616,29 +591,30 @@ function moveSelection(entries: readonly Note[], selected: string | undefined, s
   setSelected(entries[Math.min(entries.length - 1, Math.max(0, index + delta))]?.id)
 }
 
-type EditorInput = { text: string }
-type EditorResult = { text: string }
+type EditorInput = { id: string; text: string }
 
 function editDialog(context: Context, initial: EditorInput) {
-  return new Promise<EditorResult | undefined>((resolve) => {
+  return new Promise<void>((resolve) => {
     let settled = false
-    const done = (value: EditorResult | undefined) => {
+    const done = () => {
       if (settled) return
       settled = true
-      context.ui.dialog.clear()
-      resolve(value)
+      resolve()
     }
     context.ui.dialog.show(() => <NotepadEditor context={context} initial={initial} onDone={done} />)
   })
 }
 
-function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: (value: EditorResult | undefined) => void }) {
+function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: () => void }) {
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
+  const [saving, setSaving] = createSignal(false)
   const theme = props.context.theme.surface("dialog")
   const formBackground = theme.background?.formfield?.base ?? theme.background?.base
   const formFocusedBackground = theme.background?.formfield?.focused ?? theme.background?.raised?.high
   const formFocusedText = theme.text?.formfield?.focused ?? theme.text.formfield.base
   let textarea: TextareaRenderable | undefined
+  let pendingSave: Promise<void> | undefined
+  let closing = false
 
   onMount(() => {
     props.context.ui.dialog.set({ size: "large", centered: true })
@@ -650,23 +626,58 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
     }, 50)
   })
 
-  const save = () => {
+  const save = async () => {
+    if (saving()) return
     const text = textarea?.plainText.trim() ?? ""
     if (!text) {
       void props.context.ui.toast.show({ message: "Note cannot be empty", variant: "error" })
       return
     }
-    props.onDone({ text })
+    setSaving(true)
+    try {
+      const updated = await props.context.client.rpc(NotepadRpc).update(
+        { id: props.initial.id, text },
+        { location: props.context.location },
+      ) as { note: Note; goalCleared?: boolean }
+      if (updated.goalCleared) {
+        const tooLarge = new TextEncoder().encode(text).byteLength > MAX_GOAL_BYTES
+        void props.context.ui.toast.show({
+          message: tooLarge ? "Goal cleared: note exceeds 8 KiB" : "Goal cleared",
+          variant: "warning",
+        })
+      } else {
+        void props.context.ui.toast.show({ message: "Note saved", variant: "success" })
+      }
+    } catch (error) {
+      void props.context.ui.toast.show({ message: message(error), variant: "error" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const runSave = () => {
+    if (closing || pendingSave) return
+    const task = save()
+    pendingSave = task
+    void task.finally(() => {
+      if (pendingSave === task) pendingSave = undefined
+    })
+  }
+
+  const close = async () => {
+    if (closing) return
+    closing = true
+    if (pendingSave) await pendingSave
+    props.onDone()
   }
 
   props.context.keymap.layer(() => ({
     mode: "modal",
-    target: textareaTarget,
     priority: 20,
     commands: [
-      { bind: "f2", title: "Save note", run: save },
-      { bind: "ctrl+s", title: "Save note", run: save },
-      { bind: "escape", title: "Cancel note", run: () => props.onDone(undefined) },
+      { bind: "f2", title: "Save note", run: runSave },
+      { bind: "ctrl+s", title: "Save note", run: runSave },
+      { bind: "escape", title: "Back to notes", run: () => void close() },
     ],
   }))
 
@@ -674,7 +685,7 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Edit note</text>
-        <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel</text>
+        <text fg={theme.text.muted}>{saving() ? "saving…" : "f2 / ctrl+s save · esc back"}</text>
       </box>
       <textarea
         ref={(value: TextareaRenderable) => { textarea = value; setTextareaTarget(value) }}
@@ -689,7 +700,7 @@ function NotepadEditor(props: { context: Context; initial: EditorInput; onDone: 
         focusedTextColor={formFocusedText}
         cursorColor={theme.text.base}
       />
-      <text fg={theme.text.muted}>f2 / ctrl+s save · esc cancel</text>
+      <text fg={theme.text.muted}>{saving() ? "saving…" : "f2 / ctrl+s save · esc back"}</text>
     </box>
   )
 }
