@@ -114,8 +114,30 @@ export async function api<T>(e2e: E2E, endpoint: string, body?: unknown): Promis
 }
 
 export async function prompt(e2e: E2E, sessionID: string, text: string) {
-  await api(e2e, `/api/session/${sessionID}/prompt`, { text, delivery: "queue" })
+  // A stable message ID makes the admission idempotent, so a dropped keep-alive
+  // connection can be retried without duplicating the prompt.
+  const id = messageID()
+  await retryTransient(() => api(e2e, `/api/session/${sessionID}/prompt`, { id, text, delivery: "queue" }))
   await api(e2e, `/api/experimental/session/${sessionID}/wait`, {})
+}
+
+function messageID() {
+  return `msg_${Date.now().toString(16).padStart(12, "0")}${crypto.randomUUID().replaceAll("-", "").slice(0, 14)}`
+}
+
+async function retryTransient(run: () => Promise<unknown>) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await run()
+    } catch (error) {
+      lastError = error
+      const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined
+      if (code !== "ECONNRESET" && code !== "EPIPE") throw error
+      if (attempt < 2) await Bun.sleep(100 * (attempt + 1))
+    }
+  }
+  throw lastError
 }
 
 export function headers() {
@@ -124,11 +146,18 @@ export function headers() {
 
 export async function waitFor(check: () => Promise<boolean>, message: string, timeout = 30_000) {
   const deadline = Date.now() + timeout
+  let lastError: unknown
   while (Date.now() < deadline) {
-    if (await check()) return
+    try {
+      if (await check()) return
+    } catch (error) {
+      // Readiness polling can hit transient API states such as a 503 while location
+      // plugins activate. Keep the last error so a real failure still reports it.
+      lastError = error
+    }
     await Bun.sleep(25)
   }
-  throw new Error(message)
+  throw new Error(lastError === undefined ? message : `${message}: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
 }
 
 function quote(value: string) { return `'${value.replaceAll("'", "'\\''")}'` }
