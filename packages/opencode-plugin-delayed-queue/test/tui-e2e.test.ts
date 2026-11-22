@@ -10,6 +10,13 @@ setDefaultTimeout(180_000)
 const PACKAGE_ROOT = path.resolve(import.meta.dir, "..")
 let e2e: Awaited<ReturnType<typeof createOpenCodeE2E>>
 
+function cliConfig(paletteKeybind: string) {
+  return `${JSON.stringify({
+    plugins: [{ package: PACKAGE_ROOT, options: { recheckMs: 1_000 } }],
+    keybinds: { "command.palette.show": paletteKeybind },
+  }, null, 2)}\n`
+}
+
 beforeAll(async () => {
   e2e = await createOpenCodeE2E({
     plugin: "unicorn",
@@ -17,10 +24,7 @@ beforeAll(async () => {
     pluginOptions: { recheckMs: 1_000 },
   })
   await e2e.waitForModelContext(200_000)
-  await writeFile(path.join(e2e.configDirectory, "cli.json"), `${JSON.stringify({
-    plugins: [{ package: PACKAGE_ROOT, options: { recheckMs: 1_000 } }],
-    keybinds: { "command.palette.show": "f10" },
-  }, null, 2)}\n`)
+  await writeFile(path.join(e2e.configDirectory, "cli.json"), cliConfig("f10"))
 })
 
 afterAll(async () => {
@@ -158,6 +162,46 @@ test("opens the management panel and deletes one pending message", async () => {
     expect(tui.pane()).not.toContain("PANEL_DELETE_SHOULD_NOT_RUN")
   } finally {
     await tui.close()
+  }
+})
+
+test("ctrl+p pauses the whole queue without opening the command palette", async () => {
+  let tui: ReturnType<typeof createTui> | undefined
+  try {
+    await writeFile(path.join(e2e.configDirectory, "cli.json"), cliConfig("ctrl+p"))
+    const sessionID = await createSession(e2e, "Delayed-Queue-Pause")
+    const ui = createTui(e2e, sessionID, "delayed-queue-pause", { width: 180, height: 48 })
+    tui = ui
+    await readyTui(ui, "Delayed-Queue-Pause")
+    e2e.proxy.mock.prependFixture({
+      match: { userMessage: "E2E_DQ_PAUSE_BEGIN", sequenceIndex: 0 },
+      response: { content: "PAUSE_BEGIN_OK" },
+      latency: 8_000,
+    })
+    fixture(e2e, "E2E_DQ_PAUSE_HELD", "PAUSE_HELD_OK")
+    ui.type("E2E_DQ_PAUSE_BEGIN")
+    ui.send(["Enter"])
+    await ui.waitFor("esc interrupt", "the holding turn did not start", 20_000)
+    await queueDelayed(ui, "E2E_DQ_PAUSE_HELD", 1)
+
+    ui.send(["C-x", "d"])
+    await ui.waitFor("Delayed prompts", "management panel did not open")
+    ui.send(["C-p"])
+    await ui.waitFor("Whole queue paused", "ctrl+p did not pause the queue")
+    expect(ui.pane()).not.toContain("Commands")
+    expect(ui.pane()).toContain("ctrl+p resume queue")
+    expect((await delayedStatus(e2e, sessionID))?.paused).toBe(true)
+
+    ui.send(["C-p"])
+    await ui.waitFor("ctrl+p pause queue", "ctrl+p did not resume the queue")
+    expect(ui.pane()).not.toContain("Whole queue paused")
+    expect((await delayedStatus(e2e, sessionID))?.paused).toBe(false)
+  } finally {
+    try {
+      await tui?.close()
+    } finally {
+      await writeFile(path.join(e2e.configDirectory, "cli.json"), cliConfig("f10"))
+    }
   }
 })
 

@@ -13,6 +13,16 @@
 - 点击该栏，或不带消息运行 `/delayed-queue`，打开管理面板。
 - 面板中 `enter` 或 `ctrl+s` 立即 steer，`ctrl+d` 删除当前选中消息，`ctrl+p` 暂停/恢复整个队列；字母输入始终进入搜索框。
 
+## 暂停
+
+`ctrl+p` 暂停或恢复当前会话的整个队列，而不是只作用于选中的那一条。暂停只阻止自动投递，不会删除消息；
+`enter` 或 `ctrl+s` 仍可立即 steer 选中的消息。
+
+暂停时面板会显示 `Whole queue paused` 和暂停原因，标题栏会带上 `paused`，输入框上方的待投递栏会显示
+`⏸ N delayed · paused`（或简短原因）并使用 warning 色左边框，底部提示变为 `ctrl+p resume queue`，每次暂停或
+恢复都会弹出 toast 确认。原因包括 `manually`，以及队列自动暂停时的 `after an interrupt`、`after a failure`、
+`after a restart`、`after delivery failures`；旧版暂停状态没有记录原因时显示 `no reason recorded`。
+
 延迟消息最终以普通 user prompt 投递，因此会像官方 queued prompt 一样出现在 transcript 中。队列按会话持久化，
 热重载和服务重启后会保留；重启恢复的队列默认暂停。
 

@@ -15,6 +15,17 @@ descendant is quiet.
 - Click the bar, or run `/delayed-queue` with no message, to open the management panel.
 - In the panel, press `enter` or `ctrl+s` to steer now, `ctrl+d` to delete the selected message, and `ctrl+p` to pause or resume the whole queue. Typing letters stays in the search field.
 
+## Pausing
+
+`ctrl+p` pauses or resumes the whole queue of the current session, not only the selected row. Pausing keeps every
+message queued and only blocks automatic delivery; `enter` or `ctrl+s` still steers the selected message immediately.
+
+While paused, the panel shows a `Whole queue paused` line with the reason, the header shows `paused`, and the pending
+bar shows `⏸ N delayed · paused` (or the short reason) with a warning-colored left border. The footer shows
+`ctrl+p resume queue`. A toast confirms each pause or resume. The reason is `manually`, one of `after an interrupt`,
+`after a failure`, `after a restart`, and `after delivery failures` when the queue paused itself, or
+`no reason recorded` for an older paused state without a reason.
+
 A delayed message is delivered as a normal user prompt, so it appears in the transcript like an official queued
 message. The queue is stored per session and survives hot reloads and server restarts; a restarted process restores it
 paused.

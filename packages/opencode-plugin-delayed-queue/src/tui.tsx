@@ -1,3 +1,4 @@
+import { TextAttributes } from "@opentui/core"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
@@ -158,6 +159,8 @@ export function DelayedQueueDock(props: { context: Context; sessionID: string; o
   const [hover, setHover] = createSignal(false)
   const next = createMemo(() => state()?.items[0]?.text.replaceAll("\n", " "))
   const count = createMemo(() => state()?.items.length ?? 0)
+  const paused = createMemo(() => state()?.paused === true)
+  const warning = () => theme.text.feedback?.warning?.base ?? theme.text.muted
 
   createEffect(() => {
     const sessionID = props.sessionID
@@ -194,7 +197,7 @@ export function DelayedQueueDock(props: { context: Context; sessionID: string; o
       <box
         marginBottom={1}
         border={["left"]}
-        borderColor={theme.border.base}
+        borderColor={paused() ? warning() : theme.border.base}
         customBorderChars={SPLIT_BORDER}
         onMouseOver={() => setHover(true)}
         onMouseOut={() => setHover(false)}
@@ -210,14 +213,40 @@ export function DelayedQueueDock(props: { context: Context; sessionID: string; o
           flexDirection="row"
         >
           <text fg={theme.text.muted} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
-            <span style={{ fg: theme.text.base }}>{count()} delayed</span>
-            <Show when={next()}>{(text) => <> · {text()}</>}</Show>
-            <Show when={state()?.paused}> · paused</Show>
+            <Show
+              when={paused()}
+              fallback={
+                <>
+                  <span style={{ fg: theme.text.base }}>{count()} delayed</span>
+                  <Show when={next()}>{(text) => <> · {text()}</>}</Show>
+                </>
+              }
+            >
+              <span style={{ fg: warning(), attributes: TextAttributes.BOLD }}>
+                {`⏸ ${count()} delayed · ${dockPauseLabel(state()?.pauseReason)}`}
+              </span>
+              <Show when={next()}>{(text) => <span style={{ fg: theme.text.muted }}> · {text()}</span>}</Show>
+            </Show>
           </text>
         </box>
       </box>
     </Show>
   )
+}
+
+function dockPauseLabel(reason: DelayedQueueStatusPayload["pauseReason"]) {
+  switch (reason) {
+    case "interrupted":
+      return "paused after interrupt"
+    case "failed":
+      return "paused after failure"
+    case "restart":
+      return "paused after restart"
+    case "delivery":
+      return "paused after delivery failures"
+    default:
+      return "paused"
+  }
 }
 
 async function visibleJobs(context: Context, sessionID: string) {

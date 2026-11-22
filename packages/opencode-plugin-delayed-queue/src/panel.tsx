@@ -2,7 +2,7 @@
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import type { DelayedQueueItem, DelayedQueueStatus } from "./controller.js"
+import type { DelayedQueueItem, DelayedQueueStatus, PauseReason } from "./controller.js"
 import { DelayedQueueRpc } from "./rpc.js"
 
 type PluginLocation = ReturnType<Context["data"]["location"]["default"]>
@@ -16,6 +16,7 @@ export function DelayedQueuePanel(props: {
   const theme = props.context.theme.surface("dialog")
   const [items, setItems] = createSignal<readonly DelayedQueueItem[]>(props.initial.items)
   const [paused, setPaused] = createSignal(props.initial.paused)
+  const [pauseReason, setPauseReason] = createSignal(props.initial.pauseReason)
   const [selected, setSelected] = createSignal<string | undefined>(props.initial.items[0]?.id)
   const [query, setQuery] = createSignal("")
   const [input, setInput] = createSignal<InputRenderable>()
@@ -36,6 +37,12 @@ export function DelayedQueuePanel(props: {
     if (!visible.some((item) => item.id === selected())) setSelected(visible[0]?.id)
   }
 
+  function applyState(state: DelayedQueueStatus) {
+    setItems(state.items)
+    setPaused(state.paused)
+    setPauseReason(state.pauseReason)
+  }
+
   createEffect(() => {
     // Re-select a visible row when the query or the queue changes.
     filtered()
@@ -53,8 +60,7 @@ export function DelayedQueuePanel(props: {
     const stop = rpc.events.on("changed", (event) => {
       const data = event.data as { sessionID: string; state: DelayedQueueStatus }
       if (!active || data.sessionID !== sessionID) return
-      setItems(data.state.items)
-      setPaused(data.state.paused)
+      applyState(data.state)
     })
     onCleanup(() => {
       active = false
@@ -64,6 +70,8 @@ export function DelayedQueuePanel(props: {
 
   createEffect(() => {
     const id = selected()
+    // The paused banner changes the list height; keep the selection in view.
+    paused()
     const box = scroll()
     if (!id || !box) return
     const timer = setTimeout(() => {
@@ -98,8 +106,7 @@ export function DelayedQueuePanel(props: {
         { location: props.location },
       )) as DelayedQueueStatus
       if (disposed) return
-      setItems(state.items)
-      setPaused(state.paused)
+      applyState(state)
       const remaining = filtered()
       setSelected(next && remaining.some((entry) => entry.id === next.id) ? next.id : remaining[0]?.id)
     } catch (error) {
@@ -122,8 +129,7 @@ export function DelayedQueuePanel(props: {
         { location: props.location },
       )) as DelayedQueueStatus
       if (disposed) return
-      setItems(state.items)
-      setPaused(state.paused)
+      applyState(state)
       if (state.items.some((entry) => entry.id === item.id)) {
         props.context.ui.toast.show({ message: "Delayed prompt is still waiting", variant: "warning" })
         return
@@ -147,8 +153,13 @@ export function DelayedQueuePanel(props: {
         ? await rpc.resume({ sessionID: props.sessionID }, { location: props.location })
         : await rpc.pause({ sessionID: props.sessionID }, { location: props.location })) as DelayedQueueStatus
       if (disposed) return
-      setPaused(state.paused)
-      setItems(state.items)
+      applyState(state)
+      props.context.ui.toast.show({
+        message: state.paused
+          ? "Paused the whole delayed queue · messages stay queued"
+          : "Resumed the whole delayed queue",
+        variant: state.paused ? "info" : "success",
+      })
     } catch (error) {
       if (!disposed) {
         props.context.ui.toast.show({ message: describe(error, "Could not change the delayed queue"), variant: "error" })
@@ -207,6 +218,17 @@ export function DelayedQueuePanel(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>Delayed prompts</text>
         <text fg={theme.text.muted}>{`${items().length} queued${paused() ? " · paused" : ""}${busy() ? " · working" : ""}`}</text>
       </box>
+      <Show when={paused()}>
+        <box flexDirection="column" paddingLeft={1} paddingRight={1} backgroundColor={theme.background.raised.high}>
+          <box flexDirection="row" gap={1}>
+            <text attributes={TextAttributes.BOLD} fg={theme.text.feedback?.warning?.base ?? theme.text.muted}>⏸ Whole queue paused</text>
+            <text fg={theme.text.muted}>{pauseReasonLabel(pauseReason())}</text>
+          </box>
+          <text fg={theme.text.muted}>
+            {`${items().length} message${items().length === 1 ? "" : "s"} stay${items().length === 1 ? "s" : ""} queued · automatic delivery is off · ctrl+s still sends one now`}
+          </text>
+        </box>
+      </Show>
       <input
         ref={setInput}
         value={query()}
@@ -252,11 +274,28 @@ export function DelayedQueuePanel(props: {
         <text fg={theme.text.muted}>tab focus</text>
         <text fg={theme.text.muted} onMouseUp={() => void steerSelected()}>ctrl+s steer</text>
         <text fg={theme.text.muted} onMouseUp={() => void deleteSelected()}>ctrl+d delete</text>
-        <text fg={theme.text.muted} onMouseUp={() => void togglePause()}>{`ctrl+p ${paused() ? "resume" : "pause"}`}</text>
+        <text fg={theme.text.muted} onMouseUp={() => void togglePause()}>{`ctrl+p ${paused() ? "resume" : "pause"} queue`}</text>
         <text fg={theme.text.muted} onMouseUp={() => props.context.ui.dialog.clear()}>esc close</text>
       </box>
     </box>
   )
+}
+
+function pauseReasonLabel(reason: PauseReason | undefined) {
+  switch (reason) {
+    case "interrupted":
+      return "after an interrupt"
+    case "failed":
+      return "after a failure"
+    case "restart":
+      return "after a restart"
+    case "delivery":
+      return "after delivery failures"
+    case "manual":
+      return "manually"
+    default:
+      return "no reason recorded"
+  }
 }
 
 function describe(error: unknown, fallback: string) {
