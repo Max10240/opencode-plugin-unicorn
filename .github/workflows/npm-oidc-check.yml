@@ -1,0 +1,37 @@
+name: npm OIDC check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - name: Exchange the GitHub OIDC token for npm publish credentials
+        env:
+          PACKAGE: "@max10240/opencode-plugin-unicorn"
+        run: |
+          node - <<'NODE'
+          const pkg = process.env.PACKAGE
+          const request = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL)
+          request.searchParams.set("audience", "npm:registry.npmjs.org")
+          const tokenResponse = await fetch(request, {
+            headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+          })
+          const tokenBody = await tokenResponse.json()
+          console.log(`id-token: ${tokenResponse.status} value=${Boolean(tokenBody.value)}`)
+          if (!tokenBody.value) process.exit(1)
+          const escaped = pkg.startsWith("@") ? pkg.replace("/", "%2F") : encodeURIComponent(pkg)
+          const exchange = await fetch(`https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${escaped}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${tokenBody.value}` },
+          })
+          console.log(`exchange: ${exchange.status}`)
+          console.log(await exchange.text())
+          if (!exchange.ok) process.exit(1)
+          NODE
