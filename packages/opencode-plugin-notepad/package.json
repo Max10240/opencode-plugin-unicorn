@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-notepad",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Capture and manage session goals and session, folder, and global notes in OpenCode",
   "type": "module",
   "exports": {

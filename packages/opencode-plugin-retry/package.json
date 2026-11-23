@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-retry",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Interrupt the current OpenCode turn and send a configurable Continue prompt",
   "type": "module",
   "exports": {

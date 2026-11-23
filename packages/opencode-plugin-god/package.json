@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@max10240/opencode-plugin-god",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Adds a god agent whose system prompt is selected by model ID",
   "type": "module",
   "exports": {
