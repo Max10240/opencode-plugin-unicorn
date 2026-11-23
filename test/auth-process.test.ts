@@ -3,7 +3,10 @@ import { EventEmitter } from "node:events"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { ensureNpmLogin, expectCommand, extractAuthUrls, runWithAuthLinks } from "../scripts/auth-process.mjs"
+import { ensureNpmLogin, expectCommand, extractAuthUrls, authChallenge, runWithAuthLinks } from "../scripts/auth-process.mjs"
+
+const AUTH_ID = "123e4567-e89b-42d3-a456-426614174000"
+const AUTH_URL = `https://www.npmjs.com/auth/cli/${AUTH_ID}`
 
 function fakeChild() {
   const child = new EventEmitter() as any
@@ -23,6 +26,82 @@ test("extracts web-auth links from colored npm output", () => {
     "https://www.npmjs.com/login?next=/login/cli/abc-123",
     "https://www.npmjs.com/auth/cli/def-456",
   ])
+})
+
+test("derives the npm registry done URL from the publish auth link", () => {
+  const doneUrl = `https://registry.npmjs.org/-/v1/done?authId=${AUTH_ID}`
+  expect(authChallenge(AUTH_URL, "https://registry.npmjs.org/")).toEqual({ id: AUTH_ID, doneUrl })
+  expect(authChallenge("https://www.npmjs.com/auth/cli/abc-123", "https://registry.npmjs.org/")).toBeUndefined()
+  // npm login uses a different challenge id in the URL; it relies on the local timeout.
+  expect(authChallenge(`https://www.npmjs.com/login?next=/login/cli/${AUTH_ID}`, "https://registry.npmjs.org/")).toBeUndefined()
+})
+
+test("fails an auth link when the registry reports it is no longer valid", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "auth-expired-"))
+  const file = path.join(root, "auth-events.jsonl")
+  const child = fakeChild()
+  let killed = false
+  child.kill = () => { killed = true }
+  const pending = runWithAuthLinks(["npm", "publish", "file.tgz"], {
+    spawnImpl: () => child,
+    authEventFile: file,
+    log: () => {},
+    fetchImpl: async () => new Response("{}", { status: 404 }),
+    authPollMs: 5,
+    authExpiryGraceMs: 20,
+    authTimeoutMs: 1_000,
+  })
+  child.stdout.emit("data", Buffer.from(`${AUTH_URL}\n`))
+  try {
+    await expect(pending).rejects.toThrow("browser verification link expired")
+    expect(killed).toBe(true)
+    const events = (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line))
+    expect(events.some((event) => event.type === "expired")).toBe(true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("fails an auth link locally when the browser window expires", async () => {
+  const child = fakeChild()
+  let killed = false
+  child.kill = () => { killed = true }
+  const pending = runWithAuthLinks(["npm", "publish", "file.tgz"], {
+    spawnImpl: () => child,
+    log: () => {},
+    fetchImpl: async () => new Response("{}", { status: 202 }),
+    authPollMs: 5,
+    authTimeoutMs: 30,
+  })
+  child.stdout.emit("data", Buffer.from(`${AUTH_URL}\n`))
+  await expect(pending).rejects.toThrow("browser verification window expired")
+  expect(killed).toBe(true)
+})
+
+test("records approval when the registry confirms the link", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "auth-approved-"))
+  const file = path.join(root, "auth-events.jsonl")
+  const child = fakeChild()
+  const pending = runWithAuthLinks(["npm", "publish", "file.tgz"], {
+    spawnImpl: () => child,
+    authEventFile: file,
+    log: () => {},
+    fetchImpl: async () => new Response("{}", { status: 200 }),
+    authPollMs: 5,
+    authTimeoutMs: 1_000,
+  })
+  try {
+    child.stdout.emit("data", Buffer.from(`${AUTH_URL}\n`))
+    await Bun.sleep(30)
+    child.stdout.emit("data", Buffer.from("__AUTH_EXIT__ 0\n"))
+    child.emit("close", 0, null)
+    await pending
+    const events = (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line))
+    expect(events.some((event) => event.type === "approved")).toBe(true)
+    expect(events.at(-1)).toMatchObject({ type: "resolved" })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test("passes every command argument to the expect driver", () => {

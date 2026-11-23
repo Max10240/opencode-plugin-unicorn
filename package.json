@@ -32,6 +32,8 @@
     "shadow:status": "node scripts/unicorn-shadow.mjs status",
     "shadow:verify": "node scripts/unicorn-shadow.mjs verify",
     "shadow:clean": "node scripts/unicorn-shadow.mjs clean",
+    "login:npm": "node scripts/npm-login.mjs",
+    "trust:npm": "node scripts/npm-trust.mjs",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": { "jsonc-parser": "^3.3.1", "yaml": "^2.8.1" }

@@ -473,6 +473,7 @@ export async function release({
     cwd: options.cwd ?? root,
     env: options.env ?? process.env,
     log,
+    registry: options.registry ?? DEFAULT_REGISTRY,
     authEventFile: process.env.RELEASE_AUTH_EVENT_FILE,
   })
   if (!ci) await ensureNpmLogin({ registry: options.registry, run, authRun, log })

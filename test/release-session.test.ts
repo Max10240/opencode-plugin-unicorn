@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
+  authExpiredInstruction,
   authInstruction,
   authWaitingInstruction,
   buildResumeCommand,
@@ -35,6 +36,9 @@ test("instructs the agent to run the blocking resume command immediately", () =>
   const waiting = authWaitingInstruction("https://www.npmjs.com/auth/cli/two")
   expect(waiting).toContain("continues automatically")
   expect(waiting).not.toContain("--resume")
+  const expired = authExpiredInstruction("https://www.npmjs.com/auth/cli/three", "expired")
+  expect(expired).toContain("Authentication failed")
+  expect(expired).toContain("Rerun the release command")
 })
 
 test("builds a resume command from the original release arguments", () => {
@@ -56,6 +60,16 @@ test("ignores authorization links that have already been resolved", () => {
   ]
   expect(pendingAuthEvent(events, [])?.challenge).toBe("two")
   expect(pendingAuthEvent(events, ["two"])).toBeUndefined()
+})
+
+test("treats expired and approved links as closed", () => {
+  for (const type of ["expired", "approved"] as const) {
+    const events = [
+      { type: "auth", challenge: "one", url: "https://www.npmjs.com/auth/cli/one" },
+      { type, challenge: "one" },
+    ]
+    expect(pendingAuthEvent(events, [])).toBeUndefined()
+  }
 })
 
 test("blocks across auth links while resuming until the detached release completes", async () => {

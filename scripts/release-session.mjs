@@ -189,6 +189,7 @@ export function createSession({
     pid: null,
     outputOffset: 0,
     reportedChallenges: [],
+    reportedExpired: [],
     lastAuthUrl: null,
     exitCode: null,
     result: null,
@@ -298,7 +299,7 @@ export function pendingAuthEvent(events, reportedChallenges = []) {
   const reported = new Set(Array.isArray(reportedChallenges) ? reportedChallenges : [])
   const resolved = new Set(
     events
-      .filter((event) => event.type === "resolved" && typeof event.challenge === "string")
+      .filter((event) => (event.type === "resolved" || event.type === "expired" || event.type === "approved") && typeof event.challenge === "string")
       .map((event) => event.challenge),
   )
   for (const event of events) {
@@ -392,10 +393,22 @@ export async function watchSession(session, {
     }
 
     const events = readAuthEvents(session.authEventFile)
+    const reportedExpired = new Set(Array.isArray(state.reportedExpired) ? state.reportedExpired : [])
+    const expired = events.find(
+      (event) => event.type === "expired" && typeof event.challenge === "string" && !reportedExpired.has(event.challenge),
+    )
+    if (expired) {
+      trackOutput()
+      write(authExpiredInstruction(String(expired.url ?? state.lastAuthUrl ?? ""), typeof expired.reason === "string" ? expired.reason : "expired"))
+      state.reportedExpired = [...reportedExpired, expired.challenge]
+      state.updatedAt = timestamp()
+      try { writeJsonAtomic(session.statePath, state) } catch {}
+    }
     const pending = pendingAuthEvent(events, state.reportedChallenges)
     if (pending) {
       trackOutput()
-      write(continueOnAuth ? authWaitingInstruction(pending.url) : authInstruction(pending.url, buildResumeCommand(state.args, state.id)))
+      const expiresAt = typeof pending.expiresAt === "string" ? pending.expiresAt : undefined
+      write(continueOnAuth ? authWaitingInstruction(pending.url, expiresAt) : authInstruction(pending.url, buildResumeCommand(state.args, state.id), expiresAt))
       state.reportedChallenges = [
         ...(Array.isArray(state.reportedChallenges) ? state.reportedChallenges : []),
         pending.challenge,
@@ -434,12 +447,23 @@ export async function watchSession(session, {
   }
 }
 
-export function authInstruction(url, resumeCommand) {
-  return `\n${url}\n\n[release] Next step: run this resume command immediately. It blocks until browser authorization and the release finish; no reply is needed.\n\n${resumeCommand}\n\n`
+export function authInstruction(url, resumeCommand, expiresAt) {
+  const expiry = expiresAt === undefined ? "" : `\n[release] This link expires at ${expiresAt}.\n`
+  return `\n${url}\n${expiry}\n[release] Next step: run this resume command immediately. It blocks until browser authorization and the release finish; no reply is needed.\n\n${resumeCommand}\n\n`
 }
 
-export function authWaitingInstruction(url) {
-  return `\n${url}\n\n[release] Waiting for browser authorization. This command continues automatically; if another URL appears, open it and keep waiting.\n\n`
+export function authWaitingInstruction(url, expiresAt) {
+  const expiry = expiresAt === undefined ? "" : `[release] This link expires at ${expiresAt}.\n`
+  return `\n${url}\n\n${expiry}[release] Waiting for browser authorization. This command continues automatically; if another URL appears, open it and keep waiting.\n\n`
+}
+
+export function authExpiredInstruction(url, reason) {
+  const detail = reason === "timeout"
+    ? "the browser verification window expired"
+    : reason === "network"
+      ? "the npm registry could not confirm the verification status"
+      : "the browser verification link expired or was rejected"
+  return `\n[release] Authentication failed: ${detail}${url ? ` (${url})` : ""}.\n[release] The release was stopped. Rerun the release command to get a new link.\n\n`
 }
 
 export function writeDone(sessionDir, value) {
