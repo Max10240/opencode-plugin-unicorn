@@ -30,7 +30,10 @@ jobs:
           node-version: 24
 
       - name: Use npm 11 for staged publishing
-        run: npm install -g npm@11
+        run: |
+          npm install -g npm@11
+          node --version
+          npm --version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
@@ -39,6 +42,7 @@ jobs:
         shell: bash
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          NPM_CONFIG_LOGLEVEL: verbose
         run: |
           set -euo pipefail
           if [[ "$COMMIT_MESSAGE" == *"[release:stage]"* ]]; then
