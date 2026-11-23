@@ -12,26 +12,37 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm-publish
     steps:
+      - uses: actions/checkout@v4
+
       - name: Exchange the GitHub OIDC token for npm publish credentials
-        env:
-          PACKAGE: "@max10240/opencode-plugin-unicorn"
         run: |
           node - <<'NODE'
-          const pkg = process.env.PACKAGE
-          const request = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL)
-          request.searchParams.set("audience", "npm:registry.npmjs.org")
-          const tokenResponse = await fetch(request, {
-            headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+          const fs = require("node:fs")
+          const path = require("node:path")
+          const packages = fs.readdirSync("packages").flatMap((directory) => {
+            try {
+              const manifest = JSON.parse(fs.readFileSync(path.join("packages", directory, "package.json"), "utf8"))
+              return manifest.name?.startsWith("@max10240/") ? [manifest.name] : []
+            } catch {
+              return []
+            }
           })
-          const tokenBody = await tokenResponse.json()
-          console.log(`id-token: ${tokenResponse.status} value=${Boolean(tokenBody.value)}`)
-          if (!tokenBody.value) process.exit(1)
-          const escaped = pkg.startsWith("@") ? pkg.replace("/", "%2F") : encodeURIComponent(pkg)
-          const exchange = await fetch(`https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${escaped}`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${tokenBody.value}` },
-          })
-          console.log(`exchange: ${exchange.status}`)
-          console.log(await exchange.text())
-          if (!exchange.ok) process.exit(1)
+          for (const pkg of packages) {
+            const request = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL)
+            request.searchParams.set("audience", "npm:registry.npmjs.org")
+            const tokenResponse = await fetch(request, {
+              headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+            })
+            const tokenBody = await tokenResponse.json()
+            if (!tokenBody.value) {
+              console.log(`${pkg}: no id-token (${tokenResponse.status})`)
+              continue
+            }
+            const escaped = pkg.replace("/", "%2f")
+            const exchange = await fetch(`https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${escaped}`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${tokenBody.value}` },
+            })
+            console.log(`${pkg}: ${exchange.status} ${await exchange.text()}`)
+          }
           NODE
