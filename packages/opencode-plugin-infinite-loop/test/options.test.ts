@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { DAY_MS, MINUTE_MS } from "../src/duration.js"
 import {
   DEFAULT_MESSAGE,
+  DEFAULT_QUESTION_MESSAGE,
   infiniteLoopEnabled,
   MAX_COOLDOWN_MS,
   parseInfiniteLoopOptions,
@@ -37,6 +38,8 @@ describe("parseInfiniteLoopOptions", () => {
     expect(options.presets).toEqual(["15m", "1h", "2h", "3h", "8h", "1d"])
     expect(options.keybind).toBe("ctrl+shift+i")
     expect(options.overviewKeybind).toBe("ctrl+shift+o")
+    expect(options.blockQuestions).toBe(true)
+    expect(options.questionMessage).toBe(DEFAULT_QUESTION_MESSAGE)
     expect(options.enabled).toBe(true)
   })
 
@@ -52,6 +55,8 @@ describe("parseInfiniteLoopOptions", () => {
       presets: ["10m", "5h"],
       keybind: "ctrl+shift+k",
       overviewKeybind: false,
+      blockQuestions: false,
+      questionMessage: "Decide it yourself.",
       features: { infiniteLoop: true },
     })
     expect(options).toMatchObject({
@@ -65,6 +70,8 @@ describe("parseInfiniteLoopOptions", () => {
       presets: ["10m", "5h"],
       keybind: "ctrl+shift+k",
       overviewKeybind: false,
+      blockQuestions: false,
+      questionMessage: "Decide it yourself.",
       enabled: true,
     })
   })
@@ -76,6 +83,8 @@ describe("parseInfiniteLoopOptions", () => {
 
   test("rejects invalid values", () => {
     expect(() => parseInfiniteLoopOptions({ message: "" })).toThrow("message")
+    expect(() => parseInfiniteLoopOptions({ questionMessage: "" })).toThrow("questionMessage")
+    expect(() => parseInfiniteLoopOptions({ blockQuestions: "yes" as unknown as boolean })).toThrow("blockQuestions")
     expect(() => parseInfiniteLoopOptions({ delayMs: 0 })).toThrow("delayMs")
     expect(() => parseInfiniteLoopOptions({ delayMs: 1_000.5 })).toThrow("delayMs")
     expect(() => parseInfiniteLoopOptions({ recheckMs: 10 })).toThrow("recheckMs")

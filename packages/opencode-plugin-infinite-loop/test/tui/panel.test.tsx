@@ -36,6 +36,8 @@ const options: InfiniteLoopOptions = {
   presets: ["15m", "1h", "2h", "3h", "8h", "1d"],
   keybind: "ctrl+shift+i",
   overviewKeybind: "ctrl+shift+o",
+  blockQuestions: true,
+  questionMessage: "Don't ask any questions.",
 }
 
 function loop(overrides: Loop = {}): Loop {

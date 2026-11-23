@@ -1,11 +1,13 @@
 import { Plugin } from "@opencode/plugin"
 import type { Context } from "@opencode/plugin/promise/plugin"
+import { Error as ToolError } from "@opencode/plugin/promise/tool"
 import { InfiniteLoopController, isSessionBusy, type InfiniteLoopAbort } from "./controller.js"
 import { MAX_COOLDOWN_MS, infiniteLoopEnabled, parseInfiniteLoopOptions, type InfiniteLoopOptions } from "./options.js"
+import { QUESTION_TOOL, blocksQuestion } from "./question.js"
 import { InfiniteLoopRpc, toListItem, toStatusPayload } from "./rpc.js"
 import { SessionTracker } from "./tracker.js"
 
-type PluginContext = Pick<Context, "options" | "rpc" | "session" | "event" | "location">
+type PluginContext = Pick<Context, "options" | "rpc" | "session" | "event" | "location" | "tool">
 
 type Runtime = {
   readonly controller: InfiniteLoopController
@@ -125,6 +127,30 @@ export async function setupInfiniteLoop(context: PluginContext) {
       console.warn(`Infinite loop prompt handling failed for ${event.sessionID}: ${describe(error)}`)
     }
   })
+  // A question stops the agent until a human answers. While a task is active, the call is rejected
+  // with the configured text instead, so the model keeps working and the loop never waits on the user.
+  let questionHook: { dispose(): Promise<void> } | undefined
+  if (typeof context.tool?.hook === "function") {
+    try {
+      questionHook = await context.tool.hook("execute.before", (event) => {
+        if (event.tool !== QUESTION_TOOL) return
+        if (!runtime.options.blockQuestions) return
+        let blocked = false
+        try {
+          blocked = blocksQuestion(event.sessionID, {
+            hasLoop: (sessionID) => controller.hasTask(sessionID),
+            parentOf: (sessionID) => tracker.parentOf(sessionID),
+          })
+        } catch (error) {
+          console.warn(`Infinite loop question check failed for ${event.sessionID}: ${describe(error)}`)
+          return
+        }
+        if (blocked) throw new ToolError({ message: runtime.options.questionMessage })
+      })
+    } catch (error) {
+      console.warn(`Infinite loop question blocking unavailable: ${describe(error)}`)
+    }
+  }
 
   const aborts = new AbortController()
   if (typeof context.event?.subscribe === "function") {
@@ -196,6 +222,7 @@ export async function setupInfiniteLoop(context: PluginContext) {
 
   return async () => {
     aborts.abort()
+    if (questionHook) await questionHook.dispose()
     await idleHook.dispose()
     await promptHook.dispose()
     if (registration) await registration.dispose()
