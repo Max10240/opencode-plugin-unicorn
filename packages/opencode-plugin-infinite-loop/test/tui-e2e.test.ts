@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test"
 import { mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { createOpenCodeE2E } from "../../opencode-plugin-unicorn/test/e2e-utils.js"
-import { api, createSession, prompt, waitFor } from "../../opencode-plugin-show-img/test/e2e-utils.js"
+import { api, createSession, headers, prompt, waitFor } from "../../opencode-plugin-show-img/test/e2e-utils.js"
 import { createTui } from "../../../test/tui-support.js"
 import { DEFAULT_MESSAGE } from "../src/options.js"
 
@@ -292,6 +292,173 @@ test("manual interrupt pauses the panel and does not auto-recover", async () => 
       tui.send(["C-d"])
       await tui.waitFor("Infinite loop stopped", "the cleanup stop did not run")
       expect((await rpcStatus(e2e, sessionID)).active).toBe(false)
+    } finally {
+      tui.close()
+    }
+  } finally {
+    await e2e.close()
+  }
+})
+
+type SessionForm = { id: string }
+
+async function sessionForms(e2e: E2E, sessionID: string): Promise<SessionForm[]> {
+  const response = await api<{ data: SessionForm[] }>(e2e, `/api/session/${sessionID}/form`)
+  return response.data
+}
+
+function questionFixture(toolID: string, text: string) {
+  return {
+    match: { userMessage: text, sequenceIndex: 0 },
+    response: {
+      toolCalls: [{
+        id: toolID,
+        name: "question",
+        arguments: JSON.stringify({
+          questions: [{
+            header: "E2E question header",
+            question: "Which option should I take?",
+            options: [
+              { label: "Option A", description: "First option" },
+              { label: "Option B", description: "Second option" },
+            ],
+          }],
+        }),
+      }],
+    },
+  }
+}
+
+async function questionToolPart(e2e: E2E, sessionID: string, toolID: string) {
+  const exported = await api<{ data: { messages: Array<Record<string, any>> } }>(e2e, `/api/experimental/session/${sessionID}/export`)
+  return exported.data.messages
+    .flatMap((message) => message.content ?? [])
+    .find((part) => part.type === "tool" && part.id === toolID)
+}
+
+test("a question during a running loop is rejected with the configured message", async () => {
+  if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
+  const questionMessage = "Stop asking. Decide what matters most and keep going."
+  const e2e = await createOpenCodeE2E({
+    plugin: "unicorn",
+    pluginPackage: PACKAGE_ROOT,
+    pluginOptions: {
+      // The quiet window outlasts the test: only the question gate is under test here.
+      delayMs: 60_000,
+      recheckMs: 500,
+      cooldownMs: 0,
+      minDurationMs: 1_000,
+      maxDurationMs: 30 * 24 * 60 * 60_000,
+      questionMessage,
+    },
+    configure: (config) => {
+      config.permissions = { question: "allow" }
+    },
+  })
+  try {
+    const toolID = `call_${crypto.randomUUID()}`
+    e2e.proxy.mock.prependFixture({ match: { toolResultContains: questionMessage }, response: { content: "QUESTION_BLOCKED_ACK" } })
+    e2e.proxy.mock.prependFixture(questionFixture(toolID, "E2E_QUESTION_BLOCKED"))
+
+    const sessionID = await createSession(e2e, "Infinite-Loop-Question")
+    // Create the subagent session before the plugin seeds, so its parent link is known without
+    // waiting on the live event stream.
+    const created = await api<{ data: { id: string } }>(e2e, "/api/session", {
+      title: "Infinite-Loop-Question-Child",
+      parentID: sessionID,
+      agent: "compaction-e2e",
+      model: { providerID: "openai", id: "gpt-5.6-luna" },
+      location: { directory: e2e.workspace },
+    })
+    const child = created.data.id
+    const tui = createTui(e2e, sessionID, "infinite-loop-question", { height: 52 })
+    try {
+      await tui.waitFor("Infinite-Loop-Question", "the TUI did not start")
+      // TUI plugins register asynchronously after the session renders.
+      await Bun.sleep(1_000)
+      await rpcStart(e2e, sessionID, 120_000)
+      await waitFor(async () => (await rpcStatus(e2e, sessionID)).active === true, "the loop did not start", 15_000)
+
+      await prompt(e2e, sessionID, "E2E_QUESTION_BLOCKED")
+
+      // The turn continued past the rejected call, so the mock's follow-up answer rendered.
+      await tui.waitFor("QUESTION_BLOCKED_ACK", "the agent did not continue after the blocked question", 20_000)
+      await tui.waitUntil(() => !tui.pane().includes("Which option should I take?"), "the question form reached the TUI")
+      expect(await sessionForms(e2e, sessionID)).toHaveLength(0)
+
+      const part = await questionToolPart(e2e, sessionID, toolID)
+      expect(part?.state?.status).toBe("error")
+      expect(part?.state?.error?.message).toBe(questionMessage)
+
+      const status = await rpcStatus(e2e, sessionID)
+      expect(status.active).toBe(true)
+      expect(status.phase).not.toBe("paused")
+      expect(status.sentCount ?? 0).toBe(0)
+
+      // A subagent question stalls the task just as surely; the gate walks up to the owning session.
+      const childToolID = `call_${crypto.randomUUID()}`
+      e2e.proxy.mock.prependFixture(questionFixture(childToolID, "E2E_CHILD_QUESTION"))
+      await prompt(e2e, child, "E2E_CHILD_QUESTION")
+      const childPart = await questionToolPart(e2e, child, childToolID)
+      expect(childPart?.state?.status).toBe("error")
+      expect(childPart?.state?.error?.message).toBe(questionMessage)
+      expect(await sessionForms(e2e, child)).toHaveLength(0)
+      expect((await rpcStatus(e2e, sessionID)).active).toBe(true)
+    } finally {
+      tui.close()
+    }
+  } finally {
+    await e2e.close()
+  }
+})
+
+test("without a running loop the question still reaches the user", async () => {
+  if (Bun.spawnSync(["tmux", "-V"]).exitCode !== 0) throw new Error("tmux is required for this E2E test")
+  const e2e = await createOpenCodeE2E({
+    plugin: "unicorn",
+    pluginPackage: PACKAGE_ROOT,
+    pluginOptions: {
+      delayMs: 60_000,
+      recheckMs: 500,
+      cooldownMs: 0,
+      minDurationMs: 1_000,
+      maxDurationMs: 30 * 24 * 60 * 60_000,
+    },
+    configure: (config) => {
+      config.permissions = { question: "allow" }
+    },
+  })
+  try {
+    const toolID = `call_${crypto.randomUUID()}`
+    e2e.proxy.mock.prependFixture(questionFixture(toolID, "E2E_QUESTION_ALLOWED"))
+
+    const sessionID = await createSession(e2e, "Infinite-Loop-Question-Control")
+    const tui = createTui(e2e, sessionID, "infinite-loop-question-control", { height: 52 })
+    try {
+      await tui.waitFor("Infinite-Loop-Question-Control", "the TUI did not start")
+      await Bun.sleep(1_000)
+
+      // Send without waiting for idle: the turn parks on the question until it is answered.
+      await api(e2e, `/api/session/${sessionID}/prompt`, {
+        id: `msg_${Date.now().toString(16).padStart(12, "0")}${crypto.randomUUID().replaceAll("-", "").slice(0, 14)}`,
+        text: "E2E_QUESTION_ALLOWED",
+        delivery: "queue",
+      })
+
+      await waitFor(async () => (await sessionForms(e2e, sessionID)).length > 0, "the question form was never created", 20_000)
+      await tui.waitFor("Which option should I take?", "the TUI did not show the question", 20_000)
+      await tui.waitFor("esc dismiss", "the question form did not reach the prompt")
+
+      // Dismissing with a message is model-facing feedback, so the parked turn continues.
+      const form = (await sessionForms(e2e, sessionID))[0]
+      const dismissed = await fetch(
+        `${e2e.baseURL}/api/session/${sessionID}/form/${form.id}?message=${encodeURIComponent("Use option A.")}`,
+        { method: "DELETE", headers: headers() },
+      )
+      expect(dismissed.status).toBe(204)
+      await waitFor(async () => (await questionToolPart(e2e, sessionID, toolID))?.state?.status === "error", "the dismissed question never settled", 20_000)
+      const part = await questionToolPart(e2e, sessionID, toolID)
+      expect(part?.state?.error?.message).toBe("Use option A.")
     } finally {
       tui.close()
     }

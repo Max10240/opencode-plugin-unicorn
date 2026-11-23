@@ -2,6 +2,8 @@ import { DAY_MS, MINUTE_MS, parsePresets } from "./duration.js"
 
 export const DEFAULT_MESSAGE =
   "Keep working without asking any questions. Do not stop until you have finished everything you need to do."
+export const DEFAULT_QUESTION_MESSAGE = "Don't ask any questions. Keep doing what you think we need most."
+export const DEFAULT_BLOCK_QUESTIONS = true
 export const DEFAULT_DELAY_MS = 3_000
 export const DEFAULT_RECHECK_MS = 2_000
 export const DEFAULT_COOLDOWN_MS = 5 * MINUTE_MS
@@ -33,6 +35,8 @@ export type InfiniteLoopOptions = {
   readonly presets: readonly string[]
   readonly keybind: string | false
   readonly overviewKeybind: string | false
+  readonly blockQuestions: boolean
+  readonly questionMessage: string
 }
 
 export function infiniteLoopEnabled(raw: Readonly<Record<string, unknown>>): boolean {
@@ -70,6 +74,8 @@ export function parseInfiniteLoopOptions(raw: Readonly<Record<string, unknown>> 
   )
   const keybind = readKeybind(raw.keybind, DEFAULT_KEYBIND, "keybind")
   const overviewKeybind = readKeybind(raw.overviewKeybind, DEFAULT_OVERVIEW_KEYBIND, "overviewKeybind")
+  const blockQuestions = readBoolean(raw.blockQuestions, "blockQuestions", DEFAULT_BLOCK_QUESTIONS)
+  const questionMessage = readQuestionMessage(raw.questionMessage)
   return {
     enabled: infiniteLoopEnabled(raw),
     message,
@@ -82,12 +88,26 @@ export function parseInfiniteLoopOptions(raw: Readonly<Record<string, unknown>> 
     presets,
     keybind,
     overviewKeybind,
+    blockQuestions,
+    questionMessage,
   }
 }
 
 function readMessage(raw: unknown): string {
   if (raw === undefined) return DEFAULT_MESSAGE
   if (typeof raw !== "string" || !raw.trim()) throw new Error("message must be a non-empty string")
+  return raw
+}
+
+function readQuestionMessage(raw: unknown): string {
+  if (raw === undefined) return DEFAULT_QUESTION_MESSAGE
+  if (typeof raw !== "string" || !raw.trim()) throw new Error("questionMessage must be a non-empty string")
+  return raw
+}
+
+function readBoolean(raw: unknown, name: string, fallback: boolean): boolean {
+  if (raw === undefined) return fallback
+  if (typeof raw !== "boolean") throw new Error(`${name} must be a boolean`)
   return raw
 }
 

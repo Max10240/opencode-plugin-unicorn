@@ -13,6 +13,9 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
   so the hot path never scans the session database.
 - With no background work the plugin opens a quiet window (3s default). Any new input in that
   window — your typing, cross-session messages, steering — cancels the nudge.
+- A question cannot stall the loop: while a task is active, the `question` tool is rejected with
+  `questionMessage`, the agent reads it as feedback, and the turn keeps going. A question from a
+  subagent is blocked the same way. Stopping the task lets questions through again.
 - Each successful nudge sets a cooldown. The next attempt is scheduled at
   `max(now + quiet, lastNudge + cooldown)`. If the session went idle three minutes ago and the
   cooldown is five minutes, the plugin waits two more minutes, then checks busy/background again
@@ -48,6 +51,8 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
 {
   "infiniteLoop": {
     "message": "Keep working without asking any questions. Do not stop until you have finished everything you need to do.",
+    "questionMessage": "Don't ask any questions. Keep doing what you think we need most.",
+    "blockQuestions": true,
     "delayMs": 3000,
     "recheckMs": 2000,
     "cooldownMs": 300000,
@@ -63,6 +68,9 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
 ```
 
 - `message`: the text sent on every nudge.
+- `questionMessage`: the text the agent receives instead of a question while a task is active.
+- `blockQuestions`: reject the `question` tool while a task is active (`true`); set to `false` to let
+  the agent ask and wait for you.
 - `delayMs`: the quiet window after idle (100–600000).
 - `recheckMs`: how often background work is re-evaluated (100–600000).
 - `cooldownMs`: minimum time between successful nudges (0–30 days); `0` disables the cooldown.
@@ -78,6 +86,10 @@ window ends. A cooldown paces reminders from the last nudge, not from the check 
 
 - Uses the experimental `experimental.idle` session hook; requires OpenCode 2.3 or newer. On older
   versions the plugin disables itself.
+- Question blocking uses the `tool` `execute.before` hook. Hosts that do not expose tool hooks
+  keep nudging but cannot stop questions.
+- A question that is already pending when the task starts keeps waiting for you: the hook only
+  rejects new calls. Answer or dismiss it once and the task continues without stalling again.
 - The idle hook does not run after a failed or interrupted turn. The loop recovers from the
   durable execution events and a post-send recheck.
 - A manual interruption of the task session or any of its subagents pauses the whole task family.

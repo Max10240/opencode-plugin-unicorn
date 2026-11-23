@@ -12,6 +12,8 @@
 - 实时目录由事件维护：会话树、执行状态和 shell 事件增量更新，热路径不扫描会话数据库。
 - 没有后台任务时打开安静窗口（默认 3 秒）。窗口内出现任何新输入——你打字、跨会话消息、
   steering——都会取消本次 nudge。
+- 提问不能卡住循环：任务存在期间 `question` 工具会被拒绝，agent 收到 `questionMessage`
+  作为反馈后继续当前 turn。子 Agent 的提问同样会被拦截；停止任务后提问恢复正常。
 - 每次成功 nudge 后进入冷却。下一次尝试时间 =
   `max(现在 + 安静窗口, 上次 nudge + 冷却)`。例如上次 nudge 在 3 分钟前、冷却为 5 分钟，
   就只再等 2 分钟；到点后重新检查 busy/后台，再决定是否发送。
@@ -43,6 +45,8 @@
 {
   "infiniteLoop": {
     "message": "Keep working without asking any questions. Do not stop until you have finished everything you need to do.",
+    "questionMessage": "Don't ask any questions. Keep doing what you think we need most.",
+    "blockQuestions": true,
     "delayMs": 3000,
     "recheckMs": 2000,
     "cooldownMs": 300000,
@@ -58,6 +62,8 @@
 ```
 
 - `message`：每次 nudge 发送的文本。
+- `questionMessage`：任务存在期间 agent 提问时收到的文本。
+- `blockQuestions`：任务存在期间拒绝 `question` 工具（`true`）；设为 `false` 则允许提问并等待你回答。
 - `delayMs`：空闲后的安静窗口（100–600000）。
 - `recheckMs`：复查后台任务的间隔（100–600000）。
 - `cooldownMs`：两次成功 nudge 之间的最小间隔（0–30 天）；`0` 表示关闭冷却。
@@ -71,6 +77,10 @@
 
 - 使用实验性的 `experimental.idle` 会话 hook，需要 OpenCode 2.3 或更新版本。旧版本上插件
   自行禁用。
+- 提问拦截使用 `tool` 的 `execute.before` hook；宿主未暴露 tool hook 时仍会继续 nudge，
+  但无法拦截提问。
+- 如果启动任务时已经有一个待回答的提问，它仍会等待你的回答：hook 只拒绝新的调用。回答或
+  关闭一次后，任务会继续，不会再次被提问卡住。
 - turn 失败或系统级中断不会触发该 hook，循环通过执行事件流和发送后的复查自愈。
 - 手动打断任务会话或它的任意子 Agent，会暂停整个任务家族。
 - 图像/视频后台任务也视为忙；实时门禁的核心是 Bash 和 Subagent。
