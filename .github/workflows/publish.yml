@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      diagnose:
+        description: Check npm trusted publisher configuration
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -15,7 +20,9 @@ concurrency:
 
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || (github.event.head_commit && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release:stage]')))
+    if: |
+      (github.event_name == 'workflow_dispatch' && !inputs.diagnose) ||
+      (github.event_name == 'push' && github.event.head_commit && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release:stage]')))
     runs-on: ubuntu-latest
     environment: npm-publish
     steps:
@@ -46,3 +53,48 @@ jobs:
           else
             node scripts/release-execute.mjs
           fi
+
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check trusted publishers
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from "node:fs"
+          import path from "node:path"
+
+          const packages = fs.readdirSync("packages").flatMap((directory) => {
+            try {
+              const manifest = JSON.parse(fs.readFileSync(path.join("packages", directory, "package.json"), "utf8"))
+              return manifest.name?.startsWith("@max10240/") ? [manifest.name] : []
+            } catch {
+              return []
+            }
+          })
+          let missing = 0
+          for (const pkg of packages) {
+            const request = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL)
+            request.searchParams.set("audience", "npm:registry.npmjs.org")
+            const tokenResponse = await fetch(request, {
+              headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+            })
+            const tokenBody = await tokenResponse.json()
+            if (!tokenBody.value) {
+              console.log(`${pkg}: no id-token (${tokenResponse.status})`)
+              missing += 1
+              continue
+            }
+            const escaped = pkg.replace("/", "%2f")
+            const exchange = await fetch(`https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${escaped}`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${tokenBody.value}` },
+            })
+            if (!exchange.ok) missing += 1
+            console.log(`${pkg}: ${exchange.status} ${await exchange.text()}`)
+          }
+          console.log(`Missing trusted publisher: ${missing}/${packages.length}`)
+          NODE
